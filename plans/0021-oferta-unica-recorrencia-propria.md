@@ -1,6 +1,6 @@
 # Oferta única, recorrência própria e adquirente substituível
 
-Plano proposto em 2026-11-05. **Nenhuma implementação, migração ou comando contra banco remoto autorizado.** Refina e substitui as fases D–F do [plano 0010](0010-unificacao-ofertas-cobrancas.md) com três decisões novas: (1) recorrência e planos são sempre da SimIntPay, nunca do adquirente; (2) `BillingContract` passa a ser a assinatura de uma oferta; (3) o escopo é a unificação completa, em fases. Depende de [0009](0009-titularidade-ofertas-cobrancas.md) (titularidade) e se apoia em [0008](0008-taxas-adquirentes-lucro.md)/[0018](0018-safe-acquirer-retry-breaker.md).
+Plano proposto em 2026-11-05. **Nenhuma implementação, migração ou comando contra banco remoto autorizado.** Refina e substitui as fases D–F do [plano 0010](discarded/0010-unificacao-ofertas-cobrancas.md) com três decisões novas: (1) recorrência e planos são sempre da SimIntPay, nunca do adquirente; (2) `BillingContract` passa a ser a assinatura de uma oferta; (3) o escopo é a unificação completa, em fases. Depende de [0009](discarded/0009-titularidade-ofertas-cobrancas.md) (titularidade) e se apoia em [0008](0008-taxas-adquirentes-lucro.md)/[0018](done/0018-safe-acquirer-retry-breaker.md).
 
 ## 1. Decisões
 

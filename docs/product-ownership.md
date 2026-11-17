@@ -37,4 +37,4 @@ Ferramentas em `backend/scripts/`; nenhuma altera transações, snapshots, aloca
 
 Membro de plataforma (`User.platform`) pode **criar** produtos para o dono da plataforma; o dono é o titular e o membro fica em `createdByUserId`. Decisão: delegação é somente criação. Listagem, leitura e edição usam `userId` do produto (titular) ou ADMIN, de modo que o membro não vê nem altera o que criou. Conceder gestão exigiria um modelo de permissão explícito por plataforma (auditado, revogável, sem acesso a saque, coprodução ou taxas) e continuaria passando por `assertOwnershipPreserved`; isso fica fora desta entrega. Teste de integração cobre o isolamento.
 
-Plano em execução: [0009](../plans/0009-titularidade-ofertas-cobrancas.md). Unificação adiada: [0010](../plans/0010-unificacao-ofertas-cobrancas.md).
+Plano descartado (absorvido pelo 0021/0023): [0009](../plans/discarded/0009-titularidade-ofertas-cobrancas.md). Unificação substituída: [0010](../plans/discarded/0010-unificacao-ofertas-cobrancas.md).

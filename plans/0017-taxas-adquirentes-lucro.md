@@ -1,6 +1,6 @@
 # Reformulação de /admin/taxas: taxa única, adquirentes arbitrárias e lucro — frontend
 
-Plano (aguardando aprovação). Parte backend: [../../simintpay-back/plans/0008-taxas-adquirentes-lucro.md](../../simintpay-back/plans/0008-taxas-adquirentes-lucro.md).
+Plano em execução, reconciliado em 2026-11-17: quase nada do frontend novo foi feito, e o contrato do backend divergiu (ver 0008). Parte backend: [0008](0008-taxas-adquirentes-lucro.md).
 Contrato de API definido no plano do backend; este plano só consome.
 
 ## Problemas atuais
@@ -29,11 +29,11 @@ Contrato de API definido no plano do backend; este plano só consome.
 
 ## Etapas
 
-- [ ] Tipos em `financial-types.ts` para o novo contrato (`referenceAcquirerCost`, `chargedRate`, `platformCharges`, `sellerPayout`, `estimatedAdminProfit`; nos pagamentos liquidados: `processedBy`, `actualAcquirerCost`, `actualAdminProfit`).
-- [ ] Tabela de parcelas + painel de simulação (substitui `FinancialPolicyDraft` grid e `FinancialSimulationCard`).
-- [ ] Seção Adquirentes com sincronização manual e histórico.
-- [ ] Correção do lucro nos relatórios.
-- [ ] Testes browser existentes (`financial-policy.browser.test.mjs`) atualizados; build.
+- [ ] Tipos em `financial-types.ts` para o contrato final. Bloqueado pelo item de contrato do 0008.
+- [ ] Tabela de parcelas + painel de simulação. `FinancialPolicyDraft` e `FinancialSimulationCard` continuam; o detalhe foi para modal (`8b6e34b3`) e os juros viraram "taxa efetiva" (`3b688381`), mas não há tabela 1x–12x editável inline, e `FinancialBulkInterestField` ainda existe.
+- [~] Seção Adquirentes: há seletor de adquirente e `AcquirerManualFeeForm`. Faltam o botão "Sincronizar agora" (`POST /platforms/acquirers/fees/DOM/sync`) e o histórico (`GET /platforms/acquirers/fees/:code/history`).
+- [~] Relatórios: taxas por adquirente em `AdminReportOverview` (`78202496`, `4f1e0d18`). Revisar `LucroSimpayDetalhePanel`, `lucroPlataformaChart` e `consolidadoLucroMerge`.
+- [ ] Atualizar `financial-policy.browser.test.mjs`; build.
 
 ## Decisões pendentes (ver plano do backend)
 

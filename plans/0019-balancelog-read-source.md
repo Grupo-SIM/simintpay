@@ -1,6 +1,6 @@
 # Leitura de saldo pelo BalanceLog
 
-Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 unificou a **regra** de leitura (`max(0, wallet.balance − wallet.lockedBalance)`), mas a fonte ainda é a projeção `Wallet`; o `BalanceLog` só serve para detectar drift (`ledgerDrift` em `wallet-balance.ts` e `WalletConsistencyCron`). Este plano torna o `BalanceLog` a fonte de leitura de todo o SimIntPay e, se necessário, das igrejas, deixando `Wallet` como cache.
+Continuação do [plano 0007](discarded/0007-balance-ledger-source-of-truth.md). O 0007 unificou a **regra** de leitura (`max(0, wallet.balance − wallet.lockedBalance)`), mas a fonte ainda é a projeção `Wallet`; o `BalanceLog` só serve para detectar drift (`ledgerDrift` em `wallet-balance.ts` e `WalletConsistencyCron`). Este plano torna o `BalanceLog` a fonte de leitura de todo o SimIntPay e, se necessário, das igrejas, deixando `Wallet` como cache.
 
 ## Regra alvo
 

@@ -1,6 +1,6 @@
 # Unificação de ofertas e cobranças
 
-Plano futuro, separado em 2026-10-29 por solicitação do usuário. **Fora da implementação atual.** Depende da titularidade do [plano 0009](0009-titularidade-ofertas-cobrancas.md) e dos cálculos do [plano 0008](0008-taxas-adquirentes-lucro.md). Nenhuma migração remota autorizada.
+Plano futuro, separado em 2026-10-29 por solicitação do usuário. **Fora da implementação atual.** Depende da titularidade do [plano 0009](0009-titularidade-ofertas-cobrancas.md) e dos cálculos do [plano 0008](../0008-taxas-adquirentes-lucro.md). Nenhuma migração remota autorizada.
 
 ### Por que a unificação não é apenas juntar tabelas
 
@@ -79,3 +79,7 @@ Titularidade e preparação da migração pertencem ao plano 0009. Ordem de gran
 A persistência vazia de planos ajuda o backfill, mas não justifica apagar suas APIs nem dispensar testes de recorrência. O maior risco não é criar tabelas: é duplicar cobranças/créditos, mudar recebedores de contratos existentes ou perder compatibilidade de URLs e webhooks.
 
 **Recomendação:** executar primeiro a titularidade do plano 0009. Isso impede novos recebíveis no admin e corrige o destino sem esperar a unificação. Depois entregar as fases D–F deste plano por fatias, mantendo o gateway e o ledger atuais atrás de contratos comuns. Não fazer reescrita simultânea dos cinco produtos.
+
+## Descartado (2026-11-17)
+
+Substituído pelo [0021](../0021-oferta-unica-recorrencia-propria.md), que refina e substitui as fases D–F, e executado pelo [0023](../0023-migracao-completa-para-ofertas.md).

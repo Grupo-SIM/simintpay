@@ -1,6 +1,6 @@
 # Taxa única, adquirentes arbitrárias, sincronização e lucro — backend
 
-Plano (aguardando aprovação). Parte frontend: [../../simintpay-front/plans/0007-taxas-adquirentes-lucro.md](../../simintpay-front/plans/0007-taxas-adquirentes-lucro.md).
+Plano em execução, reconciliado em 2026-11-17: o backend entregou o núcleo com nomes e desenho diferentes dos propostos abaixo. Parte frontend: [0017](0017-taxas-adquirentes-lucro.md).
 
 ## Contexto verificado
 
@@ -29,12 +29,13 @@ Plano (aguardando aprovação). Parte frontend: [../../simintpay-front/plans/000
 
 ## Etapas
 
-- [ ] Migração Prisma: `AcquirerFeeSchedule`, campos de `AcquirerCatalogue`; migrar custos `contract` atuais das lanes (revisão auditável).
-- [ ] Motor v2 em `financial-policy.ts` + `quoteFinancialCharge` com maior-custo/fallback 2× e `profit` correto; testes de arredondamento e regressão com snapshots v1.
-- [ ] Endpoints CRUD de adquirentes/custos e simulação com o novo contrato.
-- [ ] Adapter DOM + cron + alertas e aplicação automática auditável (sem aprovação manual).
-- [ ] Corrigir repasse e lucro em relatórios/`platformProfit`/liquidação: usuário = `T − C_sim`; admin = `C_sim − C_adq`, inclusive excedente de juros, considerando somente a adquirente que processou.
-- [ ] Regras de negócio (`docs/business-rules.md`), testes Bun, build.
+- [x] Migração Prisma: `AcquirerFeeSchedule` (append-only; `source` MANUAL|SYNC|MIGRATION, `changeDirection`, `actorId`, `base`) e `active`/`syncAdapter` em `AcquirerCatalogue`; custos `contract` migrados da política GLOBAL (`20261030120000_acquirer_fee_schedule`). Divergência: sem `syncedAt` nem `active` por linha (vale `createdAt` e `AcquirerCatalogue.active`).
+- [x] Motor: preço pelo maior custo ativo, roteamento pela adquirente mais barata e fallback 2× do excedente interno (`fallbackPricing`), em `calculateFinancials`/`quoteFinancialCharge` com `scheduled` (`af5333b4`). Divergência: não houve `schemaVersion: 2`; segue `schemaVersion: 1`, e snapshots antigos restauram pelo caminho legado.
+- [x] Endpoints de adquirentes em `platforms/acquirers/fees`: `GET /`, `POST /`, `PATCH /:code/active`, `GET /:code/history`, `POST /:code` (custo manual).
+- [x] Sincronização DOM (`get-negotiation`) em `AcquirerFeesService.syncDom`, cron diário às 3h (`DISABLED_DOM_SYNC`), e-mail de alta de custo (`d66854c8`) e `POST /platforms/acquirers/fees/DOM/sync`. Divergência: sem interface `AcquirerFeeSyncAdapter` e rota fixa para DOM, não `/:code/sync`.
+- [~] Lucro dos relatórios vem só do snapshot financeiro, com o custo da adquirente que processou (`27841e7a`, `ed74114c`, `473af1f1`). Falta expor `T − C_sim` (repasse) e `C_sim − C_adq` (lucro admin) em campos próprios; hoje a base é `simMarginCents`.
+- [ ] Contrato de simulação/liquidação sem ambiguidade: os campos `chargedRate`, `referenceAcquirerCost`, `platformCharges`, `sellerPayout`, `estimatedAdminProfit`, `processedBy`, `actualAcquirerCost` e `actualAdminProfit` não existem. Os campos reais são `pricingAcquirer`, `realizedAcquirer`, `fallbackPricing`, `simMarginCents`, `effectiveFees`. Decidir entre implementar o contrato proposto ou redefinir este plano e o 0017 para os campos reais.
+- [~] Regras de negócio em `docs/business-rules.md` (custos só da tabela sincronizada, maior custo, sincronização DOM) e testes Bun existem. Falta documentar o fallback 2×.
 
 ## Decisões do usuário
 

@@ -27,3 +27,7 @@ Documento de execução posterior. Nenhuma ampliação operacional autorizada ne
 - Campos adicionais preservam identidade, links públicos e regras de valores mínimos.
 - Paridade visual desktop/mobile e claro/escuro; skeletons antes de estados vazios/erros.
 - Mudanças administrativas mantêm comportamento existente; nenhuma permissão é ampliada implicitamente.
+
+## Descartado (2026-11-17)
+
+Documento de entrega futura, sem etapas nem autorização. Se a paridade operacional do cliente voltar a ser necessária, abrir um plano novo com escopo e etapas.

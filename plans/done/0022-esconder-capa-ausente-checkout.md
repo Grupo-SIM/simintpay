@@ -45,3 +45,7 @@ Apenas o app `checkout/`. Sem mudanças de backend, SDK ou i18n.
 
 - Ponto 4 decidido: miniaturas também somem (não há ícone). Implementado tornando `ProductImage` nulo sem `src`.
 - Validação visual por screenshot ainda não realizada.
+
+## Validação pendente
+
+Validação visual por screenshot (`ui-screenshot-validation`) ainda não registrada. Responsabilidade do desenvolvedor; este plano não está marcado como validado.

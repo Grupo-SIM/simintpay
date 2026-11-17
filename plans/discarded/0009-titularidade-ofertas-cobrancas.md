@@ -2,7 +2,7 @@
 
 Plano proposto em 2026-10-29. Implementação autorizada em 2026-10-29, sem unificação de produtos e sem executar migrações remotas.
 
-Relacionados: [0002 — plataformas explícitas](done/0002-explicit-owned-platforms.md), [0007 — ledger](0007-balance-ledger-source-of-truth.md) e [0008 — taxas, adquirentes e lucro](0008-taxas-adquirentes-lucro.md). O plano 0008 define o cálculo financeiro; este define a quem ele pertence e quem executou a operação. A unificação foi separada no [plano 0010](0010-unificacao-ofertas-cobrancas.md).
+Relacionados: [0002 — plataformas explícitas](../done/0002-explicit-owned-platforms.md), [0007 — ledger](0007-balance-ledger-source-of-truth.md) e [0008 — taxas, adquirentes e lucro](../0008-taxas-adquirentes-lucro.md). O plano 0008 define o cálculo financeiro; este define a quem ele pertence e quem executou a operação. A unificação foi separada no [plano 0010](0010-unificacao-ofertas-cobrancas.md).
 
 ## 1. Diagnóstico verificado
 
@@ -81,7 +81,7 @@ Estimativa preliminar: 2–4 semanas para titularidade, identidade/taxas e prepa
 
 ## Progresso da implementação local — 2026-10-29
 
-Invariantes implementados: [docs/product-ownership.md](../docs/product-ownership.md). Documento complementar mantém a regra atual explícita sem sobrescrever alterações concorrentes em `docs/business-rules.md`.
+Invariantes implementados: [docs/product-ownership.md](../../docs/product-ownership.md). Documento complementar mantém a regra atual explícita sem sobrescrever alterações concorrentes em `docs/business-rules.md`.
 
 Em andamento. Resolução comum de titular/executor aplicada aos cinco produtos existentes; seleção administrativa explícita e venda pessoal opcional nos formulários; guarda de edição preserva titular e plataforma. Novos registros recebem autoria, `userId` continua o destinatário financeiro. Tarifas usam identidade `USER:<id>` com fallback legado por conta; migração SQL aditiva preserva overrides existentes e zero. Checkout não usa e-mail/documento do comprador nem descrição para decidir comerciante.
 
@@ -96,6 +96,10 @@ Concluído localmente (sem escrita em banco remoto, sem migração aplicada):
 - Auditoria somente leitura `backend/scripts/audit-product-ownership.ts` (classificação `OK`/`PROPOSE_TRANSFER`/`NEEDS_DECISION`, JSON determinístico, template de mapa). Executada contra o banco real em modo leitura: 13 links de pagamento (10 de ADMIN), 13 links de assinatura (10 de ADMIN), 1 boleto (ADMIN), 0 planos e 0 planos Pix. O relatório e o template de mapa foram entregues ao usuário para aprovação; **nenhum destino foi aplicado**. APP Delivery Estação continua `NEEDS_DECISION`: a tag `SIM-DELIVERY-…` não está cadastrada em `Platform`, logo não há dono registrado como evidência.
 - Reatribuição auditada `backend/scripts/reassign-products.ts` (simulação por padrão; `--apply` com mapa, `--confirm-host`, transação tudo-ou-nada, revalidação do destino e da plataforma, detecção de concorrência, idempotente) e tabela aditiva `ProductOwnershipChange` (migração `20261029210000_product_ownership_changes`, não aplicada remotamente). Escolha: somente script, sem API administrativa. Testes de integração em banco local descartável cobrem classificação, simulação, aplicação, idempotência, rollback, destino administrativo, divergência de dono da plataforma, conflito de coprodução e histórico idêntico antes/depois.
 - Delegação: decisão de manter membros delegados como **somente criação**. Preserva criação pelo admin/membro para o titular e a imutabilidade do titular; evita conceder edição de preço, taxas e coprodução sobre recebíveis alheios sem modelo de permissão explícito. Teste de integração garante que o membro não lê nem edita o produto criado.
-- Procedimento e limites: [docs/product-ownership.md](../docs/product-ownership.md).
+- Procedimento e limites: [docs/product-ownership.md](../../docs/product-ownership.md).
 
 Pendente (por isso o plano permanece em `plans/`): (1) o usuário aprovar o mapa de destinos e decidir os `NEEDS_DECISION`; (2) autorização para aplicar a migração `20261029210000_product_ownership_changes` e executar a reatribuição no banco remoto; (3) reconciliação monetária histórica, se decidida; (4) leitores de `Transaction.platformTag` e demais itens das fases A–C sob responsabilidade de outras frentes.
+
+## Descartado (2026-11-17)
+
+Absorvido por [0021](../0021-oferta-unica-recorrencia-propria.md), [0023](../0023-migracao-completa-para-ofertas.md) e [0026](../0026-migracao-ebook-financeiro-canonico.md). O contrato `ownerUserId`/`createdByUserId` já existe no schema e no código. O inventário e os relatórios de documento restantes seguem nesses planos.

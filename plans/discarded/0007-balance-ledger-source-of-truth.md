@@ -68,3 +68,7 @@ Correção pontual já aplicada: `get-me.use-case.ts` passou a usar a carteira p
 - Novas carteiras começam em zero. A migração não inventa saldo de abertura nem aplica ajustes automáticos: diferenças históricas continuam expostas para revisão. Não executada em banco remoto/compartilhado.
 - Reserva canônica de saque e aprovação administrativa em massa agora gravam ledger e projeção na mesma transação; recálculos administrativos usam CAS e diferença do saldo realmente persistido. Conciliação inclui bloqueios e usuários com ledger sem carteira.
 - Busca no frontend não encontrou consumo dos snapshots ou de `wallet-composition`; nenhum arquivo frontend alterado. APIs administrativas de ledger agora expõem deltas explícitos; nominal de relatórios usa somente `bookkeepingAmount`.
+
+## Descartado (2026-11-17)
+
+Superado pelo [0019](../0019-balancelog-read-source.md), que assume a leitura de saldo pelo `BalanceLog`. O serviço `WalletLedgerService` proposto aqui nunca foi criado: o código usa `applyWalletEntry`.

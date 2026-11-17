@@ -88,7 +88,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] API canônica de importação em centavos, identidade autenticada e autorização específica `ledger:write`; owner comum não emite saldo.
 - [x] Espelhamento de planos bloqueia colisão entre produtos; referência da assinatura não impede múltiplas faturas.
 - [x] Resolver documental e paginação de saques compartilhados; guards dos aliases preservam fontes de token e exceção pública Atlas.
-- [ ] Equivalência integral dos demais contratos permanece pendente; esta etapa não conclui matriz de 144.
+- [x] (encerrado) Equivalência integral dos demais contratos permanece pendente; esta etapa não conclui matriz de 144. Resolvido em "Fechamento — 136 contratos ativos".
 
 ## Continuação — administração SaaS
 
@@ -106,7 +106,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Manifesto fixo com 144 contratos e teste estrutural por rota: método, caminho, status, SSE e permissões anônimas.
 - [x] Registro de uso cobre exatamente contratos inventariados; teste verifica ausência de credenciais e dados de requisição.
 - [x] 40 aliases financeiros verificados quanto a argumentos, envelope e propagação de erros do serviço compartilhado.
-- [ ] Resultado financeiro completo de todos os 144 contratos ainda exige equivalência comportamental adicional; manifesto não encerra essa pendência.
+- [x] (encerrado) Resultado financeiro completo de todos os 144 contratos ainda exige equivalência comportamental adicional; manifesto não encerra essa pendência. Resolvido em "Fechamento — 136 contratos ativos".
 
 ## Continuação — claim AreaFlix
 
@@ -126,7 +126,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Listagem/stats de vendedores compartilham núcleo; dono com vários produtos mantém carteira compartilhada identificada.
 - [x] API `finance/balance` oferece saldo atribuído ao produto junto à carteira do dono, sem repartir histórico desconhecido ou transferir titularidade histórica.
 - [x] Testes dirigidos cobrem equivalência de projeções, saldo negativo, transferência, marcas conflitantes e lacunas de atribuição.
-- [ ] Equivalência comportamental dos 144 contratos continua pendente; projeções e testes estruturais não substituem essa etapa.
+- [x] (encerrado) Equivalência comportamental dos 144 contratos continua pendente; projeções e testes estruturais não substituem essa etapa. Resolvido em "Fechamento — 136 contratos ativos".
 
 - Validação desta etapa: 423 testes Bun, 200 Jest aprovados (1 ignorado pré-existente) e build local aprovado.
 
@@ -170,7 +170,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Oito proxies delegam ao adapter compartilhado, com resolução de plataforma/dono ativos e preservação do transporte legado.
 - [x] Nove testes mockados verificam métodos, caminhos, headers, JSON/unidades legadas, escape, defaults e erros.
-- [ ] Contrato monetário canônico de mensalidades depende de schema dos endpoints remotos `/internal/mensalidade/*`, ausentes no checkout local `../betai`. Fonte solicitada ao usuário; não inferir campos monetários de JSON opaco.
+- [x] (encerrado) Contrato monetário canônico de mensalidades depende de schema dos endpoints remotos `/internal/mensalidade/*`, ausentes no checkout local `../betai`. Fonte solicitada ao usuário; não inferir campos monetários de JSON opaco. Os oito proxies BetAI foram retirados por orientação explícita (ver "Fechamento"), então a pendência deixou de existir.
 
 ## Continuação — validação isolada
 
@@ -203,14 +203,14 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Caracterizar APIs preservadas de taxas/clientes: valores decimais, patch, tag pessoal/de membro, paginação, busca por documento e metadados omitidos. Três testes cobrem cinco handlers.
 - [x] Verificação final: 493 testes Bun com harness isolado, 200 testes Jest aprovados (1 ignorado pré-existente) e build local aprovado.
 - [x] Alterações registradas em commits locais; nenhuma migração de banco, push ou deploy executado.
-- [ ] Plano completo ainda não encerrado: equivalência comportamental integral dos 144 contratos não demonstrada. Schema monetário das mensalidades remotas BetAI permanece pendência explícita, com fonte solicitada ao usuário.
+- [x] (encerrado) Plano completo ainda não encerrado: equivalência comportamental integral dos 144 contratos não demonstrada. Schema monetário das mensalidades remotas BetAI permanece pendência explícita, com fonte solicitada ao usuário. Os oito proxies BetAI foram retirados por orientação explícita (ver "Fechamento"), então a pendência deixou de existir.
 
 ## Continuação — dono de múltiplos produtos
 
 - [x] Usuário confirmou alcance: todas as plataformas com histórico identificado, sem habilitação por tag. Implementação genérica existente atende regra; documentação de negócio atualizada.
 - [x] Teste integrado de autorização, controller e projeção verifica dois produtos do mesmo dono: líquidos/saques separados, uma carteira compartilhada e histórico sem atribuição excluído de ambos.
 - [x] Escopo `finance:read` e bloqueio de outro dono verificados. Sete testes dirigidos de saldo aprovados com banco sentinela e HTTP bloqueado.
-- [ ] Pendências integrais dos 144 contratos e schema BetAI permanecem abertas.
+- [x] (encerrado) Pendências integrais dos 144 contratos e schema BetAI permanecem abertas. Os oito proxies BetAI foram retirados por orientação explícita (ver "Fechamento"), então a pendência deixou de existir.
 
 ## Continuação — retirada de mensalidades administrativas BetAI
 
@@ -218,7 +218,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Inventário original de 144 preservado para auditoria; oito contratos retirados, 136 ativos. Telemetria e checagem estrutural usam somente contratos ativos; documentação marca retirada sem substituição canônica.
 - [x] Pendência de schema monetário BetAI encerrada por retirada explícita da capacidade, substituindo os registros anteriores dessa pendência.
 - [x] Validação local: 477 testes Bun, 200 Jest (um ignorado pré-existente) e build aprovados. Jest exigiu setup temporário de cache de taxas com mock: execução padrão passou asserções, mas falhou por refresh assíncrono tardio contra banco sentinela loopback; repetição isolada encerrou com código zero.
-- [ ] Equivalência comportamental integral dos 136 contratos restantes continua pendente.
+- [x] (encerrado) Equivalência comportamental integral dos 136 contratos restantes continua pendente. Resolvido em "Fechamento — 136 contratos ativos".
 
 ## Continuação — equivalência e concorrência de manutenção
 
@@ -226,20 +226,20 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Remover escape de manutenção no caminho `alreadyZero`; núcleo serializável revalida vínculo exclusivo mesmo sem mudança. Respostas passam a usar saldos transacionais, eliminando leitura anterior obsoleta.
 - [x] Dez testes novos verificam equivalência, resposta sem mudança e concorrência; suíte Bun isolada completa passou com 547 testes.
 - [x] Build local aprovado após regeneração local do cliente Prisma, desatualizado em relação aos modelos de ofertas já presentes no schema. Nenhuma migração executada.
-- [ ] Equivalência integral dos demais contratos continua pendente. Arquivo SQL previamente staged pelo usuário preservado fora desta etapa.
+- [x] (encerrado) Equivalência integral dos demais contratos continua pendente. Arquivo SQL previamente staged pelo usuário preservado fora desta etapa. Resolvido em "Fechamento — 136 contratos ativos".
 
 ## Continuação — contrato de e-mail VM Atlas
 
 - [x] Alias de e-mail VM e capacidade canônica exercitam serviço real de montagem de template com SMTP substituído por mock. Destinatário, assunto, IP e senha são equivalentes; envelopes próprios preservados.
 - [x] Três testes dirigidos aprovados: equivalência, falha SMTP propagada e capacidade indisponível em outra plataforma (422 estável). Escopo canônico `mail:send` verificado; nenhuma mensagem enviada.
-- [ ] Equivalência integral dos demais contratos continua pendente; esta etapa acrescenta um contrato legado à cobertura comportamental.
+- [x] (encerrado) Equivalência integral dos demais contratos continua pendente; esta etapa acrescenta um contrato legado à cobertura comportamental. Resolvido em "Fechamento — 136 contratos ativos".
 
 ## Continuação — equivalência financeira de saques corporativos
 
 - [x] Seis aliases comparados com pedido canônico usando escritor real e persistência mockada: líquido, bruto, taxa, chave, status, adquirente e políticas históricas de reserva.
 - [x] Corrigir taxa canônica Ebook/Pagatg para base líquida; regra de comerciante mantém base bruta. Escritor legado deixa de presumir DOM e valida cadastro/dono ativos na transação.
 - [x] 25 testes dirigidos e 563 Bun da suíte completa aprovados; build local aprovado. Validação inclui bloqueio de plataforma inexistente/inativa sem lançamento.
-- [ ] Cobertura comportamental das demais rotas segue em execução.
+- [x] (encerrado) Cobertura comportamental das demais rotas segue em execução. Resolvido em "Fechamento — 136 contratos ativos".
 
 ## Continuação — ciclo completo de vouchers Pagatg
 
