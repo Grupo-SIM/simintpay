@@ -261,8 +261,7 @@ export default function CadastroPage() {
               nextErrors.phone = 'Informe um número de contato';
             else if (onlyDigits(form.phone).length < 10)
               nextErrors.phone = 'Telefone inválido';
-            if (!form.email.trim())
-              nextErrors.email = 'Informe seu e-mail corporativo';
+            if (!form.email.trim()) nextErrors.email = 'Informe seu e-mail';
             else if (!isValidEmail(form.email))
               nextErrors.email = 'E-mail inválido';
             if (!form.cpf.trim()) nextErrors.cpf = 'Informe o CPF ou CNPJ';
@@ -346,7 +345,7 @@ export default function CadastroPage() {
               />
             </Field>
 
-            <Field label="E-mail corporativo *" error={errors.email}>
+            <Field label="E-mail *" error={errors.email}>
               <input
                 className={`lp-input${errors.email ? ' lp-input-error' : ''}`}
                 placeholder="email@empresa.com"
