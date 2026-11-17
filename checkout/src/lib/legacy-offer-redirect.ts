@@ -4,7 +4,8 @@
  * Os parâmetros dos produtos legados (`simLinkCode`, `subscriptionLinkCode`, `simBoletoCode`,
  * `simPlanCode`, `linkCode`, `subscriptionCode`) e `?ofertaCode=` viram sempre `?oferta=`, com o
  * mesmo valor: `GET /ofertas/public/:code` resolve por código e, na falta, por id. É uma
- * retrocompatibilidade permanente, sem flag. `?code=PX-…` (plano PIX) não é redirecionado.
+ * retrocompatibilidade permanente, sem flag. `?code=PX-…` (plano PIX)
+ * também vira `?oferta=PX-…`: o endpoint público resolve o alias `OfferCodeAlias`.
  */
 export const LEGACY_PRODUCT_PARAMS = [
   'simPlanCode',
@@ -21,6 +22,14 @@ const NEW_OFFER_PARAM = 'ofertaCode';
 export function offerRedirectTarget(url: URL): URL | null {
   const params = url.searchParams;
   if (params.get('oferta')) return null;
+
+  const pixCode = params.get('code');
+  if (pixCode && /^PX-/i.test(pixCode)) {
+    const target = new URL(url);
+    target.searchParams.set('oferta', pixCode);
+    target.searchParams.delete('code');
+    return target;
+  }
 
   const candidates: string[] = [...LEGACY_PRODUCT_PARAMS, NEW_OFFER_PARAM];
   const found = candidates.find((param) => params.get(param));

@@ -27,9 +27,16 @@ describe('legacy offer redirect', () => {
     expect(target?.searchParams.has('ofertaCode')).toBe(false);
   });
 
-  test('oferta existente, plano PIX (code=PX-) e URL sem produto ficam como estão', () => {
+  test('code=PX- vira ?oferta= e preserva a query', () => {
+    const target = offerRedirectTarget(url('code=PX-AB12CD&email=a@b.c'));
+    expect(target?.searchParams.get('oferta')).toBe('PX-AB12CD');
+    expect(target?.searchParams.has('code')).toBe(false);
+    expect(target?.searchParams.get('email')).toBe('a@b.c');
+    expect(offerRedirectTarget(url('code=ABC'))).toBeNull();
+  });
+
+  test('oferta existente e URL sem produto ficam como estão', () => {
     expect(offerRedirectTarget(url('oferta=abc&simLinkCode=x'))).toBeNull();
-    expect(offerRedirectTarget(url('code=PX-1'))).toBeNull();
     expect(offerRedirectTarget(url('value=10&store=ebook'))).toBeNull();
   });
 });
