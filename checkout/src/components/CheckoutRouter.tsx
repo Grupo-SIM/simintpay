@@ -7,9 +7,9 @@ import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import { AlertCircle } from 'lucide-react';
 
-// Os parâmetros dos links antigos (simLinkCode, simPlanCode, ...) são redirecionados para `?oferta=` em `proxy.ts`.
-// Parâmetros que identificam o que está sendo cobrado no fluxo genérico (CreditCardForm).
-const GENERIC_CHECKOUT_PARAMS = ['data', 'value', 'orderId', 'id'];
+// Os parâmetros dos links antigos (simLinkCode, simPlanCode, code, data, ...) são redirecionados para
+// `?oferta=` em `proxy.ts`. O que sobra é o pagamento direto dos sistemas vizinhos (CreditCardForm).
+const DIRECT_CHECKOUT_PARAMS = ['value', 'orderId', 'id'];
 
 function InvalidCheckoutLink() {
   return (
@@ -35,16 +35,15 @@ function InvalidCheckoutLink() {
 export default function CheckoutRouter() {
   const searchParams = useSearchParams();
   const oferta = searchParams.get('oferta');
-  const code = searchParams.get('code');
 
   if (oferta) {
     if (searchParams.has('renovar')) return <OfferRenewal />;
     return <OfferCheckout />;
   }
 
-  const hasCheckoutData =
-    Boolean(code) ||
-    GENERIC_CHECKOUT_PARAMS.some((param) => Boolean(searchParams.get(param)));
+  const hasCheckoutData = DIRECT_CHECKOUT_PARAMS.some((param) =>
+    Boolean(searchParams.get(param)),
+  );
 
   if (!hasCheckoutData) {
     return <InvalidCheckoutLink />;

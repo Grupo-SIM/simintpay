@@ -32,7 +32,35 @@ describe('legacy offer redirect', () => {
     expect(target?.searchParams.get('oferta')).toBe('PX-AB12CD');
     expect(target?.searchParams.has('code')).toBe(false);
     expect(target?.searchParams.get('email')).toBe('a@b.c');
-    expect(offerRedirectTarget(url('code=ABC'))).toBeNull();
+  });
+
+  test('code= de plano de parceiro vira ?oferta=', () => {
+    const target = offerRedirectTarget(url('code=3f8f67274&store=pagatg'));
+    expect(target?.searchParams.get('oferta')).toBe('3f8f67274');
+    expect(target?.searchParams.has('code')).toBe(false);
+    expect(target?.searchParams.get('store')).toBe('pagatg');
+  });
+
+  test('data= (base64 { id, token }) vira ?oferta= com o id', () => {
+    const data = btoa(JSON.stringify({ id: 'link-1', token: 't' }));
+    const target = offerRedirectTarget(url(`data=${encodeURIComponent(data)}`));
+    expect(target?.searchParams.get('oferta')).toBe('link-1');
+    expect(target?.searchParams.has('data')).toBe(false);
+    expect(offerRedirectTarget(url('data=%%%'))).toBeNull();
+  });
+
+  test('value= só vira ?oferta= quando é código de link, não valor em centavos', () => {
+    const code = offerRedirectTarget(url('value=RX8Fap8kbp'));
+    expect(code?.searchParams.get('oferta')).toBe('RX8Fap8kbp');
+    expect(code?.searchParams.has('value')).toBe(false);
+    const avulso = offerRedirectTarget(
+      url('value=abc-123&description=link_avulso&adminToken=x'),
+    );
+    expect(avulso?.searchParams.get('oferta')).toBe('abc-123');
+    expect(avulso?.searchParams.has('description')).toBe(false);
+    expect(offerRedirectTarget(url('value=1990'))).toBeNull();
+    expect(offerRedirectTarget(url('value=abc&orderNumber=9'))).toBeNull();
+    expect(offerRedirectTarget(url('value=abc&description=Livro'))).toBeNull();
   });
 
   test('oferta existente e URL sem produto ficam como estão', () => {
