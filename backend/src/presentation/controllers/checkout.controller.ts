@@ -3,6 +3,10 @@ import {
   claimEbookPayment,
   bindEbookPayment,
 } from '../../modules/platform-core/ebook-enrollment';
+import {
+  bindAdoptedEbookEntry,
+  findAdoptableEbookEntry,
+} from '../../modules/platform-core/ebook-pending-adoption';
 import { recoverEbookPayment } from '../../modules/platform-core/ebook-recovery';
 import { timingSafeEqual } from 'node:crypto';
 import { transactionPlatformTagData } from '../../modules/platform-core/transaction-platform';
@@ -226,14 +230,18 @@ export class CheckoutController {
       throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
     const acquirer = this.gatewayResolver.acquirerForSlug(storeSlug);
 
-    // Busca a transação criada pelo back-ebook via notifyPendingTransaction
-    let transaction: { id: string } | null = null;
-    if (orderNumber && !financialQuote) {
-      transaction = await this.prisma.transaction.findFirst({
-        where: { domPaymentId: `EBOOK_PENDING_${orderNumber}` },
-        select: { id: true },
-      });
-    }
+    // Pedido Ebook sem manifesto: paga a entrada pendente do vendedor (EBOOK_PENDING_<pedido>) em vez de
+    // criar um rascunho FINAL_NET do dono da plataforma, que nunca a concluiria.
+    let transaction: { id: string } | null = await findAdoptableEbookEntry(
+      this.prisma,
+      {
+        store: storeSlug,
+        orderNumber,
+        settlementId: body.settlementId,
+        price,
+      },
+    );
+    const adopted = transaction !== null;
 
     const documentType =
       body.document_type ??
@@ -288,12 +296,14 @@ export class CheckoutController {
         ? (getFrendzApiToken(storeSlug) ?? '')
         : domToken;
 
-    const enrolled = await claimEbookPayment(
-      this.prisma,
-      body,
-      transaction.id,
-      financialQuote,
-    );
+    const enrolled = adopted
+      ? false
+      : await claimEbookPayment(
+          this.prisma,
+          body,
+          transaction.id,
+          financialQuote,
+        );
     const payment = await gateway.createPixCheckout(gatewayToken, {
       codExternal: transaction.id,
       amount: financialQuote?.totalAmount ?? price,
@@ -311,17 +321,27 @@ export class CheckoutController {
     // (consumido pelo webhook/sync atuais). Para a Frendz, o webhook localiza
     // por (acquirer, externalPaymentId) — não escreve em domPaymentId, que é
     // @unique e exclusivo do fluxo DOM.
-    await this.prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: 'PENDING',
-        acquirer,
+    if (adopted) {
+      // A entrada do vendedor mantém a chave EBOOK_PENDING_ (reenvio de finance/entries não duplica);
+      // o webhook a encontra por (externalPaymentId) e a conclui uma única vez.
+      await bindAdoptedEbookEntry(this.prisma, transaction.id, {
         externalPaymentId: payment.id,
-        ...(acquirer === Acquirer.DOM ? { domPaymentId: payment.id } : {}),
+        acquirer,
+        method: 'PIX',
+        installments: 1,
+      });
+    } else
+      await this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: 'PENDING',
+          acquirer,
+          externalPaymentId: payment.id,
+          ...(acquirer === Acquirer.DOM ? { domPaymentId: payment.id } : {}),
 
-        ...trackingUpdate(body.tracking),
-      },
-    });
+          ...trackingUpdate(body.tracking),
+        },
+      });
 
     return {
       id: payment.id,
@@ -344,7 +364,7 @@ export class CheckoutController {
   async getPaymentStatus(@Param('id') id: string) {
     const tx = await this.prisma.transaction.findFirst({
       where: {
-        OR: [{ domPaymentId: id }, { id }],
+        OR: [{ domPaymentId: id }, { id }, { externalPaymentId: id }],
       },
       select: { status: true, domPaymentId: true },
     });
@@ -531,14 +551,18 @@ export class CheckoutController {
     const domFeeAmount = financialQuote.domFeeAmount;
     const installmentAmount = Math.round((totalAmount / n) * 100) / 100;
 
-    // Busca ou cria transação
-    let transaction: { id: string } | null = null;
-    if (orderNumber && !financialQuote) {
-      transaction = await this.prisma.transaction.findFirst({
-        where: { domPaymentId: `EBOOK_PENDING_${orderNumber}` },
-        select: { id: true },
-      });
-    }
+    // Pedido Ebook sem manifesto: paga a entrada pendente do vendedor (EBOOK_PENDING_<pedido>) em vez de
+    // criar um rascunho FINAL_NET do dono da plataforma, que nunca a concluiria.
+    let transaction: { id: string } | null = await findAdoptableEbookEntry(
+      this.prisma,
+      {
+        store,
+        orderNumber,
+        settlementId: body.settlementId,
+        price,
+      },
+    );
+    const adopted = transaction !== null;
 
     if (!transaction) {
       const ebookUserId = getPlatformOwnerId(tenantTag);
@@ -579,12 +603,14 @@ export class CheckoutController {
       });
     }
 
-    const enrolled = await claimEbookPayment(
-      this.prisma,
-      body,
-      transaction.id,
-      financialQuote,
-    );
+    const enrolled = adopted
+      ? false
+      : await claimEbookPayment(
+          this.prisma,
+          body,
+          transaction.id,
+          financialQuote,
+        );
     // Chamar DOM API diretamente para criar transação de cartão
     const domUrl =
       'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
@@ -637,7 +663,14 @@ export class CheckoutController {
     if (enrolled) {
       await bindEbookPayment(this.prisma, transaction.id, domPaymentId ?? '');
     }
-    if (domPaymentId) {
+    if (domPaymentId && adopted) {
+      await bindAdoptedEbookEntry(this.prisma, transaction.id, {
+        externalPaymentId: domPaymentId,
+        acquirer: Acquirer.DOM,
+        method: 'CREDIT_CARD',
+        installments: n,
+      });
+    } else if (domPaymentId) {
       await this.prisma.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -692,7 +725,7 @@ export class CheckoutController {
   async getPurchaseDetails(@Param('id') id: string) {
     const tx = await this.prisma.transaction.findFirst({
       where: {
-        OR: [{ domPaymentId: id }, { id }],
+        OR: [{ domPaymentId: id }, { id }, { externalPaymentId: id }],
       },
       include: {
         pixPlanOrder: { include: { pixCreditPlan: true } },

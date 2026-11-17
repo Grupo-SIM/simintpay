@@ -28,6 +28,7 @@ import {
   settleFinalNet,
 } from '../../../modules/platform-core/link-settlement';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
+import { EBOOK_PENDING_PREFIX } from '../../../modules/platform-core/ebook-pending-adoption';
 import { platformTaxaTagForTransaction } from '../../helpers/dom-fee-estimate.helper';
 import {
   transactionPlatformTag,
@@ -48,7 +49,12 @@ import {
   PAYMENT_GATEWAY,
   type IPaymentGateway,
 } from '../../../core/services/payment-gateway.interface';
-import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
+import {
+  Prisma,
+  PaymentMethod,
+  Transaction,
+  TransactionStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
@@ -399,12 +405,33 @@ export class ProcessDomWebhookUseCase {
       where: {
         OR: [
           { domPaymentId: data.id },
+          // Seller entry paid through the public checkout: it keeps its EBOOK_PENDING_ key and is matched by the
+          // payment it was bound to or, before that write lands (early card webhook), by the cod_external the
+          // checkout sent (the entry id).
+          {
+            externalPaymentId: data.id,
+            acquirer: 'DOM',
+            domPaymentId: { startsWith: EBOOK_PENDING_PREFIX },
+          },
+          ...(data.cod_external
+            ? [
+                {
+                  id: data.cod_external,
+                  domPaymentId: { startsWith: EBOOK_PENDING_PREFIX },
+                },
+              ]
+            : []),
           ...(chargeReference
             ? [{ id: chargeReference, settlementBasis: 'FINAL_NET' }]
             : []),
         ],
       },
     });
+
+    if (existing?.domPaymentId?.startsWith(EBOOK_PENDING_PREFIX)) {
+      await this.handleBoundEbookEntry(existing, data, nextStatus);
+      return;
+    }
 
     if (existing) {
       if (existing.status === nextStatus) {
@@ -1084,6 +1111,159 @@ export class ProcessDomWebhookUseCase {
     }
   }
 
+  /**
+   * Payment bound by the checkout to the seller's pending entry. Only the confirmation acts: it runs the same
+   * status-conditional completion (one credit) as the no-prior-transaction path; other statuses leave the entry
+   * PENDING so the order can still be paid by a retried checkout. Refunds of these entries are not handled here.
+   */
+  private async handleBoundEbookEntry(
+    entry: Transaction,
+    data: RawDomData,
+    nextStatus: TransactionStatus,
+  ): Promise<void> {
+    if (
+      nextStatus !== TransactionStatus.COMPLETED ||
+      entry.status === TransactionStatus.COMPLETED
+    ) {
+      this.logger.log(
+        `[DomWebhook][ebook] entrada ${entry.id} (${data.status}) sem alteração`,
+      );
+      return;
+    }
+    // The charge always covers at least the owner amount of the entry; anything lower is not this order's payment.
+    if (data.amount < Math.round(Number(entry.amount) * 100))
+      throw new Error('EBOOK_PENDING_AMOUNT_MISMATCH');
+    const orderNumber = entry.domPaymentId!.slice(EBOOK_PENDING_PREFIX.length);
+    if (!(await this.completeEbookPending(entry, data, orderNumber))) return;
+    void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
+    if (data.id)
+      this.checkoutEvents?.emit({ domPaymentId: data.id, status: 'COMPLETED' });
+  }
+
+  /**
+   * Completes the seller's pending entry with the payment the buyer really made: the single credit path for
+   * `EBOOK_PENDING_<order>` entries (webhook without prior transaction, or bound by the public checkout).
+   * Conditional on the status, so repeated or concurrent webhooks credit once; throws so the caller may retry.
+   * Returns whether this call performed the completion.
+   */
+  private async completeEbookPending(
+    pendingTx: Transaction,
+    data: RawDomData,
+    orderNumber: string,
+  ): Promise<boolean> {
+    this.logger.log(
+      `[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`,
+    );
+    const amountDec = new Prisma.Decimal(data.amount / 100);
+    // Entry recorded by the canonical merchant route: the server already priced it (fees and buyer
+    // interest, with the quote kept in financialSnapshot); keep that net instead of the LIQUIDEZ shortcut.
+    const canonicalEntry =
+      !!pendingTx.financialSnapshot && pendingTx.netAmount !== null;
+    // The entry is always recorded as PIX 1x at the owner amount (the order exists before the buyer picks
+    // card/installments). Once the real card payment is confirmed, reprice the owner share with the paid
+    // installments so the interest cost reaches the seller net.
+    const cardInstallments = Math.min(
+      Math.max(Math.trunc(Number(data.installments ?? 1)) || 1, 1),
+      12,
+    );
+    let cardQuote: Awaited<ReturnType<typeof quoteCardOwnerShare>> = null;
+    if (canonicalEntry && /credit/i.test(data.payment_method ?? '')) {
+      try {
+        cardQuote = await quoteCardOwnerShare(
+          this.prisma,
+          'EBOOK',
+          Math.round(Number(pendingTx.amount) * 100),
+          cardInstallments,
+        );
+        // The owner share never exceeds what the buyer paid in total.
+        if (cardQuote && Math.round(cardQuote.totalAmount * 100) > data.amount)
+          cardQuote = null;
+      } catch (e) {
+        this.logger.warn(
+          `[DomWebhook][ebook] repricing do cartão falhou orderRef=${orderNumber}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      if (!cardQuote)
+        this.logger.warn(
+          `[DomWebhook][ebook] mantendo líquido gravado (PIX) orderRef=${orderNumber} installments=${cardInstallments}`,
+        );
+    }
+    let netDec: Prisma.Decimal;
+    if (cardQuote) {
+      netDec = new Prisma.Decimal(cardQuote.netAmount);
+    } else {
+      netDec = canonicalEntry
+        ? new Prisma.Decimal(pendingTx.netAmount!.toString())
+        : this.calcNet(
+            data.amount / 100,
+            Number(data.installments ?? 1),
+            undefined,
+            'EBOOK',
+            data.payment_method,
+          );
+    }
+    const custName = (data as any).customer_name || data.customer?.name || null;
+    const custEmail =
+      (data as any).customer_email || data.customer?.email || null;
+    const custDoc =
+      (
+        (data as any).customer_document ||
+        data.customer?.document ||
+        ''
+      ).replace(/\D/g, '') || null;
+    const applied = await this.prisma.$transaction(async (p) => {
+      // Condicional ao status: webhook repetido/simultâneo não conclui (nem credita) duas vezes
+      const completed = await p.transaction.updateMany({
+        where: {
+          id: pendingTx.id,
+          status: { not: TransactionStatus.COMPLETED },
+        },
+        data: {
+          status: 'COMPLETED',
+          domPaymentId: data.id,
+          amount: amountDec,
+          netAmount: netDec,
+          totalFee: amountDec.sub(netDec),
+          acquirerFee: new Prisma.Decimal(
+            cardQuote
+              ? cardQuote.domFeeAmount
+              : resolveDomFeeReais({
+                  amountReais: data.amount / 100,
+                  paymentMethod: data.payment_method,
+                  installments: Number(data.installments ?? 1),
+                  domFeeFromGateway: data.dom_fee,
+                  tenantTag: 'EBOOK',
+                }),
+          ),
+          ...(cardQuote
+            ? {
+                paymentMethod: PaymentMethod.CREDIT_CARD,
+                installments: cardInstallments,
+                platformFee: new Prisma.Decimal(cardQuote.platformFeeAmount),
+                financialSnapshot:
+                  cardQuote.financialSnapshot as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
+          customerName: custName,
+          customerEmail: custEmail,
+          customerDocument: custDoc,
+          updatedAt: new Date(),
+        },
+      });
+      if (completed.count === 0) return false;
+      const walletDeltaPending = netDec.sub(getEbookTaxaServico());
+      await applyWalletEntry(p, {
+        userId: pendingTx.userId,
+        action: 'EBOOK_PENDING_COMPLETED',
+        source: 'DOM_WEBHOOK',
+        balanceDelta: walletDeltaPending,
+        transactionId: pendingTx.id,
+      });
+      return true;
+    });
+    return applied;
+  }
+
   /** Cria ou garante que existe uma Transaction local para o pedido ebook,
    *  permitindo que /admin/plataformas/ebook/transacoes e /internal/ebook/finance/* funcionem. */
   private async upsertEbookTransaction(
@@ -1122,121 +1302,7 @@ export class ProcessDomWebhookUseCase {
           );
           return;
         }
-        this.logger.log(
-          `[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`,
-        );
-        const amountDec = new Prisma.Decimal(data.amount / 100);
-        // Entry recorded by the canonical merchant route: the server already priced it (fees and buyer
-        // interest, with the quote kept in financialSnapshot); keep that net instead of the LIQUIDEZ shortcut.
-        const canonicalEntry =
-          !!pendingTx.financialSnapshot && pendingTx.netAmount !== null;
-        // The entry is always recorded as PIX 1x at the owner amount (the order exists before the buyer picks
-        // card/installments). Once the real card payment is confirmed, reprice the owner share with the paid
-        // installments so the interest cost reaches the seller net.
-        const cardInstallments = Math.min(
-          Math.max(Math.trunc(Number(data.installments ?? 1)) || 1, 1),
-          12,
-        );
-        let cardQuote: Awaited<ReturnType<typeof quoteCardOwnerShare>> = null;
-        if (canonicalEntry && /credit/i.test(data.payment_method ?? '')) {
-          try {
-            cardQuote = await quoteCardOwnerShare(
-              this.prisma,
-              'EBOOK',
-              Math.round(Number(pendingTx.amount) * 100),
-              cardInstallments,
-            );
-            // The owner share never exceeds what the buyer paid in total.
-            if (
-              cardQuote &&
-              Math.round(cardQuote.totalAmount * 100) > data.amount
-            )
-              cardQuote = null;
-          } catch (e) {
-            this.logger.warn(
-              `[DomWebhook][ebook] repricing do cartão falhou orderRef=${orderNumber}: ${e instanceof Error ? e.message : String(e)}`,
-            );
-          }
-          if (!cardQuote)
-            this.logger.warn(
-              `[DomWebhook][ebook] mantendo líquido gravado (PIX) orderRef=${orderNumber} installments=${cardInstallments}`,
-            );
-        }
-        let netDec: Prisma.Decimal;
-        if (cardQuote) {
-          netDec = new Prisma.Decimal(cardQuote.netAmount);
-        } else {
-          netDec = canonicalEntry
-            ? new Prisma.Decimal(pendingTx.netAmount!.toString())
-            : this.calcNet(
-                data.amount / 100,
-                Number(data.installments ?? 1),
-                undefined,
-                'EBOOK',
-                data.payment_method,
-              );
-        }
-        const custName =
-          (data as any).customer_name || data.customer?.name || null;
-        const custEmail =
-          (data as any).customer_email || data.customer?.email || null;
-        const custDoc =
-          (
-            (data as any).customer_document ||
-            data.customer?.document ||
-            ''
-          ).replace(/\D/g, '') || null;
-        await this.prisma.$transaction(async (p) => {
-          // Condicional ao status: webhook repetido/simultâneo não conclui (nem credita) duas vezes
-          const completed = await p.transaction.updateMany({
-            where: {
-              id: pendingTx.id,
-              status: { not: TransactionStatus.COMPLETED },
-            },
-            data: {
-              status: 'COMPLETED',
-              domPaymentId: data.id,
-              amount: amountDec,
-              netAmount: netDec,
-              totalFee: amountDec.sub(netDec),
-              acquirerFee: new Prisma.Decimal(
-                cardQuote
-                  ? cardQuote.domFeeAmount
-                  : resolveDomFeeReais({
-                      amountReais: data.amount / 100,
-                      paymentMethod: data.payment_method,
-                      installments: Number(data.installments ?? 1),
-                      domFeeFromGateway: data.dom_fee,
-                      tenantTag: 'EBOOK',
-                    }),
-              ),
-              ...(cardQuote
-                ? {
-                    paymentMethod: PaymentMethod.CREDIT_CARD,
-                    installments: cardInstallments,
-                    platformFee: new Prisma.Decimal(
-                      cardQuote.platformFeeAmount,
-                    ),
-                    financialSnapshot:
-                      cardQuote.financialSnapshot as unknown as Prisma.InputJsonValue,
-                  }
-                : {}),
-              customerName: custName,
-              customerEmail: custEmail,
-              customerDocument: custDoc,
-              updatedAt: new Date(),
-            },
-          });
-          if (completed.count === 0) return;
-          const walletDeltaPending = netDec.sub(getEbookTaxaServico());
-          await applyWalletEntry(p, {
-            userId: pendingTx.userId,
-            action: 'EBOOK_PENDING_COMPLETED',
-            source: 'DOM_WEBHOOK',
-            balanceDelta: walletDeltaPending,
-            transactionId: pendingTx.id,
-          });
-        });
+        await this.completeEbookPending(pendingTx, data, orderNumber);
         return;
       }
 

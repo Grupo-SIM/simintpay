@@ -279,7 +279,43 @@ Decisão: o SimIntPay corrige a entrada ao **confirmar o pagamento**, no webhook
 - [x] Salvaguardas: PIX ou entrada sem cotação do servidor mantêm a regra do líquido gravado; cotação indisponível/erro, ou total cotado do dono maior que o pago, mantém o líquido gravado (aviso no log) em vez de falhar o webhook.
 - [x] Checkout `/checkout/card`: a `Transaction` criada passa a gravar `installments` (antes ficava 1).
 - Teste: `process-dom-webhook.ebook-pending.test.ts` (cartão recotado, PIX, total acima do pago, erro de cotação, sem cotação gravada, linha concluída sem novo crédito).
-- Risco conhecido: `checkout.controller.ts` (`createPublicPix`/`createPublicCard`) tem a busca da entrada pendente desligada (`orderNumber && !financialQuote`, sempre falso) e cria uma `Transaction` nova do dono da plataforma; nesse caminho o webhook encontra a transação por `domPaymentId` e **não** conclui a entrada pendente do vendedor. A correção acima atua quando o webhook conclui a entrada (pagamento sem transação prévia, como no fluxo que o back-ebook espera). Decidir com o dono se o checkout deve reaproveitar a entrada pendente de pedidos sem liquidação.
+- ~~Risco conhecido: o checkout cria uma `Transaction` própria do dono da plataforma~~ resolvido na Fase A5 (abaixo).
+
+### Fase A5. Checkout paga a entrada pendente do vendedor (feito, local, sem push)
+
+Diagnóstico (git blame e leitura do webhook). A busca `orderNumber && !financialQuote` nasceu junto com a cotação no checkout: "só procura a entrada se não houver cotação". O commit `9815fd16` (remoção das taxas legadas) tornou a cotação obrigatória (`FINANCIAL_POLICY_MISSING`), então a busca virou código morto. Não foi desligada por risco de crédito duplo. Quem credita quem hoje, por caminho:
+
+| Caminho                                                     | Transação do checkout                                                            | Webhook DOM                                                                     | Quem recebe                                                                                                                                                                     |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pedido **com manifesto** (`EbookSettlement`)                | rascunho do dono da plataforma, `settlementBasis EBOOK_V1` (`claimEbookPayment`) | `settleEbookPayment`                                                            | alocações OWNER/AFFILIATE/COPRODUCER por `BalanceLog` `EBOOK_V1`; a entrada pendente (se existir) nunca é concluída                                                             |
+| Pedido **sem manifesto**, antes da A5                       | rascunho `FINAL_NET` do dono da plataforma                                       | `settleFinalNet` + `upsertEbookTransaction` sai cedo (`domPaymentId` já existe) | **o dono da plataforma** recebe o líquido do pedido inteiro; o vendedor não recebe, a entrada `EBOOK_PENDING_` fica `PENDING` para sempre e o repricing do cartão (A4) não roda |
+| Pagamento sem transação prévia (fluxo antigo do back-ebook) | nenhuma                                                                          | `upsertEbookTransaction` conclui `EBOOK_PENDING_`                               | o vendedor, uma vez (A4)                                                                                                                                                        |
+
+Não havia crédito duplo no caminho sem manifesto (o vendedor ficava sem crédito); o risco a evitar era criar um segundo crédito (entrada concluída + `FINAL_NET`/manifesto).
+
+Decisão e implementação (mínima, sem migração):
+
+- [x] `findAdoptableEbookEntry` (`ebook-pending-adoption.ts`): o checkout PIX e cartão passam a **adotar** a entrada `EBOOK_PENDING_<pedido>` somente se: loja EBOOK, `orderNumber` presente, sem `settlementId` e **sem linha `EbookSettlement` do pedido**; entrada `PENDING`, `settlementBasis` nulo, tag EBOOK, precificada pelo servidor (`financialSnapshot` e `netAmount`), valor do dono menor ou igual ao total do pedido. Qualquer outra situação mantém o comportamento anterior (rascunho `FINAL_NET`/manifesto), inclusive entradas legadas sem cotação e pedidos já pagos.
+- [x] Adotada, **nenhum rascunho é criado** e `claimEbookPayment` não roda. Depois da cobrança, `bindAdoptedEbookEntry` grava só `acquirer`, `externalPaymentId`, `paymentMethod` e `installments`, condicionado a `status PENDING` + `settlementBasis` nulo. A entrada **mantém a chave `EBOOK_PENDING_`**: um reenvio de `finance/entries` a encontra (replay/409), não cria uma segunda entrada. Valor, líquido e taxas continuam sendo escritos só pelo webhook, a partir do que o comprador de fato pagou.
+- [x] Webhook: `handleTransaction` também acha a entrada por `(externalPaymentId, acquirer DOM)` ou pelo `cod_external` (id da entrada, cobre webhook de cartão que chega antes do `bind`), sempre restrito a `domPaymentId` começando com `EBOOK_PENDING_`. Para essas entradas só a confirmação age: `handleBoundEbookEntry` chama `completeEbookPending` (a lógica da A4 extraída de `upsertEbookTransaction`, mesma função nos dois caminhos), com repricing do cartão e crédito `líquido - TAXA_SERVICO` **uma única vez** (`updateMany` condicionado a `status != COMPLETED` e `applyWalletEntry` na mesma transação). Pagamento menor que o valor do dono lança `EBOOK_PENDING_AMOUNT_MISMATCH` (webhook falha visível, sem crédito). `failed`/`expired` deixam a entrada `PENDING` (o pedido pode ser pago por nova tentativa). Depois de concluir, notifica o back-ebook e o SSE como antes.
+- [x] `GET /checkout/payments/:id/status` e `public/purchase/:id` também resolvem por `externalPaymentId` (o id do gateway não é mais o `domPaymentId` da entrada).
+
+Garantias contra crédito duplo (cada uma coberta em `backend/tests/ebook-checkout-pending-adoption.integration.test.ts`, banco local descartável):
+
+- PIX e cartão 3x: um `BalanceLog` do vendedor, valor igual ao líquido gravado menos `TAXA_SERVICO`; cartão recotado pela base do dono (`quoteCardOwnerShare`); `amount` = total pago; nenhum crédito ao dono da plataforma; sem rascunho `FINAL_NET`.
+- Webhook repetido (mesma assinatura, nova assinatura, id de pagamento desconhecido): ainda um crédito.
+- Pedido com manifesto: a entrada fica intacta (`PENDING`, sem `externalPaymentId`, zero `BalanceLog`); só o `EBOOK_V1` credita; sem capability o checkout continua falhando como antes.
+- Nova tentativa de checkout (PIX, PIX, cartão): as três cobranças usam a mesma entrada, nenhum rascunho; webhooks tardios das cobranças substituídas não creditam de novo; depois de paga, outra tentativa não readota a entrada.
+- Webhook de cartão antes do `bind`: conclui uma vez; o `bind` posterior não altera nada.
+
+Decisões do dono ainda abertas / riscos residuais:
+
+- A conclusão (A4, já existente) regrava `domPaymentId` da entrada com o id do pagamento, então um reenvio de `finance/entries` **depois do pagamento** criaria outra entrada `PENDING`. É o comportamento da A4; o back-ebook só envia a entrada antes do pagamento. Se isso puder ocorrer, a idempotência precisa de chave própria (coluna nova, migração).
+- Duas cobranças pagas pelo comprador para o mesmo pedido (QR antigo + novo): o vendedor é creditado uma vez, o comprador pagou duas; estorno é operacional (a entrada não trata `refunded`/`chargeback`: igual ao fluxo A4).
+- A conclusão dispara `applyWalletEntry`, mas não `AffiliateCommissionService.applyForTransaction` (indicação de usuário por taxa de plataforma) nem reversões; igual ao caminho `upsertEbookTransaction` anterior.
+- A notificação ao back-ebook depende de `ORD-AAAA-NNNNNN` no payload (como antes); o crédito do vendedor já não depende disso.
+- `upsertEbookTransaction` ainda localiza a entrada também por `description contains <pedido>` (pré-existente); não alterado.
+- Falta o teste ponta a ponta com o app de checkout real e com o back-ebook (`EBOOK_CANONICAL_FINANCE=true`).
 
 ### Fase B. Preparação (dono/ops; fora do código)
 
