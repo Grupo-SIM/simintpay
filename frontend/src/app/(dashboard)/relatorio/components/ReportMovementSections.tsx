@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Clock,
   HandCoins,
+  Smartphone,
   TrendingDown,
   TrendingUp,
   XCircle,
@@ -60,6 +61,16 @@ export function ReportMovementSections({
             iconClassName="bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
           />
           {boletos}
+          {(s.maquinetaCount ?? 0) > 0 && (
+            <MetricCard
+              label="Maquinetas"
+              value={money(s.maquinetaGrossCents)}
+              detail={count(s.maquinetaCount)}
+              icon={Smartphone}
+              valueClassName="text-emerald-600 dark:text-emerald-400"
+              iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
+            />
+          )}
           <MetricCard
             label="Estornos"
             value={money(s.refundedCents)}

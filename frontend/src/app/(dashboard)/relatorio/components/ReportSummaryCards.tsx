@@ -8,7 +8,6 @@ import {
   Users,
 } from 'lucide-react';
 import { ReportMovementSections } from './ReportMovementSections';
-import { MaquinetaSection } from './MaquinetaSection';
 import { MetricCard } from './MetricCard';
 import { ReportMetricSection } from './ReportMetricSection';
 import type { ReportSummary } from './report-types';
@@ -94,7 +93,6 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
         coproducao={data.coproducao}
         hasPlatforms={data.platformsCount > 0}
       />
-      <MaquinetaSection summary={s} />
       {!s.historicalAttributionComplete && (
         <p role="status" className="text-sm text-amber-600">
           Histórico com atribuição incompleta. Lançamentos sem identificação ou
