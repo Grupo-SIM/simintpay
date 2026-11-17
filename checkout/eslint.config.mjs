@@ -14,7 +14,6 @@ export default defineConfig([
       'src/components/card/creditCardForm.tsx',
       'src/components/simboleto/SimBoletoCheckout.tsx',
       'src/components/simlink/SimLinkCheckout/index.tsx',
-      'src/components/simpixplan/SimPixPlanCheckout.tsx',
       'src/components/simplan/SimPlanCheckout.tsx',
       'src/components/simsubscriptionlink/SimSubscriptionLinkCheckout.tsx',
       'src/components/success/page.tsx',

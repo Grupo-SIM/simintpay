@@ -24,7 +24,7 @@ export function offerRedirectTarget(url: URL): URL | null {
   if (params.get('oferta')) return null;
 
   const pixCode = params.get('code');
-  if (pixCode && /^PX-/i.test(pixCode)) {
+  if (pixCode && /^PX[-_]/i.test(pixCode)) {
     const target = new URL(url);
     target.searchParams.set('oferta', pixCode);
     target.searchParams.delete('code');

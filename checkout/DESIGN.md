@@ -5,7 +5,7 @@ Implementação do design **"Checkout Novo"** (mobile, 390px) e **"Checkout Novo
 > **Todos os checkouts** usam a UI nova:
 >
 > - **SimLink** (`src/components/simlink/`): implementação completa do fluxo em etapas, descrita abaixo.
-> - **Demais checkouts** (`card/creditCardForm` — o padrão, sem parâmetro —, `simplan`, `simpixplan`, `simsubscriptionlink`, `simboleto`) e `assinatura-sucesso`: receberam o visual novo pelos componentes compartilhados (seção "Checkouts compartilhados"). A estrutura deles (accordion, campos, status) e toda a lógica continuam iguais.
+> - **Demais checkouts** (`card/creditCardForm` — o padrão, sem parâmetro —, legado já redirecionado para ofertas) e `assinatura-sucesso`: receberam o visual novo pelos componentes compartilhados (seção "Checkouts compartilhados"). A estrutura deles (accordion, campos, status) e toda a lógica continuam iguais.
 
 ## Checkouts compartilhados
 

@@ -1,7 +1,6 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
 import CreditCardForm from '@/components/card/creditCardForm';
-import SimPixPlanCheckout from '@/components/simpixplan/SimPixPlanCheckout';
 import OfferCheckout from '@/components/ofertas/OfferCheckout';
 import OfferRenewal from '@/components/ofertas/OfferRenewal';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
@@ -41,10 +40,6 @@ export default function CheckoutRouter() {
   if (oferta) {
     if (searchParams.has('renovar')) return <OfferRenewal />;
     return <OfferCheckout />;
-  }
-
-  if (code && (/^PX-/i.test(code) || /^PX_/i.test(code))) {
-    return <SimPixPlanCheckout />;
   }
 
   const hasCheckoutData =
