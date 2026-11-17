@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
-import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge-characterization.fixture';
+import { useEmptyCaches } from '../src/modules/offer/offer-charge.fixture';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
 import { StoredCardCycleExecutor } from '../src/modules/billing-core/stored-card-cycle.executor';
 import { StoredCardVaultService } from '../src/modules/billing-core/stored-card-vault.service';

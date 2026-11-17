@@ -6,7 +6,7 @@ import {
   expect,
   test,
 } from 'bun:test';
-import { useEmptyCaches } from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { useEmptyCaches } from './offer-charge.fixture';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { markPreDispatchNoCharge } from '../unified-platform/payments/dom-rejection';

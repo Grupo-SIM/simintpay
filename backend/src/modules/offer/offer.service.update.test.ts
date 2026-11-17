@@ -1,9 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { makeOfferDb } from './offer-checkout.fixture';
-import {
-  PIX_LANE_POLICY,
-  useEmptyCaches,
-} from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { PIX_LANE_POLICY, useEmptyCaches } from './offer-charge.fixture';
 import { OfferService } from './offer.service';
 
 const existing = {

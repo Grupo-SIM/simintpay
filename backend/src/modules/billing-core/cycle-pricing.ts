@@ -5,7 +5,7 @@ import {
   type Offer,
   type PaymentMethod,
 } from '@prisma/client';
-import { round2 } from '../../application/use-cases/payment-link/payment-link-fees.helper';
+import { round2 } from './round2';
 import {
   loadChargePolicy,
   quoteFinancialCharge,

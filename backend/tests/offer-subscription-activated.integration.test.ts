@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
-import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge-characterization.fixture';
+import { useEmptyCaches } from '../src/modules/offer/offer-charge.fixture';
 import {
   OfferFulfillmentService,
   PrismaFulfillmentMarkers,

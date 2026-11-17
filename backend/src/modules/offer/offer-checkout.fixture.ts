@@ -1,8 +1,5 @@
 import { Prisma } from '@prisma/client';
-import {
-  PIX_LANE_POLICY,
-  makeFakePrisma,
-} from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { PIX_LANE_POLICY, makeFakePrisma } from './offer-charge.fixture';
 
 /**
  * In-memory fake of the Prisma surface touched by the offer checkout, layered on the

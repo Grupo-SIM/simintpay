@@ -6,10 +6,7 @@ import {
   expect,
   test,
 } from 'bun:test';
-import {
-  PIX_LANE_POLICY,
-  useEmptyCaches,
-} from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { PIX_LANE_POLICY, useEmptyCaches } from './offer-charge.fixture';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { ExternalRefService } from '../billing-core/external-ref.service';
@@ -131,7 +128,6 @@ describe('OfferCheckoutService', () => {
     const row = db.base.row();
     expect(row.status).toBe('PENDING');
     expect(row.domPaymentId).toBe('dom-pay-1');
-    expect(row.paymentLinkId).toBeUndefined();
     expect(money(row.amount)).toBe(100);
     expect(db.charges).toHaveLength(1);
     expect(db.charges[0]).toMatchObject({

@@ -6,10 +6,7 @@ import {
   expect,
   test,
 } from 'bun:test';
-import {
-  money,
-  useEmptyCaches,
-} from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { money, useEmptyCaches } from './offer-charge.fixture';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { ExternalRefService } from '../billing-core/external-ref.service';

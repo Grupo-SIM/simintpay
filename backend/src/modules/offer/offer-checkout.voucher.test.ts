@@ -6,10 +6,7 @@ import {
   expect,
   test,
 } from 'bun:test';
-import {
-  PIX_LANE_POLICY,
-  useEmptyCaches,
-} from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { PIX_LANE_POLICY, useEmptyCaches } from './offer-charge.fixture';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { ExternalRefService } from '../billing-core/external-ref.service';
