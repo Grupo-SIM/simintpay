@@ -64,6 +64,25 @@ Motivos de pulo mostrados na simulação: `OFFER_MISSING`, `NO_SETTLED_TRANSACTI
 - Conferir que o saldo da carteira do vendedor **não mudou** depois da migração.
 - Reverter apagando os contratos e cobranças com `metadata.legacyOrderId`. É seguro porque nenhum dinheiro se moveu.
 
+### Pedidos PIX pendentes (checkout legado)
+
+Pedidos `pending` de PIX com o pagamento já emitido na DOM, criados pelo fluxo antigo, não têm contrato nem cobrança: quando a DOM confirmar, o webhook os trataria pelo caminho legado (marca o pedido `paid` e credita a carteira, sem contrato). O script `backend/scripts/offer-pending-order-migration.ts` leva esses pedidos ao modelo da oferta **antes** do pagamento, gravando o que o `OfferSubscribeService` grava no primeiro PIX:
+
+- `BillingContract` `INACTIVE` (sem ciclo pago), chave `ofertaId:e-mail`, `metadata.legacyOrderId`;
+- `Charge` `PENDING` (PIX, primeiro ciclo) ligada à `Transaction`;
+- `Transaction` `PENDING` / `FINAL_NET` com `offerId` e `domPaymentId` = o `domPixPaymentId` do pedido (a referência que o webhook e a reconciliação já resolvem). Se a reconciliação já abriu a `Transaction` PENDING do pedido, ela é adotada (ganha o `offerId`), nunca duplicada;
+- o pedido passa a `status = 'migrated'`, o que faz os handlers legados do webhook o ignorarem; o pagamento liquida pelo caminho da oferta (`settleFinalNet` + `markChargeSettled`: `Charge` `PAID`, contrato `ACTIVE`, próximo ciclo agendado) e a carteira é creditada uma única vez.
+
+Não migra (só reporta): pedido sem `domPixPaymentId`, sem `financialSnapshot` ou com snapshot que não bate com o valor cobrado, oferta ausente ou sem recorrência, `Transaction` já paga/encerrada, chave de contrato duplicada entre pedidos (vale o mais antigo) ou já existente. Pedidos pagos, expirados, falhos ou reembolsados são ignorados. Dry-run por padrão, a transação aborta se carteira, `BalanceLog`, `CoproductionAllocation`, `Transaction` pré-existente (exceto a adotada) ou qualquer outro pedido mudar. Idempotente (o pedido migrado deixa de ser candidato). A partir de `backend/`:
+
+```bash
+bun --no-env-file scripts/offer-pending-order-migration.ts --database-url=postgresql://...
+bun --no-env-file scripts/offer-pending-order-migration.ts --database-url=... --apply --i-understand-this-writes
+bun --no-env-file scripts/offer-pending-order-migration.ts --database-url=... --verify
+```
+
+O contrato fica com `usedCount` da oferta intacto (o uso já foi contado no checkout legado). Teste: `backend/tests/offer-pending-order-migration.integration.test.ts` (variável `OFFER_PENDING_ORDER_MIGRATION_TEST_DATABASE_URL`, só `127.0.0.1`).
+
 ## 3. Cenário B: a assinatura está ativa na DOM (cartão)
 
 Siga a ordem **capturar, criar inerte, cancelar na DOM, verificar, ativar**. Assim a pior falha é uma cobrança que não acontece (recuperável), nunca uma cobrança em dobro.
