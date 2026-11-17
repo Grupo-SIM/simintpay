@@ -11,6 +11,7 @@ import {
   type Action,
 } from './SubscribersRowActionsMenu';
 import { useColumnResize } from '@/hooks/use-column-resize';
+import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
 type Props = {
   rows: SubscriberRow[];
@@ -32,7 +33,11 @@ type Props = {
   onRowAction?: (action: Action, rowId: string) => void;
 };
 
-function renderCell(column: string, row: SubscriberRow) {
+function renderCell(
+  column: string,
+  row: SubscriberRow,
+  platformNameByTag: Map<string, string>,
+) {
   switch (column) {
     case 'Nome':
       return (
@@ -54,10 +59,12 @@ function renderCell(column: string, row: SubscriberRow) {
         atlas: 'AtlasHosting',
       };
       const platLabel =
-        DISPLAY[row.plataforma?.toLowerCase()] ?? row.plataforma;
+        platformNameByTag.get(row.plataforma?.trim().toLowerCase()) ??
+        DISPLAY[row.plataforma?.toLowerCase()] ??
+        row.plataforma;
       return row.plataforma && row.plataforma !== '—' ? (
         <span
-          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase whitespace-nowrap ${getPlatformBadgeClass(row.plataforma)}`}
+          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase break-words whitespace-normal ${getPlatformBadgeClass(row.plataforma)}`}
         >
           {platLabel}
         </span>
@@ -131,6 +138,14 @@ export function SubscribersTable({
     [visibleColumns],
   );
   const { widths, onMouseDown } = useColumnResize(colDefs);
+  const { platforms: catalogPlatforms } = useProductPlatforms();
+  const platformNameByTag = useMemo(
+    () =>
+      new Map(
+        catalogPlatforms.map((p) => [p.tag.trim().toLowerCase(), p.name]),
+      ),
+    [catalogPlatforms],
+  );
   const totalWidth = colDefs.reduce(
     (s, c) => s + (widths[c.key] ?? c.defaultWidth),
     0,
@@ -256,7 +271,7 @@ export function SubscribersTable({
                       key={col}
                       className="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300 overflow-hidden text-ellipsis"
                     >
-                      {renderCell(col, row)}
+                      {renderCell(col, row, platformNameByTag)}
                     </td>
                   ))}
                   <td className="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">
