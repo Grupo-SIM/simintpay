@@ -26,7 +26,9 @@ import {
   offerListPaging,
 } from './offer-list';
 import {
+  fulfillmentFunnelIssues,
   OfferFulfillmentError,
+  type FulfillmentBump,
   parseOfferFulfillment,
   readOfferFulfillment,
   type OfferFulfillment,
@@ -62,7 +64,31 @@ export type PublicBump = {
   currency: string;
   /** Rota pública da imagem; null quando a oferta não tem imagem. */
   imageUrl: string | null;
+  headline: string | null;
+  /** Preço "de" riscado; null a menos que seja maior que `amountCents`. */
+  originalAmountCents: number | null;
+  /** Segundos do cronômetro (só UPSELL/DOWNSELL); null sem cronômetro. */
+  countdownSeconds: number | null;
 };
+
+type BumpExtras = Pick<
+  FulfillmentBump,
+  'headline' | 'originalAmountCents' | 'countdownSeconds'
+>;
+
+function bumpExtras(
+  o: Pick<Offer, 'amountCents'>,
+  role: PublicBump['role'],
+  link?: BumpExtras,
+): Pick<PublicBump, 'headline' | 'originalAmountCents' | 'countdownSeconds'> {
+  const original = link?.originalAmountCents ?? null;
+  return {
+    headline: link?.headline || null,
+    originalAmountCents:
+      original !== null && original > o.amountCents ? original : null,
+    countdownSeconds: role !== 'BUMP' ? (link?.countdownSeconds ?? null) : null,
+  };
+}
 
 function publicImageUrl(o: Offer): string | null {
   if (!readOfferFulfillment(o.fulfillment).imageUrl) return null;
@@ -74,8 +100,13 @@ function publicImageUrl(o: Offer): string | null {
   return `${base}/ofertas/public/${encodeURIComponent(o.code)}/imagem?v=${o.updatedAt.getTime()}`;
 }
 
-function toPublicBump(o: Offer, role: PublicBump['role'] = 'BUMP'): PublicBump {
+function toPublicBump(
+  o: Offer,
+  role: PublicBump['role'] = 'BUMP',
+  link?: BumpExtras,
+): PublicBump {
   return {
+    ...bumpExtras(o, role, link),
     imageUrl: publicImageUrl(o),
     code: o.code,
     role,
@@ -411,9 +442,10 @@ export class OfferService {
         })
       : [];
     const byId = new Map(rows.map((o) => [o.id, o]));
+    const extras = new Map((dto.bumps ?? []).map((b) => [b.offerId, b]));
     const bumps = (dto.bumpOfferIds ?? []).flatMap((id) => {
       const o = byId.get(id);
-      return o ? [o] : [];
+      return o && extras.get(id)?.isActive !== false ? [o] : [];
     });
     // Só os bumps marcados entram no preço; a prévia pede de novo a cada marcação.
     const chosen = bumps.filter((o) =>
@@ -425,7 +457,10 @@ export class OfferService {
         amountCents:
           draft.amountCents + chosen.reduce((n, o) => n + o.amountCents, 0),
       }),
-      bumps: bumps.map((o) => ({ offerId: o.id, ...toPublicBump(o) })),
+      bumps: bumps.map((o) => ({
+        offerId: o.id,
+        ...toPublicBump(o, 'BUMP', extras.get(o.id)),
+      })),
     };
   }
 
@@ -496,9 +531,11 @@ export class OfferService {
     const byId = new Map(rows.map((o) => [o.id, o]));
     return bumps.flatMap((b) => {
       const o = byId.get(b.offerId);
-      if (!o || (o.expiresAt && o.expiresAt <= now)) return [];
+      if (b.isActive === false || !o || (o.expiresAt && o.expiresAt <= now))
+        return [];
       return [
         {
+          ...bumpExtras(o, b.role, b),
           code: o.code,
           role: b.role,
           name: o.name,
@@ -540,12 +577,21 @@ export class OfferService {
           ownerUserId,
           renewalMode: 'NONE',
         },
-        select: { id: true },
+        select: { id: true, amountCents: true },
       });
       if (found.length !== parsed.bumps.length)
         throw new BadRequestException(
           'Bump deve referenciar ofertas avulsas existentes do mesmo titular',
         );
+      const issues = fulfillmentFunnelIssues(parsed.bumps);
+      const price = new Map(found.map((o) => [o.id, o.amountCents]));
+      for (const b of parsed.bumps)
+        if (
+          b.originalAmountCents != null &&
+          b.originalAmountCents <= (price.get(b.offerId) ?? 0)
+        )
+          issues.push('O valor "de" deve ser maior que o preço da oferta');
+      if (issues.length) throw new BadRequestException(issues.join('. '));
     }
     return parsed as unknown as Prisma.InputJsonValue;
   }

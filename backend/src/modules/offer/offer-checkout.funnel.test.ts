@@ -192,3 +192,47 @@ describe('funnel guards', () => {
     expect(off.main.usedCount).toBe(0);
   });
 });
+
+describe('inactive funnel entries', () => {
+  const entries = (over: Record<string, unknown>[]) => ({
+    fulfillment: {
+      bumps: [
+        { offerId: 'bump-1', role: 'BUMP', ...over[0] },
+        { offerId: 'up-1', role: 'UPSELL', ...over[1] },
+      ],
+    },
+  });
+
+  test('a bump entry with isActive=false cannot be charged', async () => {
+    const f = setup(entries([{ isActive: false }, {}]));
+    await expect(
+      f.charge(f.main.code, { bumpCodes: ['BUMP00001'] }),
+    ).rejects.toThrow('Order bump indisponível');
+    expect(f.db.charges).toHaveLength(0);
+  });
+
+  test('an upsell entry with isActive=false is rejected, active ones still work', async () => {
+    const f = setup(entries([{}, { isActive: false }]));
+    const parent = await f.charge(f.main.code);
+    f.db.charges[0].status = 'PAID';
+    f.db.charges[0].customerEmail = buyer.customerEmail;
+    await expect(
+      f.charge(f.byId('up-1').code, { parentChargeId: parent.chargeId }),
+    ).rejects.toThrow('não encontrada');
+    const ok = setup(entries([{ isActive: true }, {}]));
+    await expect(
+      ok.charge(ok.main.code, { bumpCodes: ['BUMP00001'] }),
+    ).resolves.toHaveProperty('chargeId');
+  });
+
+  test('a deactivated upsell offer is rejected by the checkout lookup', async () => {
+    const f = setup();
+    const parent = await f.charge(f.main.code);
+    f.db.charges[0].status = 'PAID';
+    f.db.charges[0].customerEmail = buyer.customerEmail;
+    f.byId('up-1').isActive = false;
+    await expect(
+      f.charge(f.byId('up-1').code, { parentChargeId: parent.chargeId }),
+    ).rejects.toThrow('Oferta não encontrada');
+  });
+});

@@ -31,7 +31,32 @@ export type FulfillmentFile = {
   fileUrl: string;
 };
 
-export type FulfillmentBump = { offerId: string; role: FulfillmentRole };
+export const MAX_ORDER_BUMPS = 5;
+export const MAX_BUMP_HEADLINE = 120;
+export const MIN_COUNTDOWN_SECONDS = 30;
+export const MAX_COUNTDOWN_SECONDS = 3600;
+
+export type FulfillmentBump = {
+  offerId: string;
+  role: FulfillmentRole;
+  /** Chamada em destaque (legacy `chamada`). Até 120, sem espaços nas pontas; vazio é omitido. */
+  headline?: string | null;
+  /** Preço "de" riscado em centavos. Inteiro > 0; na escrita precisa superar o preço da oferta do bump. */
+  originalAmountCents?: number | null;
+  /** Só UPSELL/DOWNSELL. Segundos, inteiro 30..3600; ausente/null = sem cronômetro. */
+  countdownSeconds?: number | null;
+  /** Ausente equivale a true. false esconde o bump e bloqueia a cobrança dele. */
+  isActive?: boolean;
+};
+
+const BUMP_KEYS = new Set([
+  'offerId',
+  'role',
+  'headline',
+  'originalAmountCents',
+  'countdownSeconds',
+  'isActive',
+]);
 
 export type OfferFulfillment = {
   files: FulfillmentFile[];
@@ -131,6 +156,71 @@ export function unsafeUrlReason(raw: string): string | null {
   return null;
 }
 
+const present = (v: unknown) => v !== undefined && v !== null && v !== '';
+
+/** Normaliza os campos opcionais de um bump; chaves ausentes/vazias não são gravadas. */
+function parseBumpExtras(
+  b: Record<string, unknown>,
+  issues: string[],
+): Pick<
+  FulfillmentBump,
+  'headline' | 'originalAmountCents' | 'countdownSeconds' | 'isActive'
+> {
+  const out: ReturnType<typeof parseBumpExtras> = {};
+  for (const key of Object.keys(b))
+    if (!BUMP_KEYS.has(key)) issues.push(`Campo desconhecido em bump: ${key}`);
+  if (present(b.headline)) {
+    const h = typeof b.headline === 'string' ? b.headline.trim() : null;
+    if (h === null || h.length > MAX_BUMP_HEADLINE)
+      issues.push(
+        `headline deve ser um texto de até ${MAX_BUMP_HEADLINE} caracteres`,
+      );
+    else if (h) out.headline = h;
+  }
+  if (present(b.originalAmountCents)) {
+    const v = b.originalAmountCents;
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0)
+      issues.push('originalAmountCents deve ser um inteiro positivo');
+    else out.originalAmountCents = v;
+  }
+  if (present(b.countdownSeconds)) {
+    const v = b.countdownSeconds;
+    if (
+      typeof v !== 'number' ||
+      !Number.isInteger(v) ||
+      v < MIN_COUNTDOWN_SECONDS ||
+      v > MAX_COUNTDOWN_SECONDS
+    )
+      issues.push(
+        `countdownSeconds deve ser um inteiro entre ${MIN_COUNTDOWN_SECONDS} e ${MAX_COUNTDOWN_SECONDS}`,
+      );
+    else out.countdownSeconds = v;
+  }
+  if (b.isActive !== undefined && b.isActive !== null) {
+    if (typeof b.isActive !== 'boolean')
+      issues.push('isActive deve ser booleano');
+    else out.isActive = b.isActive;
+  }
+  return out;
+}
+
+/**
+ * Limites do funil, checados só na escrita (a leitura nunca pode falhar: dados já gravados
+ * continuam valendo). Devolve as mensagens de problema.
+ */
+export function fulfillmentFunnelIssues(bumps: FulfillmentBump[]): string[] {
+  const count = (r: FulfillmentRole) =>
+    bumps.filter((b) => b.role === r).length;
+  const issues: string[] = [];
+  if (count('BUMP') > MAX_ORDER_BUMPS)
+    issues.push(`Máximo de ${MAX_ORDER_BUMPS} order bumps`);
+  if (count('UPSELL') > 1) issues.push('Máximo de 1 upsell');
+  if (count('DOWNSELL') > 1) issues.push('Máximo de 1 downsell');
+  if (count('DOWNSELL') > 0 && count('UPSELL') === 0)
+    issues.push('Downsell exige um upsell configurado');
+  return issues;
+}
+
 /**
  * Valida e normaliza o JSON de entrega. Pura. `null`/`undefined` viram uma entrega vazia.
  * Não consulta o banco: a referência dos bumps (mesmo titular, ativa) é checada pelo serviço.
@@ -213,11 +303,20 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
       for (const b of input.bumps as Record<string, unknown>[]) {
         const offerId = str(b?.offerId);
         const role = b?.role;
-        if (!offerId || !FULFILLMENT_ROLES.includes(role as FulfillmentRole))
+        if (!offerId || !FULFILLMENT_ROLES.includes(role as FulfillmentRole)) {
           issues.push(
             'Bump precisa de offerId e role (BUMP, UPSELL ou DOWNSELL)',
           );
-        else bumps.push({ offerId, role: role as FulfillmentRole });
+          continue;
+        }
+        const entry = parseBumpExtras(b, issues);
+        bumps.push({
+          offerId,
+          role: role as FulfillmentRole,
+          ...entry,
+        });
+        if (entry.countdownSeconds != null && role === 'BUMP')
+          issues.push('Cronômetro só vale para upsell e downsell');
       }
       if (new Set(bumps.map((b) => b.offerId)).size !== bumps.length)
         issues.push('Oferta repetida em bumps');

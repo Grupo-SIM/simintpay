@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  MAX_ORDER_BUMPS,
+  fulfillmentFunnelIssues,
   OfferFulfillmentError,
   isPrivateAddress,
   parseOfferFulfillment,
@@ -115,5 +117,69 @@ describe('parseOfferFulfillment', () => {
     expect(
       readOfferFulfillment({ redirectUrl: 'http://localhost' }).redirectUrl,
     ).toBeNull();
+  });
+});
+
+describe('parseOfferFulfillment: extras do funil', () => {
+  const base = { offerId: 'o1', role: 'UPSELL' };
+  const parse = (b: Record<string, unknown>) =>
+    parseOfferFulfillment({ bumps: [{ ...base, ...b }] }).bumps[0];
+
+  test('bumps antigos continuam iguais e os extras são mantidos normalizados', () => {
+    expect(parse({})).toEqual(base);
+    expect(
+      parse({
+        headline: '  Só hoje ',
+        originalAmountCents: 9000,
+        countdownSeconds: 600,
+        isActive: false,
+      }),
+    ).toEqual({
+      ...base,
+      headline: 'Só hoje',
+      originalAmountCents: 9000,
+      countdownSeconds: 600,
+      isActive: false,
+    });
+    expect(parse({ headline: '', originalAmountCents: null })).toEqual(base);
+  });
+
+  test('rejeita valores inválidos e chaves desconhecidas', () => {
+    const bad = (b: Record<string, unknown>) =>
+      issues({ bumps: [{ ...base, ...b }] });
+    expect(bad({ headline: 'x'.repeat(121) })).toMatch('headline');
+    expect(bad({ originalAmountCents: 1.5 })).toMatch('originalAmountCents');
+    expect(bad({ countdownSeconds: 29 })).toMatch('countdownSeconds');
+    expect(bad({ countdownSeconds: 3601 })).toMatch('countdownSeconds');
+    expect(bad({ isActive: 'no' })).toMatch('isActive');
+    expect(bad({ foo: 1 })).toMatch('Campo desconhecido em bump: foo');
+    expect(
+      issues({
+        bumps: [{ offerId: 'o1', role: 'BUMP', countdownSeconds: 60 }],
+      }),
+    ).toMatch('Cronômetro');
+  });
+
+  test('limites do funil só valem na escrita (leitura não perde dados)', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({
+      offerId: `b${i}`,
+      role: 'BUMP' as const,
+    }));
+    expect(fulfillmentFunnelIssues(many).join()).toMatch('Máximo de 5');
+    expect(readOfferFulfillment({ bumps: many }).bumps).toHaveLength(7);
+    const two = [
+      { offerId: 'u1', role: 'UPSELL' as const },
+      { offerId: 'u2', role: 'UPSELL' as const },
+      { offerId: 'd1', role: 'DOWNSELL' as const },
+      { offerId: 'd2', role: 'DOWNSELL' as const },
+    ];
+    expect(fulfillmentFunnelIssues(two)).toEqual([
+      'Máximo de 1 upsell',
+      'Máximo de 1 downsell',
+    ]);
+    expect(
+      fulfillmentFunnelIssues([{ offerId: 'd', role: 'DOWNSELL' }]),
+    ).toEqual(['Downsell exige um upsell configurado']);
+    expect(fulfillmentFunnelIssues(many.slice(0, MAX_ORDER_BUMPS))).toEqual([]);
   });
 });

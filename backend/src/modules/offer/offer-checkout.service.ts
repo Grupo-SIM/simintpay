@@ -559,7 +559,7 @@ export class OfferCheckoutService {
     if (codes.length === 0) return [];
     const allowed = new Set(
       readOfferFulfillment(offer.fulfillment)
-        .bumps.filter((b) => b.role === 'BUMP')
+        .bumps.filter((b) => b.role === 'BUMP' && b.isActive !== false)
         .map((b) => b.offerId),
     );
     const found = await this.prisma.offer.findMany({
@@ -603,6 +603,7 @@ export class OfferCheckoutService {
     if (
       !link ||
       link.role === 'BUMP' ||
+      link.isActive === false ||
       parent.offer.ownerUserId !== offer.ownerUserId
     )
       throw new NotFoundException('Oferta não encontrada ou inativa');

@@ -23,6 +23,33 @@ const METHODS = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'] as const;
 const RENEWALS = ['NONE', 'AUTO_CHARGE', 'MANUAL_PAY'] as const;
 const INTERVALS = ['DAY', 'WEEK', 'MONTH', 'YEAR'] as const;
 
+/** Extras de um bump enviados à prévia de preço, ecoados em `bumps[]`. */
+export class OfferPreviewBumpDto {
+  @ApiProperty()
+  @IsString()
+  offerId!: string;
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  headline?: string | null;
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  originalAmountCents?: number | null;
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(30)
+  @Max(3600)
+  countdownSeconds?: number | null;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 /** Campos editáveis de uma oferta. Titular, código e plataforma nunca mudam na edição. */
 export class UpdateOfferDto {
   @ApiPropertyOptional()
@@ -101,7 +128,10 @@ export class UpdateOfferDto {
   @Min(1)
   maxUses?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'Entrega pós-pagamento. `bumps` é a lista completa (envie sempre inteira): cada item tem offerId, role (BUMP|UPSELL|DOWNSELL) e opcionais headline (<=120), originalAmountCents (> preço da oferta), countdownSeconds (30..3600, só UPSELL/DOWNSELL) e isActive. Limites: 5 BUMP, 1 UPSELL, 1 DOWNSELL; downsell exige upsell.',
+  })
   @IsOptional()
   @IsObject()
   fulfillment?: Record<string, unknown>;
@@ -363,6 +393,17 @@ export class OfferPreviewPricingDto {
   @ArrayMaxSize(20)
   @IsString({ each: true })
   selectedBumpOfferIds?: string[];
+  @ApiPropertyOptional({
+    type: () => [OfferPreviewBumpDto],
+    description:
+      'Extras (chamada, valor "de", cronômetro, ativo) ecoados em `bumps[]`; itens inativos são omitidos',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @ValidateNested({ each: true })
+  @Type(() => OfferPreviewBumpDto)
+  bumps?: OfferPreviewBumpDto[];
 }
 
 /** Validação pública de cupom no checkout de uma oferta. */
