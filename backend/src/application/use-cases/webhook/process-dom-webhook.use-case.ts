@@ -13,6 +13,10 @@ import {
 } from '../../../modules/financial-policy/financial-subscription';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import {
+  ebookOrderCreditMetadata,
+  fundEbookCommission,
+} from '../../../modules/platform-core/ebook-commission-funding';
+import {
   loadChargePolicy,
   quoteReportedPos,
 } from '../../../modules/financial-policy/financial-charge';
@@ -1159,6 +1163,10 @@ export class ProcessDomWebhookUseCase {
     // interest, with the quote kept in financialSnapshot); keep that net instead of the LIQUIDEZ shortcut.
     const canonicalEntry =
       !!pendingTx.financialSnapshot && pendingTx.netAmount !== null;
+    const ownerBaseReais = Math.min(
+      Number(pendingTx.amount),
+      data.amount / 100,
+    );
     // The entry is always recorded as PIX 1x at the owner amount (the order exists before the buyer picks
     // card/installments). Once the real card payment is confirmed, reprice the owner share with the paid
     // installments so the interest cost reaches the seller net.
@@ -1195,7 +1203,9 @@ export class ProcessDomWebhookUseCase {
       netDec = canonicalEntry
         ? new Prisma.Decimal(pendingTx.netAmount!.toString())
         : this.calcNet(
-            data.amount / 100,
+            // The entry holds the owner amount (order total minus the affiliate commission, credited apart):
+            // pricing the whole payment would credit the commission to the owner as well.
+            ownerBaseReais,
             Number(data.installments ?? 1),
             undefined,
             'EBOOK',
@@ -1256,9 +1266,17 @@ export class ProcessDomWebhookUseCase {
         userId: pendingTx.userId,
         action: 'EBOOK_PENDING_COMPLETED',
         source: 'DOM_WEBHOOK',
+        platformTag: 'EBOOK',
+        nature: 'SALE',
         balanceDelta: walletDeltaPending,
         transactionId: pendingTx.id,
+        metadata: ebookOrderCreditMetadata({
+          orderNumber,
+          baseCents: Math.round(ownerBaseReais * 100),
+          paidCents: data.amount,
+        }),
       });
+      await fundEbookCommission(p, orderNumber);
       return true;
     });
     return applied;
@@ -1440,11 +1458,19 @@ export class ProcessDomWebhookUseCase {
             userId: ebookUserId,
             action: 'DOM_WEBHOOK_COMPLETED',
             transactionId: tx.id,
+            platformTag: 'EBOOK',
+            nature: 'SALE',
             balanceDelta: walletDeltaEbook,
             lockedDelta: 0,
             source: 'EBOOK_WEBHOOK',
             description: `Pedido ebook: ${orderNumber}`,
+            metadata: ebookOrderCreditMetadata({
+              orderNumber,
+              baseCents: data.amount,
+              paidCents: data.amount,
+            }),
           });
+          await fundEbookCommission(p, orderNumber);
         }
 
         return tx;

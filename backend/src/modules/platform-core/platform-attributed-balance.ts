@@ -71,6 +71,7 @@ export class PlatformAttributedBalance {
     const [
       rows,
       settlementCredits,
+      coproductionCredits,
       withdrawals,
       wallet,
       productCount,
@@ -96,6 +97,22 @@ export class PlatformAttributedBalance {
             select: { balanceDelta: true },
           })
         : Promise.resolve([] as { balanceDelta: Prisma.Decimal }[]),
+      merchantUserId
+        ? p.balanceLog.findMany({
+            where: {
+              userId: merchantUserId,
+              nature: 'COPRODUCTION',
+              source: { notIn: ['EBOOK_V1', 'EBOOK_COMMISSION'] },
+              platformTag: canonicalTransactionPlatformTag(context.tag),
+            },
+            select: { balanceDelta: true, transactionId: true },
+          })
+        : Promise.resolve(
+            [] as {
+              balanceDelta: Prisma.Decimal;
+              transactionId: string | null;
+            }[],
+          ),
       p.withdrawRequest.findMany({
         where: {
           userId: accountUserId,
@@ -153,6 +170,31 @@ export class PlatformAttributedBalance {
     for (const credit of settlementCredits) {
       earned = earned.plus(credit.balanceDelta);
       if (!credit.balanceDelta.isZero()) identifiedTransactions++;
+    }
+    // Coproduction credits of the FINAL_NET path (settleCoproduction) are written to every beneficiary's wallet.
+    // The merchant owning the Transaction row already counts its own share above (allocateNet of the snapshot),
+    // so only the credits of sales owned by someone else count here: exactly once per beneficiary.
+    if (coproductionCredits.length) {
+      const owned = new Set(
+        (
+          await p.transaction.findMany({
+            where: {
+              id: {
+                in: coproductionCredits.flatMap((c) =>
+                  c.transactionId ? [c.transactionId] : [],
+                ),
+              },
+              userId: accountUserId,
+            },
+            select: { id: true },
+          })
+        ).map((row) => row.id),
+      );
+      for (const credit of coproductionCredits) {
+        if (!credit.transactionId || owned.has(credit.transactionId)) continue;
+        earned = earned.plus(credit.balanceDelta);
+        if (!credit.balanceDelta.isZero()) identifiedTransactions++;
+      }
     }
     for (const row of withdrawals) {
       if (row.status === 'PENDING') reserved = reserved.plus(row.grossAmount);

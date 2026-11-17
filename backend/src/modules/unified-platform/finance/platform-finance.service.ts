@@ -15,6 +15,7 @@ import { parseYmdSp } from '../../platform-core/platform-administration.helpers'
 import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
 import { quotePaidAmount } from '../../financial-policy/platform-fee-schedule';
 import { PlatformLedger } from './platform-ledger';
+import { fundEbookCommission } from '../../platform-core/ebook-commission-funding';
 import {
   isPlatformScopedBalance,
   merchantScopedBalance,
@@ -251,6 +252,7 @@ export class PlatformFinanceService {
         ? undefined
         : new Prisma.Decimal(Number(body.netAmountCents)).div(100);
     let quote: Awaited<ReturnType<typeof quotePaidAmount>> = null;
+    let orderNumber = '';
     if (ebook && commission) {
       // A commission is a transfer of the already priced sale: no fee or interest applies.
       if (net !== undefined && !net.eq(amount))
@@ -265,6 +267,7 @@ export class PlatformFinanceService {
         body.orderNumber.length > 60
       )
         throw new BadRequestException('orderNumber é obrigatório na comissão');
+      orderNumber = body.orderNumber.trim();
       // The settlement (ebook-settlement.ts) credits the affiliate allocation itself: never credit twice.
       const settlement = await this.prisma.$queryRaw<
         { id: string }[]
@@ -367,6 +370,9 @@ export class PlatformFinanceService {
             source: 'EBOOK_COMMISSION',
             platformTag: 'EBOOK',
             nature: 'COMMISSION',
+            // Moves the commission out of an order credit that already contains it (never X + Y).
+            metadata: { ebookOrderNumber: orderNumber },
+            afterCredit: (p) => fundEbookCommission(p, orderNumber),
           }
         : undefined,
     );

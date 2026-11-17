@@ -28,7 +28,12 @@ export class PlatformLedger {
     /** Ledger attribution of the wallet credit (defaults keep the historical untagged PLATFORM_LEDGER entry). */
     credit: Partial<
       Pick<WalletLedgerEntry, 'action' | 'source' | 'platformTag' | 'nature'>
-    > = {},
+    > & {
+      /** Extra BalanceLog metadata of the credit (merged after `tag` and `reference`). */
+      metadata?: Prisma.InputJsonObject;
+      /** Runs in the same database transaction, after the credit (only when the entry was created). */
+      afterCredit?: (p: Prisma.TransactionClient) => Promise<void>;
+    } = {},
   ) {
     const reference = data.domPaymentId;
     if (!reference || !hasPlatformMarker(data.description ?? '', tag))
@@ -124,8 +129,9 @@ export class PlatformLedger {
             nature: credit.nature,
             balanceDelta: net,
             transactionId: row.id,
-            metadata: { tag, reference },
+            metadata: { tag, reference, ...credit.metadata },
           });
+          await credit.afterCredit?.(p);
         }
         return { success: true, id: row.id, created: true };
       });

@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { allocateNet, snapshotFrom } from './coproduction';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
+import { canonicalTransactionPlatformTag } from '../platform-core/transaction-platform';
 
 type Allocation = {
   userId: string;
@@ -19,6 +20,8 @@ export async function settleCoproduction(
   row: Transaction,
   status: TransactionStatus,
   source: string,
+  /** Extra metadata of the owner share credit (Ebook order funding marker). */
+  ownerMetadata?: Prisma.InputJsonObject,
 ): Promise<boolean> {
   const snapshot = snapshotFrom(row.financialSnapshot);
   if (!snapshot) return false;
@@ -63,7 +66,11 @@ export async function settleCoproduction(
       userId: share.userId,
       action: `COPRODUCTION_${status}`,
       source,
-      platformTag: row.platformTag,
+      // Ebook credits are always attributed to EBOOK (forward-only; other platforms keep the row's own tag).
+      platformTag:
+        canonicalTransactionPlatformTag(row.platformTag) === 'EBOOK'
+          ? 'EBOOK'
+          : row.platformTag,
       nature: 'COPRODUCTION',
       balanceDelta,
       lockedDelta,
@@ -73,6 +80,7 @@ export async function settleCoproduction(
         productId: snapshot.productId,
         version: snapshot.version,
         ownerUserId: snapshot.ownerUserId,
+        ...(share.userId === snapshot.ownerUserId ? ownerMetadata : {}),
       },
     });
     await tx.$executeRaw`UPDATE "CoproductionAllocation" SET state = ${target} WHERE "transactionId" = ${row.id} AND "userId" = ${share.userId}`;

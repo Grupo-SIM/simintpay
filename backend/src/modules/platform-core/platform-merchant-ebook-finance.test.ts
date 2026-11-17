@@ -230,7 +230,11 @@ function ledgerFixture(settledOrders: string[] = []) {
         lockedBalance: new Prisma.Decimal(0),
       })),
     },
-    balanceLog: { create: mock(async () => ({})) },
+    balanceLog: {
+      create: mock(async () => ({})),
+      findMany: mock(async () => []),
+    },
+    $executeRaw: mock(async () => 0),
     $queryRaw: mock(async (_s: unknown, order: string) =>
       settledOrders.includes(order) ? [{ id: 'settlement' }] : [],
     ),

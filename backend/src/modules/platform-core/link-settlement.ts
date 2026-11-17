@@ -3,6 +3,12 @@ import { settleCoproduction } from '../coproduction/coproduction-settlement';
 import { AffiliateCommissionService } from '../../application/services/affiliate-commission.service';
 import { enqueueCashbackGrant } from './cashback-grant';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
+import {
+  ebookOrderCreditMetadata,
+  ebookOrderFromDescription,
+  fundEbookCommission,
+} from './ebook-commission-funding';
+import { canonicalTransactionPlatformTag } from './transaction-platform';
 import { ConflictException } from '@nestjs/common';
 import { Prisma, TransactionStatus, type Transaction } from '@prisma/client';
 
@@ -28,7 +34,24 @@ export async function settleFinalNet(
     data: { status, previousStatus: from },
   });
   if (claimed.count !== 1) return false;
-  const distributed = await settleCoproduction(p, row, status, source);
+  // Ebook orders: credits carry the platform attribution and the order marker that funds affiliate commissions.
+  const ebookOrder =
+    canonicalTransactionPlatformTag(row.platformTag) === 'EBOOK'
+      ? ebookOrderFromDescription(row.description)
+      : null;
+  const ebookTag =
+    canonicalTransactionPlatformTag(row.platformTag) === 'EBOOK'
+      ? 'EBOOK'
+      : undefined;
+  const marker =
+    ebookOrder && status === 'COMPLETED' && from !== 'IN_MEDIATION'
+      ? ebookOrderCreditMetadata({
+          orderNumber: ebookOrder,
+          baseCents: Math.round(Number(row.amount) * 100),
+          paidCents: Math.round(Number(row.amount) * 100),
+        })
+      : undefined;
+  const distributed = await settleCoproduction(p, row, status, source, marker);
   let balance = new Prisma.Decimal(0),
     locked = new Prisma.Decimal(0);
   let value = new Prisma.Decimal(row.netAmount);
@@ -62,8 +85,11 @@ export async function settleFinalNet(
       balanceDelta: balance,
       lockedDelta: locked,
       source,
+      ...(ebookTag ? { platformTag: ebookTag, nature: 'SALE' as const } : {}),
+      ...(marker ? { metadata: marker } : {}),
     });
   }
+  if (marker && ebookOrder) await fundEbookCommission(p, ebookOrder);
   const commissions = new AffiliateCommissionService();
   if (status === 'COMPLETED' && from !== 'IN_MEDIATION')
     await enqueueCashbackGrant(p, row);
