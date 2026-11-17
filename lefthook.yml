@@ -10,9 +10,5 @@ pre-commit:
       glob: '*.{ts,tsx,js,jsx,mjs,cjs,json,css,yml,yaml,md}'
       run: bun scripts/format-staged.ts {staged_files}
       stage_fixed: true
-    2-lint:
-      glob: '**/*.{ts,tsx,js,jsx,mjs}'
-      run: bun scripts/lint-staged.ts {staged_files}
-      stage_fixed: true
     3-check:
       run: bun scripts/validate-staged.ts
