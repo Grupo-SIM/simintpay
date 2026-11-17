@@ -83,7 +83,7 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
       });
     });
     await page.goto(`http://127.0.0.1:${server.port}/?admin`);
-    await page.getByText('Taxas adicionais', { exact: true }).waitFor();
+    await page.getByText('Taxas do comprador', { exact: true }).waitFor();
     const card = page.getByRole('article').first();
     expect(await card.innerText()).toContain('Adicional do lojista');
     expect(await card.innerText()).toContain('1,5%');

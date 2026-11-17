@@ -391,25 +391,29 @@ export function FinancialPolicyDraft({
         </div>
       </div>
       {admin && (
-        <TargetFeeSection
-          global={isGlobal}
-          value={targetFeePpm}
-          globalValue={configuration.globalTargetFeePpm ?? null}
-          onChange={setTargetFeePpm}
-          onValidityChange={validity}
-        />
+        <div className="space-y-4">
+          <TargetFeeSection
+            global={isGlobal}
+            value={targetFeePpm}
+            globalValue={configuration.globalTargetFeePpm ?? null}
+            onChange={setTargetFeePpm}
+            onValidityChange={validity}
+          />
+          {feeMode !== null && (
+            <FeeModeField value={feeMode} onChange={setFeeMode} />
+          )}
+        </div>
       )}
       {/* Manual SimIntPay fees stay stored but do not apply while a target fee is set; additive fees are independent. */}
-      {admin && feeMode !== null && (
-        <FeeModeField value={feeMode} onChange={setFeeMode} />
-      )}
-      {admin && feeMode !== null && additiveView && (
-        <AdditiveFeesSection
-          value={additiveFeesDraft}
-          onChange={setAdditiveFeesDraft}
-          onValidityChange={validity}
-        />
-      )}
+      {admin &&
+        (feeMode === 'ADDITIVE_ONLY' || feeMode === 'BOTH') &&
+        additiveView && (
+          <AdditiveFeesSection
+            value={additiveFeesDraft}
+            onChange={setAdditiveFeesDraft}
+            onValidityChange={validity}
+          />
+        )}
       <p className="text-sm text-zinc-500">
         {admin &&
           'Configure taxas e juros SimIntPay comparando custos internos da adquirente. Cada parcela mantém juros próprios; repasse ao comprador é definido pelo dono da plataforma. '}

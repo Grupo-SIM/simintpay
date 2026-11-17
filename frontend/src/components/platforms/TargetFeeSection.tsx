@@ -47,8 +47,7 @@ export function TargetFeeSection({
   };
   const effective = global ? value : (value ?? globalValue);
   return (
-    <fieldset className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
-      <legend className="px-1 text-sm font-semibold">Taxa alvo</legend>
+    <div className="space-y-3">
       <div className="max-w-md">
         <CustomSelect
           label={global ? 'Taxa alvo padrão' : 'Taxa alvo da plataforma'}
@@ -91,6 +90,6 @@ export function TargetFeeSection({
           Sem taxa alvo: valem as taxas SimIntPay manuais.
         </p>
       )}
-    </fieldset>
+    </div>
   );
 }

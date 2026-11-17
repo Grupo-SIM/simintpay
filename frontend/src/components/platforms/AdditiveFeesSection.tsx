@@ -14,7 +14,7 @@ export function AdditiveFeesSection({
   const current = value;
   return (
     <fieldset className="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
-      <legend className="px-1 text-sm font-semibold">Taxas adicionais</legend>
+      <legend className="px-1 text-sm font-semibold">Taxas do comprador</legend>
       {(['order', 'product'] as const).map((scope) => (
         <AdditiveTotalsRow
           key={scope}

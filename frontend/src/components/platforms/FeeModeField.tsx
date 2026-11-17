@@ -30,10 +30,7 @@ export function FeeModeField({
 }) {
   const current = MODES.find((mode) => mode.value === value) ?? MODES[0]!;
   return (
-    <fieldset className="space-y-2 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
-      <legend className="px-1 text-sm font-semibold">
-        Taxas aplicadas aos pagamentos
-      </legend>
+    <div className="space-y-2">
       <div className="max-w-md">
         <CustomSelect
           label="Modo de taxas"
@@ -43,6 +40,6 @@ export function FeeModeField({
         />
       </div>
       <p className="text-sm text-zinc-500">{current.hint}</p>
-    </fieldset>
+    </div>
   );
 }
