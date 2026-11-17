@@ -18,7 +18,7 @@ import {
   DesktopHeader,
   ErrorBox,
   GLASS,
-  ProductImage,
+  ProtectedPill,
   Screen,
   Spinner,
   formatCurrency,
@@ -58,6 +58,34 @@ type FunnelPix = {
   qrCode: string | null;
   expire: string | null;
 };
+
+/** Capa da oferta; sem imagem, mostra um placeholder listrado para manter o layout em duas colunas. */
+function FunnelImage({
+  src,
+  className,
+}: {
+  src?: string | null;
+  className: string;
+}) {
+  if (src)
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        className={cx('shrink-0 object-cover', className)}
+      />
+    );
+  return (
+    <div
+      aria-hidden="true"
+      className={cx(
+        'shrink-0 border border-white/[0.08] bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.05)_0_12px,rgba(255,255,255,0.02)_12px_24px)]',
+        className,
+      )}
+    />
+  );
+}
 
 const api = (code: string) =>
   `${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}`;
@@ -291,7 +319,7 @@ export function OfferFunnelView({
     >
       <div className="flex items-center justify-between gap-3 text-[13px] text-[#d9d4e3] lg:text-sm">
         <span>{expired ? 'Oferta encerrada' : 'Esta condição expira em'}</span>
-        <span className="font-semibold tabular-nums text-[#ffc48f]">
+        <span className="text-2xl font-semibold leading-none tabular-nums text-[#ffc48f] lg:text-[28px]">
           {timer.label}
         </span>
       </div>
@@ -356,7 +384,10 @@ export function OfferFunnelView({
 
   return (
     <Screen variant={isDown ? 'downsell' : 'default'}>
-      <DesktopHeader />
+      <DesktopHeader badge="Pagamento protegido" />
+      <div className="-mb-2 flex justify-end lg:hidden">
+        <ProtectedPill compact label="Pagamento protegido" />
+      </div>
 
       <div className="flex flex-col items-center gap-[18px] text-center lg:gap-4">
         <div className="flex items-center gap-2 rounded-full border border-white/[0.14] bg-white/[0.08] px-3.5 py-2 text-[13px] text-[#d9d4e3] lg:px-4 lg:py-[9px] lg:text-sm">
@@ -377,7 +408,6 @@ export function OfferFunnelView({
 
       {/* Mobile */}
       <div className="flex flex-1 flex-col gap-[18px] lg:hidden">
-        {timerEl}
         {isDown ? (
           <div
             className={cx(
@@ -385,10 +415,16 @@ export function OfferFunnelView({
               GLASS,
             )}
           >
-            <ProductImage
+            <FunnelImage
               src={bump.imageUrl}
               className="h-[140px] w-[140px] rounded-[28px]"
             />
+            {timerEl}
+            {hasDiscount && (
+              <span className="rounded-full bg-[linear-gradient(90deg,#a99ef8,#f6b67a)] px-2.5 py-1 text-xs font-semibold uppercase text-[#17131f]">
+                {off} · Oferta única pós-compra
+              </span>
+            )}
             <div className="text-xl font-medium">{title}</div>
             <div className="flex flex-col items-center gap-0.5">
               {hasDiscount && (
@@ -407,10 +443,11 @@ export function OfferFunnelView({
           <div
             className={cx('flex flex-col gap-4 rounded-[28px] p-3.5', GLASS)}
           >
-            <ProductImage
+            <FunnelImage
               src={bump.imageUrl}
               className="h-[180px] w-full rounded-[20px]"
             />
+            {timerEl}
             <div className="flex flex-col gap-2 px-1.5">
               {hasDiscount && (
                 <span className="self-start rounded-full bg-[linear-gradient(90deg,#a99ef8,#f6b67a)] px-2.5 py-1 text-xs font-semibold uppercase text-[#17131f]">
@@ -438,13 +475,11 @@ export function OfferFunnelView({
       <div
         className={cx(
           'hidden w-full max-w-[1000px] self-center rounded-[28px] p-5 lg:grid lg:items-stretch lg:gap-8',
-          bump.imageUrl
-            ? 'lg:grid-cols-[440px_minmax(0,1fr)]'
-            : 'lg:grid-cols-1',
+          'lg:grid-cols-[440px_minmax(0,1fr)]',
           GLASS,
         )}
       >
-        <ProductImage
+        <FunnelImage
           src={bump.imageUrl}
           className="h-full min-h-[380px] w-full rounded-[22px]"
         />
