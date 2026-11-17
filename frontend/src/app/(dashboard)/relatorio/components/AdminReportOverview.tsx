@@ -88,8 +88,8 @@ const METRIC_TT = {
   quantidadeClientes:
     'Compradores únicos por CPF nas vendas aprovadas do período. Compras sem CPF não entram na contagem.',
   // ── Bloco DOM ──
-  mdrDom: 'MDR percentual da DOM (varia por método e parcela).',
-  taxaFixaDom: 'R$ 1 por transação cobrado pela DOM.',
+  taxaBaseAdq:
+    'Taxa base da adquirente: percentual (MDR) mais taxa fixa por transação.',
   taxaCashbackDom: 'R$ 3 por transação de cashback DOM.',
   // ── Bloco Sim Int Pay ──
   taxaSimIntPct: 'Margem percentual da Sim Int Pay, já sem o MDR DOM.',
@@ -586,30 +586,24 @@ export default function AdminReportOverview({
             a.taxaSaque;
           const isDom = a.adquirente === 'DOM';
           const itens: [string, number, typeof Percent, string][] = [
-            ['Taxa (%)', a.taxaPercentual, Percent, METRIC_TT.mdrDom],
             [
-              'Taxa por transação',
-              a.taxaPorTransacao,
-              Hash,
-              METRIC_TT.taxaFixaDom,
+              'Taxa',
+              a.taxaPercentual + a.taxaPorTransacao,
+              Percent,
+              METRIC_TT.taxaBaseAdq,
             ],
-            ...(isDom
-              ? ([
-                  [
-                    'Taxa de cashback',
-                    a.cashback,
-                    Gift,
-                    METRIC_TT.taxaCashbackDom,
-                  ],
-                ] as [string, number, typeof Percent, string][])
-              : []),
             [
               'Parcelamento',
               a.parcelamento,
               CreditCard,
               METRIC_TT.parcelamentoAdq,
             ],
-            ['Taxa de saque', a.taxaSaque, Banknote, METRIC_TT.taxaSaqueDOM],
+            ['Saque', a.taxaSaque, Banknote, METRIC_TT.taxaSaqueDOM],
+            ...(isDom
+              ? ([
+                  ['Cashback', a.cashback, Gift, METRIC_TT.taxaCashbackDom],
+                ] as [string, number, typeof Percent, string][])
+              : []),
             ['Total', total, Building2, METRIC_TT.totalAdquirente],
           ];
           return (
