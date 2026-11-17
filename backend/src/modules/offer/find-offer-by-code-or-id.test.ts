@@ -40,4 +40,15 @@ describe('findOfferByCodeOrId', () => {
     expect(await findOfferByCodeOrId(prisma, 'ABC123')).toBeNull();
     expect(calls).toHaveLength(1);
   });
+
+  test('falls back to an active code alias when code and id miss', async () => {
+    const { prisma } = fake([]);
+    const offer = { id: 'o1', code: 'REAL' };
+    prisma.offerCodeAlias = {
+      findFirst: async ({ where }: any) =>
+        where.code === 'PX-ABC123' && where.isActive ? { offer } : null,
+    };
+    expect(await findOfferByCodeOrId(prisma, 'PX-ABC123')).toBe(offer as never);
+    expect(await findOfferByCodeOrId(prisma, 'PX-NOPE')).toBeNull();
+  });
 });

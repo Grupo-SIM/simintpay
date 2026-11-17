@@ -103,6 +103,7 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
     trialDays: offer.trialDays,
     expiresAt: offer.expiresAt,
     requiresBuyerAddress: metadata.requiresBuyerAddress === true,
+    imageUrl: publicImageUrl(offer),
     bumps,
   };
 }
@@ -558,8 +559,7 @@ export class OfferService {
     return {
       ...offer,
       metadata: (offer.metadata ?? undefined) as
-        | Prisma.InputJsonValue
-        | undefined,
+        Prisma.InputJsonValue | undefined,
     };
   }
 

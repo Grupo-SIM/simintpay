@@ -25,6 +25,8 @@ export type PublicOffer = {
   intervalCount: number | null;
   trialDays?: number | null;
   pricing?: OfferCheckoutPricing;
+  /** Imagem do produto (rota pública do backend); ausente quando não há. */
+  imageUrl?: string | null;
   /** Order bumps vendáveis com a oferta (`GET /ofertas/public/:code`). */
   bumps?: PublicBump[];
 };

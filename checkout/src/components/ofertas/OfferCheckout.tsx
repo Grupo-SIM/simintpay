@@ -710,6 +710,7 @@ export default function OfferCheckout({
         description: offer.description
           ? sanitizeCheckoutText(offer.description)
           : undefined,
+        image: offer.imageUrl ?? undefined,
         price: money(offerAmount(offer)),
         frequency: recurring ? frequencyLabel(offer) : 'Pagamento único',
         itemsLabel: `${1 + chosenBumps.length} ${chosenBumps.length ? 'itens' : 'item'}`,
