@@ -297,9 +297,17 @@ export class BillingCycleService {
         throw error;
       }
     }
-    if (existing.status !== 'FAILED') return null;
+    // FAILED, or EXPIRED by the PIX-expired webhook (contract still due): reopen the same
+    // charge for a new attempt. The compare-and-set on (status, attempts) makes it idempotent;
+    // the expired PIX Transaction is already closed, so nothing can be paid twice.
+    if (existing.status !== 'FAILED' && existing.status !== 'EXPIRED')
+      return null;
     const reopened = await this.prisma.charge.updateMany({
-      where: { id: existing.id, status: 'FAILED', attempts: existing.attempts },
+      where: {
+        id: existing.id,
+        status: existing.status,
+        attempts: existing.attempts,
+      },
       data: { status: 'PENDING', attempts: { increment: 1 } },
     });
     if (reopened.count === 0) return null;
