@@ -12,21 +12,17 @@ import {
   ShieldAlert,
   TrendingUp,
   TrendingDown,
-  BarChart3,
   Percent,
   Package,
   Search,
   Eraser,
   QrCode,
-  Users,
   Banknote,
   Clock,
   Hash,
   ChartPie,
   RefreshCw,
   AlertTriangle,
-  Eye,
-  X,
   Barcode,
 } from 'lucide-react';
 import { Tooltip as TooltipRadix } from 'radix-ui';
@@ -363,14 +359,6 @@ function GenericPlatformPanel({
   const [showEstornoValue, setShowEstornoValue] = useState(false);
   const [showChargebackValue, setShowChargebackValue] = useState(false);
 
-  const [showActiveSellersModal, setShowActiveSellersModal] = useState(false);
-  const [activeSellersPage, setActiveSellersPage] = useState(1);
-  const [activeSellersSearch, setActiveSellersSearch] = useState('');
-  const [showAllUsersModal, setShowAllUsersModal] = useState(false);
-  const [showSaquesModal, setShowSaquesModal] = useState(false);
-  const [allUsersPage, setAllUsersPage] = useState(1);
-  const [allUsersSearch, setAllUsersSearch] = useState('');
-
   // Dashboard stats
   const {
     data: dashStats,
@@ -396,44 +384,6 @@ function GenericPlatformPanel({
 
   // Só a Renovada opera maquineta física — nas demais a seção fica oculta.
   const showMaquinetaCards = tag === 'RENOVADA';
-
-  // Saques do período, um a um, com a taxa cobrada em cada — abre no modal do card
-  // "Taxa de Saque — Simintpay". Só busca quando o modal é aberto.
-  type SaqueDetalhado = {
-    id: string;
-    solicitadoEm: string;
-    aprovadoEm: string;
-    usuario: string;
-    email: string;
-    chavePix: string;
-    valorBruto: number;
-    valorLiquido: number;
-    taxaCobrada: number;
-    status: string;
-  };
-  const SAQUE_STATUS_PT: Record<string, string> = {
-    PENDING: 'Pendente',
-    APPROVED: 'Aprovado',
-    COMPLETED: 'Concluído',
-    REJECTED: 'Recusado',
-  };
-  const { data: saquesDetalhados, isLoading: isLoadingSaquesDetalhados } =
-    useQuery({
-      queryKey: ['produto-saques', tag, periodoInicio, periodoFim],
-      enabled: !!tag && showSaquesModal,
-      queryFn: async () => {
-        const api = createApiClient({
-          baseUrl: getDefaultApiBaseUrl(),
-          getToken: () => localStorage.getItem('access_token') ?? undefined,
-        });
-        return api.get<{
-          data: SaqueDetalhado[];
-          quantidade: number;
-        }>(endpoints.admin.plataformas.saques(tag.toLowerCase()), {
-          query: { dataInicio: periodoInicio, dataFim: periodoFim },
-        });
-      },
-    });
 
   // DOM/SimIntPay breakdown para esta plataforma
   const {
@@ -582,101 +532,6 @@ function GenericPlatformPanel({
       });
       return api.get<{ total: number }>(endpoints.admin.saques.list, {
         query: { status: 'PENDING', pageSize: '1', modulo: slugModulo },
-      });
-    },
-  });
-
-  // Seller / subscriber stats (EBOOK, PAGATG, AREAFLIX)
-  const showSellerStats =
-    tag === 'EBOOK' ||
-    tag === 'EBOOKSIM' ||
-    tag === 'PAGATG' ||
-    tag === 'AREAFLIX';
-  const sellerLabel =
-    tag === 'AREAFLIX' ? 'Assinantes Ativos' : 'Sellers Ativos';
-  const contasLabel =
-    tag === 'AREAFLIX' ? 'Clientes Totais' : 'Quantidade de Contas';
-  const sellerTooltip =
-    tag === 'AREAFLIX'
-      ? 'Clientes com assinatura ativa na plataforma.'
-      : 'Vendedores que realizaram ao menos 1 venda no mês atual.';
-  const contasTooltip =
-    tag === 'AREAFLIX'
-      ? 'Total de clientes que pagaram ao menos uma vez.'
-      : 'Total de contas cadastradas na plataforma.';
-  const {
-    data: sellerStats,
-    isLoading: isLoadingSellerStats,
-    isError: sellersError,
-    refetch: retrySellers,
-  } = useQuery({
-    queryKey: ['seller-stats', tag],
-    enabled: showSellerStats,
-    staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const api = createApiClient({
-        baseUrl: getDefaultApiBaseUrl(),
-        getToken: () => localStorage.getItem('access_token') ?? undefined,
-      });
-      return api.get<{ totalContas: number; sellersAtivos: number }>(
-        endpoints.internalStats.sellerStats(tag.toLowerCase()),
-      );
-    },
-  });
-
-  type ActiveSeller = {
-    name: string;
-    email: string;
-    cpf: string;
-    balance: number | null;
-    lockedBalance: number | null;
-    balanceStatus?: 'complete' | 'unavailable';
-    createdAt: string;
-    status?: string;
-    isRegisteredInSimIntPay?: boolean;
-  };
-
-  const { data: activeSellersData, isLoading: isLoadingActiveSellers } =
-    useQuery({
-      queryKey: ['active-sellers', tag, activeSellersPage],
-      enabled: showActiveSellersModal && showSellerStats,
-      staleTime: 2 * 60_000,
-      queryFn: async () => {
-        const api = createApiClient({
-          baseUrl: getDefaultApiBaseUrl(),
-          getToken: () => localStorage.getItem('access_token') ?? undefined,
-        });
-        return api.get<{
-          data: ActiveSeller[];
-          total: number;
-          page: number;
-          pageSize: number;
-        }>(endpoints.internalStats.sellersAtivos(tag.toLowerCase()), {
-          query: { page: String(activeSellersPage), pageSize: '20' },
-        });
-      },
-    });
-
-  const { data: allUsersData, isLoading: isLoadingAllUsers } = useQuery({
-    queryKey: ['all-users', tag, allUsersPage],
-    enabled: showAllUsersModal && showSellerStats,
-    staleTime: 2 * 60_000,
-    queryFn: async () => {
-      const api = createApiClient({
-        baseUrl: getDefaultApiBaseUrl(),
-        getToken: () => localStorage.getItem('access_token') ?? undefined,
-      });
-      return api.get<{
-        data: ActiveSeller[];
-        total: number;
-        page: number;
-        pageSize: number;
-      }>(endpoints.internalStats.sellersAtivos(tag.toLowerCase()), {
-        query: {
-          page: String(allUsersPage),
-          pageSize: '100',
-          apenasAtivos: 'false',
-        },
       });
     },
   });
@@ -976,8 +831,7 @@ function GenericPlatformPanel({
     isLoadingConsolidadoProduto ||
     isLoadingPlataformaConsolidado ||
     isLoadingDash ||
-    isLoadingSaquesPendentes ||
-    (showSellerStats && isLoadingSellerStats);
+    isLoadingSaquesPendentes;
   const fmt = formatBRL;
   // Receita e repasse vêm do mesmo endpoint e da mesma população de
   // transações. O consolidado geral tem regras próprias e pode excluir uma
@@ -1012,7 +866,6 @@ function GenericPlatformPanel({
     dashboardError ||
     summaryError ||
     withdrawalsError ||
-    (showSellerStats && sellersError) ||
     (plataformaConsolidado && 'error' in plataformaConsolidado)
   )
     return (
@@ -1022,7 +875,6 @@ function GenericPlatformPanel({
           void retryDashboard();
           void retrySummary();
           void retryWithdrawals();
-          if (showSellerStats) void retrySellers();
         }}
       />
     );
@@ -1170,7 +1022,7 @@ function GenericPlatformPanel({
                   {
                     <MetricCard
                       label="Taxa de Saque — Simintpay"
-                      tooltip={`Lucro com saques aprovados (${dashStats?.saqueFees?.quantidade ?? 0} saques). Clique para ver saque a saque.`}
+                      tooltip={`Lucro com saques aprovados (${dashStats?.saqueFees?.quantidade ?? 0} saques).`}
                       value={
                         isLoadingDash
                           ? 'Carregando...'
@@ -1179,8 +1031,6 @@ function GenericPlatformPanel({
                       valueClassName="text-violet-600 dark:text-violet-400"
                       icon={Wallet}
                       iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-                      onAction={() => setShowSaquesModal(true)}
-                      actionIcon={Eye}
                     />
                   }
                   <MetricCard
@@ -1493,79 +1343,6 @@ function GenericPlatformPanel({
                 </section>
               }
 
-              {/* ── Contas — só renderiza quando a plataforma expõe stats de seller/cliente ── */}
-              {showSellerStats && (
-                <section className="flex flex-col gap-3">
-                  <h2 className="text-sm font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    Contas
-                  </h2>
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                    {showSellerStats &&
-                      (tag === 'EBOOK' || tag === 'EBOOKSIM') && (
-                        <MetricCard
-                          label={contasLabel}
-                          tooltip={contasTooltip}
-                          value={
-                            isLoadingSellerStats
-                              ? 'Carregando...'
-                              : `${sellerStats?.totalContas ?? 0} contas`
-                          }
-                          valueClassName="text-indigo-600 dark:text-indigo-400"
-                          icon={BarChart3}
-                          iconClassName="text-indigo-600 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400"
-                          onAction={() => {
-                            setAllUsersPage(1);
-                            setShowAllUsersModal(true);
-                          }}
-                          actionIcon={Eye}
-                        />
-                      )}
-                    {showSellerStats &&
-                      tag !== 'PAGATG' &&
-                      tag !== 'EBOOKSIM' && (
-                        <MetricCard
-                          label={sellerLabel}
-                          tooltip={sellerTooltip}
-                          value={
-                            isLoadingSellerStats
-                              ? 'Carregando...'
-                              : `${sellerStats?.sellersAtivos ?? 0} ${tag === 'AREAFLIX' ? 'ativos' : 'sellers'}`
-                          }
-                          valueClassName="text-sky-600 dark:text-sky-400"
-                          icon={Users}
-                          iconClassName="text-sky-600 bg-sky-50 dark:bg-sky-950/30 dark:text-sky-400"
-                          onAction={() => {
-                            setActiveSellersPage(1);
-                            setShowActiveSellersModal(true);
-                          }}
-                          actionIcon={Eye}
-                        />
-                      )}
-                    {showSellerStats &&
-                      tag !== 'EBOOK' &&
-                      tag !== 'EBOOKSIM' && (
-                        <MetricCard
-                          label={contasLabel}
-                          tooltip={contasTooltip}
-                          value={
-                            isLoadingSellerStats
-                              ? 'Carregando...'
-                              : `${sellerStats?.totalContas ?? 0} ${tag === 'AREAFLIX' ? 'clientes' : 'contas'}`
-                          }
-                          valueClassName="text-indigo-600 dark:text-indigo-400"
-                          icon={BarChart3}
-                          iconClassName="text-indigo-600 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400"
-                          onAction={() => {
-                            setAllUsersPage(1);
-                            setShowAllUsersModal(true);
-                          }}
-                          actionIcon={Eye}
-                        />
-                      )}
-                  </div>
-                </section>
-              )}
-
               {/* ── Estornos & Chargebacks ── */}
               <section className="flex flex-col gap-3">
                 <h2 className="text-sm font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -1859,465 +1636,6 @@ function GenericPlatformPanel({
           />
         </div>
       </section>
-
-      {/* ── Modal de usuários ativos ─────────────────────────────────────────── */}
-      {showActiveSellersModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={() => setShowActiveSellersModal(false)}
-        >
-          <div
-            className="relative flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400">
-                  <Users className="h-5 w-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    {sellerLabel} — {tag}
-                  </h4>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {activeSellersData?.total ?? 0}{' '}
-                    {tag === 'AREAFLIX' ? 'assinantes' : 'sellers'} ativos
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowActiveSellersModal(false)}
-                className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="mb-3">
-              <input
-                type="text"
-                placeholder="Filtrar por nome, email ou CPF..."
-                value={activeSellersSearch}
-                onChange={(e) => setActiveSellersSearch(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:focus:border-sky-500 dark:focus:ring-sky-500/20"
-              />
-            </div>
-
-            {/* Table */}
-            <div className="flex-1 overflow-y-auto max-h-[65vh]">
-              {isLoadingActiveSellers ? (
-                <div className="flex items-center justify-center py-12">
-                  <Spinner className="h-6 w-6 text-sky-500" />
-                </div>
-              ) : !activeSellersData?.data.length ? (
-                <p className="py-12 text-center text-xs text-zinc-400">
-                  Nenhum usuário ativo encontrado.
-                </p>
-              ) : (
-                (() => {
-                  const q = activeSellersSearch.toLowerCase();
-                  const filtered = activeSellersData.data.filter(
-                    (u) =>
-                      !q ||
-                      u.name?.toLowerCase().includes(q) ||
-                      u.email?.toLowerCase().includes(q) ||
-                      u.cpf?.includes(q),
-                  );
-                  return filtered.length === 0 ? (
-                    <p className="py-12 text-center text-xs text-zinc-400">
-                      Nenhum resultado para &quot;{activeSellersSearch}&quot;.
-                    </p>
-                  ) : (
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-zinc-100 dark:border-white/10">
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            Nome
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            CPF
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            Email
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            Cadastro
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map((u, i) => (
-                          <tr
-                            key={i}
-                            className="border-b border-zinc-50 dark:border-white/5 hover:bg-zinc-50 dark:hover:bg-white/5"
-                          >
-                            <td className="px-3 py-2 text-zinc-900 dark:text-zinc-100">
-                              {u.name || '—'}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-zinc-600 dark:text-zinc-400">
-                              {u.cpf
-                                ? u.cpf
-                                    .replace(/\D/g, '')
-                                    .replace(
-                                      /(\d{3})(\d{3})(\d{3})(\d{2})/,
-                                      '$1.$2.$3-$4',
-                                    )
-                                : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
-                              {u.email || '—'}
-                            </td>
-                            <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">
-                              {new Date(u.createdAt).toLocaleDateString(
-                                'pt-BR',
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  );
-                })()
-              )}
-            </div>
-
-            {/* Pagination */}
-            {(activeSellersData?.total ?? 0) > 20 && (
-              <div className="mt-3 flex items-center justify-between border-t border-zinc-100 pt-3 dark:border-white/10">
-                <span className="text-xs text-zinc-400">
-                  {activeSellersData?.total ?? 0} resultados · pág.{' '}
-                  {activeSellersPage} de{' '}
-                  {Math.ceil((activeSellersData?.total ?? 1) / 20)}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={activeSellersPage <= 1}
-                    onClick={() => setActiveSellersPage((p) => p - 1)}
-                    className="rounded-md border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-white/10"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      activeSellersPage >=
-                      Math.ceil((activeSellersData?.total ?? 1) / 20)
-                    }
-                    onClick={() => setActiveSellersPage((p) => p + 1)}
-                    className="rounded-md border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-white/10"
-                  >
-                    Próxima
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal todos os usuários/clientes ─────────────────────────────────── */}
-      {/* Modal: saques do período com a taxa cobrada em cada um */}
-      {showSaquesModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-          onClick={() => setShowSaquesModal(false)}
-        >
-          <div
-            className="relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
-                  <Wallet className="h-5 w-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    Taxa de Saque — {tag}
-                  </h4>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {saquesDetalhados?.quantidade ?? 0}{' '}
-                    {(saquesDetalhados?.quantidade ?? 0) === 1
-                      ? 'saque aprovado'
-                      : 'saques aprovados'}
-                    {periodoInicio && periodoFim
-                      ? ` · ${formatDateBR(periodoInicio)} a ${formatDateBR(periodoFim)}`
-                      : ''}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowSaquesModal(false)}
-                className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto max-h-[65vh]">
-              {isLoadingSaquesDetalhados ? (
-                <div className="flex items-center justify-center py-12">
-                  <Spinner className="h-6 w-6 text-violet-500" />
-                </div>
-              ) : !saquesDetalhados?.data?.length ? (
-                <p className="py-12 text-center text-xs text-zinc-400">
-                  Nenhum saque aprovado no período.
-                </p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-zinc-100 dark:border-white/10">
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                        Aprovado em
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                        Usuário
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                        Valor bruto
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                        Taxa cobrada
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                        Repassado
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {saquesDetalhados.data.map((sq) => (
-                      <tr
-                        key={sq.id}
-                        className="border-b border-zinc-50 hover:bg-zinc-50 dark:border-white/5 dark:hover:bg-white/5"
-                      >
-                        <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
-                          {new Date(sq.aprovadoEm).toLocaleString('pt-BR', {
-                            dateStyle: 'short',
-                            timeStyle: 'short',
-                          })}
-                        </td>
-                        <td className="px-3 py-2 text-zinc-900 dark:text-zinc-100">
-                          <div className="truncate">{sq.usuario}</div>
-                          {sq.email && (
-                            <div className="truncate text-[10px] text-zinc-400 dark:text-zinc-500">
-                              {sq.email}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-zinc-600 dark:text-zinc-400">
-                          {fmt(sq.valorBruto)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-violet-600 dark:text-violet-400">
-                          {fmt(sq.taxaCobrada)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-emerald-600 dark:text-emerald-400">
-                          {fmt(sq.valorLiquido)}
-                        </td>
-                        <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">
-                          {SAQUE_STATUS_PT[sq.status] ?? sq.status}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAllUsersModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={() => setShowAllUsersModal(false)}
-        >
-          <div
-            className="relative flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400">
-                  <BarChart3 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    {contasLabel} — {tag}
-                  </h4>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {allUsersData?.total ?? 0} usuários cadastrados
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAllUsersModal(false)}
-                className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="mb-3">
-              <input
-                type="text"
-                placeholder="Filtrar por nome, email ou CPF..."
-                value={allUsersSearch}
-                onChange={(e) => setAllUsersSearch(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/20"
-              />
-            </div>
-
-            <div className="flex-1 overflow-y-auto max-h-[65vh]">
-              {isLoadingAllUsers ? (
-                <div className="flex items-center justify-center py-12">
-                  <Spinner className="h-6 w-6 text-indigo-500" />
-                </div>
-              ) : !allUsersData?.data.length ? (
-                <p className="py-12 text-center text-xs text-zinc-400">
-                  Nenhum usuário encontrado.
-                </p>
-              ) : (
-                (() => {
-                  const q = allUsersSearch.toLowerCase();
-                  const filtered = allUsersData.data.filter(
-                    (u) =>
-                      !q ||
-                      u.name?.toLowerCase().includes(q) ||
-                      u.email?.toLowerCase().includes(q) ||
-                      u.cpf?.includes(q),
-                  );
-                  return filtered.length === 0 ? (
-                    <p className="py-12 text-center text-xs text-zinc-400">
-                      Nenhum resultado para &quot;{allUsersSearch}&quot;.
-                    </p>
-                  ) : (
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-zinc-100 dark:border-white/10">
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            Nome
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            CPF
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            Email
-                          </th>
-                          <>
-                            <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                              Saldo Atribuído
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                              Saldo Bloqueado
-                            </th>
-                          </>
-                          <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                            Cadastro
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map((u, i) => (
-                          <tr
-                            key={i}
-                            className="border-b border-zinc-50 dark:border-white/5 hover:bg-zinc-50 dark:hover:bg-white/5"
-                          >
-                            <td className="px-3 py-2 text-zinc-900 dark:text-zinc-100">
-                              {u.name || '—'}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-zinc-600 dark:text-zinc-400">
-                              {u.cpf
-                                ? u.cpf
-                                    .replace(/\D/g, '')
-                                    .replace(
-                                      /(\d{3})(\d{3})(\d{3})(\d{2})/,
-                                      '$1.$2.$3-$4',
-                                    )
-                                : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
-                              {u.email || '—'}
-                            </td>
-                            <>
-                              <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400">
-                                {u.balance === null ? (
-                                  <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
-                                    Indisponível
-                                  </span>
-                                ) : (
-                                  u.balance.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL',
-                                  })
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">
-                                {u.lockedBalance === null ? (
-                                  <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
-                                    Indisponível
-                                  </span>
-                                ) : (
-                                  u.lockedBalance.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL',
-                                  })
-                                )}
-                              </td>
-                            </>
-                            <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">
-                              {new Date(u.createdAt).toLocaleDateString(
-                                'pt-BR',
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  );
-                })()
-              )}
-            </div>
-            {(allUsersData?.total ?? 0) > 20 && (
-              <div className="mt-3 flex items-center justify-between border-t border-zinc-100 pt-3 dark:border-white/10">
-                <span className="text-xs text-zinc-400">
-                  {allUsersData?.total ?? 0} resultados · pág. {allUsersPage} de{' '}
-                  {Math.ceil((allUsersData?.total ?? 1) / 20)}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={allUsersPage <= 1}
-                    onClick={() => setAllUsersPage((p) => p - 1)}
-                    className="rounded-md border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-white/10"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      allUsersPage >= Math.ceil((allUsersData?.total ?? 1) / 20)
-                    }
-                    onClick={() => setAllUsersPage((p) => p + 1)}
-                    className="rounded-md border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-white/10"
-                  >
-                    Próxima
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
