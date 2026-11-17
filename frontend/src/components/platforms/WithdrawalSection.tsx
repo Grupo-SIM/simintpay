@@ -9,8 +9,8 @@ import {
   acquirerFeesPath,
   type WithdrawalFee,
 } from './AcquirerWithdrawalFeesModal';
+import { CollapsibleSection } from './CollapsibleSection';
 import { FinancialNumberField } from './FinancialNumberField';
-import { panel } from './types';
 
 const brl = (cents: number) =>
   (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -84,8 +84,7 @@ export function WithdrawalSection({ tag }: { tag: string }) {
   const missing = active.filter((fee) => fee.feeCents === null).length;
   const highest = Math.max(0, ...active.map((fee) => fee.feeCents ?? 0));
   return (
-    <section className={panel}>
-      <h2 className="mb-4 font-semibold">Saque</h2>
+    <CollapsibleSection title="Saque">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border p-3">
         <div className="text-sm">
           <p className="font-medium">Taxa por adquirente</p>
@@ -144,6 +143,6 @@ export function WithdrawalSection({ tag }: { tag: string }) {
         fees={fees.data.data}
         onClose={() => setModalOpen(false)}
       />
-    </section>
+    </CollapsibleSection>
   );
 }

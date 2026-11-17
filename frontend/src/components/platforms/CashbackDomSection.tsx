@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { FinancialNumberField } from './FinancialNumberField';
-import { panel } from './types';
+import { CollapsibleSection } from './CollapsibleSection';
 
 type Settings = {
   data: Record<string, Record<string, number>>;
@@ -102,8 +102,7 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
         ['off', 'Desativado'],
       ];
   return (
-    <section className={panel} aria-label="Cashback DOM">
-      <h2 className="mb-4 font-semibold">Cashback DOM</h2>
+    <CollapsibleSection title="Cashback DOM">
       <div className="mb-4 rounded border p-3 text-sm">
         <p className="font-medium">
           {global ? 'Cashback ativo' : 'Cashback nesta conta'}
@@ -164,6 +163,6 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
       >
         Salvar cashback
       </button>
-    </section>
+    </CollapsibleSection>
   );
 }
