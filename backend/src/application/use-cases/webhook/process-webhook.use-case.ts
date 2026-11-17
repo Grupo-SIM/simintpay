@@ -1,3 +1,4 @@
+import { MIGRATED_ORDER_STATUS } from '../../../modules/billing-core/legacy-order-migration';
 import { alertUnresolvedWebhook } from '../../../modules/billing-core/webhook-offer-resolution';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
@@ -471,7 +472,8 @@ export class ProcessWebhookUseCase {
       },
     });
 
-    if (!order) return false;
+    // Pedido já migrado para a oferta: a Transaction/Charge liquida pelo caminho comum.
+    if (!order || order.status === MIGRATED_ORDER_STATUS) return false;
     if (domStatus === 'paid' && order.financialSnapshot)
       await settleFinancialSubscription(this.prisma, {
         snapshot: order.financialSnapshot,
@@ -577,8 +579,7 @@ export class ProcessWebhookUseCase {
             customerDocument: order.customerDocument,
             customerPhone: order.customerPhone ?? undefined,
             tracking: (order.tracking ?? undefined) as
-              | Prisma.InputJsonValue
-              | undefined,
+              Prisma.InputJsonValue | undefined,
           },
         });
 

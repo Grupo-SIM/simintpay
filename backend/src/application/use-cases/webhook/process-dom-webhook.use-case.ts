@@ -1,3 +1,4 @@
+import { MIGRATED_ORDER_STATUS } from '../../../modules/billing-core/legacy-order-migration';
 import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   alertUnresolvedWebhook,
@@ -1546,7 +1547,8 @@ export class ProcessDomWebhookUseCase {
       include: { subscriptionLink: true },
     });
 
-    if (!order) return false;
+    // Pedido já migrado para a oferta: a Transaction/Charge liquida pelo caminho comum.
+    if (!order || order.status === MIGRATED_ORDER_STATUS) return false;
     const financialInput = order.financialSnapshot
       ? {
           snapshot: order.financialSnapshot,

@@ -20,6 +20,10 @@ type FinancialSubscriptionInput = {
   pixContent?: string | null;
   pixExpire?: Date | null;
   createdAt?: Date;
+  /** Oferta de origem (migração de pedidos legados para o modelo de oferta). */
+  offerId?: string;
+  /** Id da nova Transaction; sem ele o banco gera um. */
+  transactionId?: string;
 };
 
 /** Pagamento confirmado: cria (ou promove a PENDING existente) e credita a carteira. */
@@ -55,10 +59,23 @@ export function closeFinancialSubscription(
   return persistFinancialSubscription(prisma, input, TransactionStatus[status]);
 }
 
-async function persistFinancialSubscription(
-  prisma: PrismaService,
+/**
+ * Mesma gravação do Pix aberto, dentro de uma transação do chamador (que também a desfaz).
+ * Usada pela migração de pedidos legados para o modelo de oferta.
+ */
+export async function openFinancialSubscriptionIn(
+  tx: Prisma.TransactionClient,
   input: FinancialSubscriptionInput,
-  status: TransactionStatus,
+) {
+  const quote = await quoteFinancialSubscription(tx, input);
+  if (quote) await writeFinancialSubscription(tx, input, quote, 'PENDING');
+  return quote;
+}
+
+/** Cotação do snapshot do pedido, conferida contra o valor cobrado. Null sem snapshot. */
+export async function quoteFinancialSubscription(
+  prisma: Pick<Prisma.TransactionClient, 'financialPolicyRevision'>,
+  input: Pick<FinancialSubscriptionInput, 'snapshot' | 'amount'>,
 ) {
   const agreement = snapshotFrom(input.snapshot);
   const legacy =
@@ -87,43 +104,68 @@ async function persistFinancialSubscription(
   if (!quote) return null;
   if (cents(input.amount) !== cents(quote.totalAmount))
     throw new Error('Cobrança recorrente diverge da configuração financeira');
-  await prisma.$transaction(async (tx) => {
-    await tx.wallet.upsert({
-      where: { userId: input.userId },
-      update: {},
-      create: { userId: input.userId, balance: 0 },
-    });
-    await persistLinkCharge(
-      tx,
-      {
-        userId: input.userId,
-        amount: new Prisma.Decimal(quote.totalAmount),
-        netAmount: new Prisma.Decimal(quote.netAmount),
-        domPaymentId: input.paymentId,
-        paymentMethod: input.method,
-        financialSnapshot: input.snapshot as Prisma.InputJsonValue,
-        totalFee: new Prisma.Decimal(quote.totalFeeAmount),
-        // These legacy columns are non-nullable; unknown realized cost and profit stay
-        // explicitly unknown in the immutable financial snapshot, not measured as zero.
-        acquirerFee: new Prisma.Decimal(quote.domFeeAmount ?? 0),
-        platformFee: new Prisma.Decimal(quote.platformProfit ?? 0),
-        ...transactionPlatformTagData(quote.financialSnapshot.policyTag),
-        description: `${input.name} [TENANT:${
-          quote.financialSnapshot.policyTag.startsWith('USER:')
-            ? 'GLOBAL'
-            : quote.financialSnapshot.policyTag
-        }]`,
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument: input.customerDocument,
-        tracking: (input.tracking ?? undefined) as
-          Prisma.InputJsonValue | undefined,
-        ...(input.pixContent ? { pixContent: input.pixContent } : {}),
-        ...(input.pixExpire ? { pixExpire: input.pixExpire } : {}),
-        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
-      },
-      status,
-    );
-  });
   return quote;
+}
+
+type FinancialQuote = NonNullable<
+  Awaited<ReturnType<typeof quoteFinancialSubscription>>
+>;
+
+async function persistFinancialSubscription(
+  prisma: PrismaService,
+  input: FinancialSubscriptionInput,
+  status: TransactionStatus,
+) {
+  const quote = await quoteFinancialSubscription(prisma, input);
+  if (!quote) return null;
+  await prisma.$transaction((tx) =>
+    writeFinancialSubscription(tx, input, quote, status),
+  );
+  return quote;
+}
+
+async function writeFinancialSubscription(
+  tx: Prisma.TransactionClient,
+  input: FinancialSubscriptionInput,
+  quote: FinancialQuote,
+  status: TransactionStatus,
+) {
+  await tx.wallet.upsert({
+    where: { userId: input.userId },
+    update: {},
+    create: { userId: input.userId, balance: 0 },
+  });
+  await persistLinkCharge(
+    tx,
+    {
+      ...(input.transactionId ? { id: input.transactionId } : {}),
+      ...(input.offerId ? { offerId: input.offerId } : {}),
+      userId: input.userId,
+      amount: new Prisma.Decimal(quote.totalAmount),
+      netAmount: new Prisma.Decimal(quote.netAmount),
+      domPaymentId: input.paymentId,
+      paymentMethod: input.method,
+      financialSnapshot: input.snapshot as Prisma.InputJsonValue,
+      totalFee: new Prisma.Decimal(quote.totalFeeAmount),
+      // These legacy columns are non-nullable; unknown realized cost and profit stay
+      // explicitly unknown in the immutable financial snapshot, not measured as zero.
+      acquirerFee: new Prisma.Decimal(quote.domFeeAmount ?? 0),
+      platformFee: new Prisma.Decimal(quote.platformProfit ?? 0),
+      ...transactionPlatformTagData(quote.financialSnapshot.policyTag),
+      description: `${input.name} [TENANT:${
+        quote.financialSnapshot.policyTag.startsWith('USER:')
+          ? 'GLOBAL'
+          : quote.financialSnapshot.policyTag
+      }]`,
+      customerName: input.customerName,
+      customerEmail: input.customerEmail,
+      customerDocument: input.customerDocument,
+      tracking: (input.tracking ?? undefined) as
+        Prisma.InputJsonValue | undefined,
+      ...(input.pixContent ? { pixContent: input.pixContent } : {}),
+      ...(input.pixExpire ? { pixExpire: input.pixExpire } : {}),
+      ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+    },
+    status,
+  );
 }
