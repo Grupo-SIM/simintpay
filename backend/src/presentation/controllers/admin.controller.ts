@@ -3448,6 +3448,28 @@ export class AdminController {
     };
   }
 
+  /** Ids de saques aprovados atribuídos à plataforma (mesma regra de tag do consolidado), sem filtro de taxa/data. */
+  private async getPlatformWithdrawIds(tag: string): Promise<Set<string>> {
+    const rows = await this.prisma.withdrawRequest.findMany({
+      where: { status: 'APPROVED' },
+      select: {
+        id: true,
+        platform: true,
+        user: { select: { platform: { select: { tag: true } } } },
+      },
+    });
+    return new Set(
+      rows
+        .filter(
+          (w) =>
+            normalizePlatformTag(
+              w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
+            ) === tag,
+        )
+        .map((w) => w.id),
+    );
+  }
+
   @Get('relatorios/consolidado')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
@@ -3472,6 +3494,12 @@ export class AdminController {
     required: false,
     description: 'PIX | CREDIT_CARD | DEBIT_CARD',
   })
+  @ApiQuery({
+    name: 'plataforma',
+    required: false,
+    description:
+      'Tag da plataforma (ex.: RENOVADA, ATLAS, EBOOKSIM). Quando informada, todo o resumo é restrito a essa plataforma; sem ela, consolidado de todas.',
+  })
   async getConsolidado(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
@@ -3483,9 +3511,17 @@ export class AdminController {
     @Query('detalharLucro') detalharLucro?: string,
     @Query('detalharLucroSoloResumo') detalharLucroSoloResumo?: string,
     @Query('metodoPagamento') metodoPagamento?: string,
+    @Query('plataforma') plataforma?: string,
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
-    const platformIds = platforms.map((p) => p.id);
+    const tagFiltro = plataforma?.trim()
+      ? normalizePlatformTag(plataforma.trim())
+      : null;
+    const platformIds = (
+      tagFiltro
+        ? platforms.filter((p) => normalizePlatformTag(p.tag) === tagFiltro)
+        : platforms
+    ).map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(
       dataInicio,
       dataFim,
@@ -3495,7 +3531,7 @@ export class AdminController {
       whereResumo.paymentMethod =
         metodoPagamento as Prisma.TransactionWhereInput['paymentMethod'];
 
-    const txRowsTodas = await this.prisma.transaction.findMany({
+    const txRowsTodasBase = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
@@ -3513,6 +3549,15 @@ export class AdminController {
       },
       orderBy: { createdAt: 'asc' },
     });
+    const txRowsTodas = tagFiltro
+      ? txRowsTodasBase.filter(
+          (t) =>
+            consolidadoTagParaTransacao(
+              { userId: t.userId, platformTag: t.platformTag ?? null },
+              platforms,
+            ) === tagFiltro,
+        )
+      : txRowsTodasBase;
 
     const txRowsLucro = txRowsTodas.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
@@ -3568,22 +3613,45 @@ export class AdminController {
       ...(logDt ? { createdAt: logDt } : {}),
     };
 
-    const [feeIncAgg, profitIncAgg] = await Promise.all([
-      this.prisma.balanceLog.aggregate({
-        where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
-        _sum: { bookkeepingAmount: true },
-      }),
-      this.prisma.balanceLog.aggregate({
+    let totalTaxaSaque: number;
+    let totalLucroSaque: number;
+    if (tagFiltro) {
+      // ADMIN_WITHDRAW_FEE_INC é custo de saque de adquirente (platformTag
+      // GLOBAL, sem withdrawId): não é atribuível a plataforma => 0.
+      totalTaxaSaque = 0;
+      const idsSaquesPlataforma = await this.getPlatformWithdrawIds(tagFiltro);
+      const profitLogs = await this.prisma.balanceLog.findMany({
         where: {
           ...masterWithdrawLogBase,
           action: 'ADMIN_WITHDRAW_PROFIT_INC',
         },
-        _sum: { bookkeepingAmount: true },
-      }),
-    ]);
+        select: { bookkeepingAmount: true, metadata: true },
+      });
+      totalLucroSaque = profitLogs.reduce((sum, log) => {
+        const wid = (log.metadata as { withdrawId?: string } | null)
+          ?.withdrawId;
+        return wid && idsSaquesPlataforma.has(wid)
+          ? sum + Number(log.bookkeepingAmount || 0)
+          : sum;
+      }, 0);
+    } else {
+      const [feeIncAgg, profitIncAgg] = await Promise.all([
+        this.prisma.balanceLog.aggregate({
+          where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
+          _sum: { bookkeepingAmount: true },
+        }),
+        this.prisma.balanceLog.aggregate({
+          where: {
+            ...masterWithdrawLogBase,
+            action: 'ADMIN_WITHDRAW_PROFIT_INC',
+          },
+          _sum: { bookkeepingAmount: true },
+        }),
+      ]);
 
-    const totalTaxaSaque = Number(feeIncAgg._sum.bookkeepingAmount || 0);
-    const totalLucroSaque = Number(profitIncAgg._sum.bookkeepingAmount || 0);
+      totalTaxaSaque = Number(feeIncAgg._sum.bookkeepingAmount || 0);
+      totalLucroSaque = Number(profitIncAgg._sum.bookkeepingAmount || 0);
+    }
     const lucroSimpayNum = Number(totalLucroSimpay.toFixed(2));
     const lucroTotalMaster = Number(
       (lucroSimpayNum + totalLucroSaque - totalTaxaSaque).toFixed(2),
@@ -3616,7 +3684,7 @@ export class AdminController {
         : {}),
     };
 
-    const withdrawsAprovados = await this.prisma.withdrawRequest.findMany({
+    const withdrawsAprovadosBase = await this.prisma.withdrawRequest.findMany({
       where: withdrawApprovalFilter,
       select: {
         id: true,
@@ -3629,6 +3697,14 @@ export class AdminController {
         },
       },
     });
+    const withdrawsAprovados = tagFiltro
+      ? withdrawsAprovadosBase.filter(
+          (w) =>
+            normalizePlatformTag(
+              w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
+            ) === tagFiltro,
+        )
+      : withdrawsAprovadosBase;
 
     // Saques aprovados com a regra nova (toda a taxa é lucro) trazem o valor no
     // próprio log; os demais seguem a regra antiga, preservando o histórico.
@@ -3766,7 +3842,7 @@ export class AdminController {
     ) {
       const di = String(dataInicio).trim();
       const df = String(dataFim).trim();
-      const withdrawLogsHistorico = await this.prisma.balanceLog.findMany({
+      const withdrawLogsHistoricoBase = await this.prisma.balanceLog.findMany({
         where: {
           source: 'MASTER_ADMIN_CONTROL',
           ...(logDt ? { createdAt: logDt } : {}),
@@ -3774,8 +3850,27 @@ export class AdminController {
             in: ['ADMIN_WITHDRAW_FEE_INC', 'ADMIN_WITHDRAW_PROFIT_INC'],
           },
         },
-        select: { createdAt: true, bookkeepingAmount: true, action: true },
+        select: {
+          createdAt: true,
+          bookkeepingAmount: true,
+          action: true,
+          ...(tagFiltro ? { metadata: true } : {}),
+        },
       });
+      let withdrawLogsHistorico = withdrawLogsHistoricoBase;
+      if (tagFiltro) {
+        const idsSaquesPlataforma =
+          await this.getPlatformWithdrawIds(tagFiltro);
+        withdrawLogsHistorico = withdrawLogsHistoricoBase.filter((log) => {
+          if (log.action !== 'ADMIN_WITHDRAW_PROFIT_INC') return false;
+          const wid = (
+            (log as { metadata?: unknown }).metadata as {
+              withdrawId?: string;
+            } | null
+          )?.withdrawId;
+          return Boolean(wid && idsSaquesPlataforma.has(wid));
+        });
+      }
       if (isSingleCalendarDaySp(di, df)) {
         lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoPorHora(
           txRowsLucro,
