@@ -5,6 +5,8 @@ import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge
 import { Acquirer } from '../src/core/services/acquirer.enum';
 import { acquirerCapabilities } from '../src/core/services/acquirer-capabilities';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
+import { StoredCardCycleExecutor } from '../src/modules/billing-core/stored-card-cycle.executor';
+import { StoredCardVaultService } from '../src/modules/billing-core/stored-card-vault.service';
 import { markChargeSettled } from '../src/modules/billing-core/charge-settlement';
 import { ExternalRefService } from '../src/modules/billing-core/external-ref.service';
 import { signRenewal } from '../src/modules/billing-core/renewal-signature';
@@ -29,7 +31,13 @@ const at = (days: number) => new Date(t0.getTime() + days * day);
 let ownerId: string;
 let pixCalls = 0;
 let pixExpire = '2099-01-01T00:00:00Z';
+let cardCalls: any[] = [];
+let cardStatus = 'paid';
 const gateway: any = {
+  chargeStoredCardToken: async (_t: string, input: any) => {
+    cardCalls.push(input);
+    return { id: `dom-card-${crypto.randomUUID()}`, status: cardStatus };
+  },
   createPaymentLink: async () => ({ id: `link-${crypto.randomUUID()}` }),
   chargePixForLink: async (_t: string, input: any) => {
     pixCalls++;
@@ -51,6 +59,7 @@ const resolver: any = {
   byAcquirer: () => gateway,
 };
 let billing: BillingCycleService;
+let vault: StoredCardVaultService;
 let renewals: OfferRenewalService;
 
 async function offer(over: Record<string, unknown> = {}) {
@@ -90,6 +99,24 @@ const body = (contractId: string) => ({
   sig: signRenewal(contractId),
   paymentMethod: 'pix' as const,
 });
+const cardBody = (contractId: string) => ({
+  contractId,
+  sig: signRenewal(contractId),
+  paymentMethod: 'card' as const,
+});
+
+async function saveCard(contractId: string, expYear = 2099) {
+  await vault.save({
+    ownerUserId: ownerId,
+    contractId,
+    customerEmail: 'a@test.dev',
+    acquirerCode: 'DOM',
+    token: 'tok_secret',
+    last4: '4242',
+    expMonth: 12,
+    expYear,
+  });
+}
 
 /** Webhook path: FINAL_NET settlement of the Transaction + charge/contract advance. */
 async function pay(transactionId: string, paidAt: Date) {
@@ -115,6 +142,7 @@ async function suspend(contractId: string) {
 beforeAll(async () => {
   if (!db) return;
   process.env.DOM_TOKEN = 'test-token';
+  process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'a'.repeat(64);
   process.env.RENEWAL_LINK_SECRET = 'r'.repeat(64);
   await useEmptyCaches();
   await seedGlobalPolicy(db);
@@ -130,10 +158,14 @@ beforeAll(async () => {
     })
   ).id;
   billing = new BillingCycleService(db as never);
+  vault = new StoredCardVaultService(db as never);
   renewals = new OfferRenewalService(
     db as never,
     resolver,
     new ExternalRefService(db as never),
+    billing,
+    new StoredCardCycleExecutor(db as never, vault, resolver),
+    vault,
   );
 });
 afterAll(async () => {
@@ -393,4 +425,178 @@ run('cancelled, never-paid and up-to-date contracts answer 409', async () => {
   await expect(
     renewals.renew(o.code, body(upToDate.id), at(5)),
   ).rejects.toThrow('em dia');
+});
+
+run(
+  'renews the due cycle with the stored card at the frozen card amount, once',
+  async () => {
+    process.env.RENEWAL_LINK_SECRET = 'r'.repeat(64);
+    const o = await offer({ acceptedMethods: ['PIX', 'CREDIT_CARD'] });
+    const c = await paidContract(o);
+    await billing.runDue(at(31));
+    await saveCard(c.id);
+    cardCalls = [];
+    cardStatus = 'paid';
+    const out = await renewals.renew(o.code, cardBody(c.id), at(32));
+    expect(out).toMatchObject({
+      kind: 'CYCLE',
+      method: 'CARD',
+      cardOutcome: 'PAID',
+      chargeStatus: 'PAID',
+      contractStatus: 'ACTIVE',
+    });
+    expect(cardCalls).toHaveLength(1);
+    expect(cardCalls[0].amount).toBe(out.amount);
+    expect(cardCalls[0].idempotencyKey).toBe(
+      `cycle:${out.chargeId}:${out.attempts}`,
+    );
+    const after = await contractOf(c.id);
+    expect(after.currentPeriodStart).toEqual(c.currentPeriodEnd);
+    // Already paid: a second call neither charges nor opens another charge.
+    await expect(
+      renewals.renew(o.code, cardBody(c.id), at(33)),
+    ).rejects.toThrow(/em dia/);
+    expect(cardCalls).toHaveLength(1);
+  },
+);
+
+run(
+  'a refused card leaves the charge reopenable and PIX still works',
+  async () => {
+    const o = await offer({ acceptedMethods: ['PIX', 'CREDIT_CARD'] });
+    const c = await paidContract(o);
+    await billing.runDue(at(31));
+    await saveCard(c.id);
+    cardStatus = 'failed';
+    const out = await renewals.renew(o.code, cardBody(c.id), at(32));
+    expect(out).toMatchObject({ method: 'CARD', cardOutcome: 'FAILED' });
+    expect(out.chargeStatus).toBe('FAILED');
+    // The same cycle charge is reopened by PIX instead of a second charge.
+    const pix = await renewals.renew(o.code, body(c.id), at(33));
+    expect(pix.chargeId).toBe(out.chargeId);
+    expect(pix.method).toBe('PIX');
+    expect(
+      await db!.charge.count({
+        where: {
+          contractId: c.id,
+          cycleKey: { not: { startsWith: 'reactivation:' } },
+        },
+      }),
+    ).toBe(2);
+  },
+);
+
+run('reactivates a suspended contract with the stored card', async () => {
+  const o = await offer({ acceptedMethods: ['PIX', 'CREDIT_CARD'] });
+  const c = await paidContract(o);
+  await saveCard(c.id);
+  await suspend(c.id);
+  cardCalls = [];
+  cardStatus = 'paid';
+  const out = await renewals.renew(o.code, cardBody(c.id), at(50));
+  expect(out).toMatchObject({
+    kind: 'REACTIVATION',
+    method: 'CARD',
+    cardOutcome: 'PAID',
+    contractStatus: 'ACTIVE',
+  });
+  expect(cardCalls).toHaveLength(1);
+  expect((await contractOf(c.id)).currentPeriodStart).toEqual(at(50));
+});
+
+run('card renewal needs a usable stored card and accepted card', async () => {
+  const o = await offer({ acceptedMethods: ['PIX', 'CREDIT_CARD'] });
+  const c = await paidContract(o);
+  await billing.runDue(at(31));
+  await expect(renewals.renew(o.code, cardBody(c.id), at(32))).rejects.toThrow(
+    /cartão salvo/,
+  );
+  await saveCard(c.id, 2020);
+  await expect(renewals.renew(o.code, cardBody(c.id), at(32))).rejects.toThrow(
+    /cartão salvo/,
+  );
+  const pixOnly = await offer();
+  const p = await paidContract(pixOnly);
+  await billing.runDue(at(31));
+  await saveCard(p.id);
+  await expect(
+    renewals.renew(pixOnly.code, cardBody(p.id), at(32)),
+  ).rejects.toThrow(/não aceita cartão/);
+});
+
+run(
+  'an expired PIX charge is reopened by runDue and by renewal without double charging',
+  async () => {
+    const o = await offer();
+    const c = await paidContract(o);
+    await billing.runDue(at(31));
+    const first = await renewals.renew(o.code, body(c.id), at(32));
+    // PIX-expired webhook: charge EXPIRED, contract PAST_DUE with a retry date.
+    await db!.$transaction(async (p) => {
+      const row = await p.transaction.findUniqueOrThrow({
+        where: { id: first.transactionId },
+      });
+      await settleFinalNet(p, row, 'EXPIRED', 'TEST');
+      await markChargeSettled(p, row.id, 'EXPIRED', at(33));
+    });
+    const expired = await db!.charge.findUniqueOrThrow({
+      where: { id: first.chargeId },
+    });
+    expect(expired.status).toBe('EXPIRED');
+    const due = await contractOf(c.id);
+    expect(due.status).toBe('PAST_DUE');
+    expect(due.nextChargeAt).not.toBeNull();
+
+    const retryAt = new Date(due.nextChargeAt!.getTime() + 1000);
+    const run1 = await billing.runDue(retryAt);
+    expect(run1.issued).toBe(1);
+    const reopened = await db!.charge.findUniqueOrThrow({
+      where: { id: first.chargeId },
+    });
+    expect(reopened.status).toBe('PENDING');
+    expect(reopened.attempts).toBe(expired.attempts + 1);
+    // Running again does not open or charge anything else.
+    const run2 = await billing.runDue(retryAt);
+    expect(run2.issued).toBe(0);
+    expect(
+      await db!.charge.count({
+        where: { contractId: c.id, status: 'PENDING' },
+      }),
+    ).toBe(1);
+    // The buyer renews it by PIX: one new PIX on the same charge, paid once.
+    const again = await renewals.renew(o.code, body(c.id), retryAt);
+    expect(again.chargeId).toBe(first.chargeId);
+    expect(await pay(again.transactionId, at(36))).toBe(true);
+    expect(await pay(again.transactionId, at(37))).toBe(false);
+    expect(
+      await db!.charge.count({ where: { contractId: c.id, status: 'PAID' } }),
+    ).toBe(2);
+  },
+);
+
+run('renewal alone reopens an EXPIRED cycle charge idempotently', async () => {
+  const o = await offer();
+  const c = await paidContract(o);
+  await billing.runDue(at(31));
+  const first = await renewals.renew(o.code, body(c.id), at(32));
+  await db!.$transaction(async (p) => {
+    const row = await p.transaction.findUniqueOrThrow({
+      where: { id: first.transactionId },
+    });
+    await settleFinalNet(p, row, 'EXPIRED', 'TEST');
+    await markChargeSettled(p, row.id, 'EXPIRED', at(33));
+  });
+  pixCalls = 0;
+  const results = await Promise.all(
+    [0, 1].map(() => renewals.renew(o.code, body(c.id), at(34))),
+  );
+  expect(new Set(results.map((r) => r.chargeId))).toEqual(
+    new Set([first.chargeId]),
+  );
+  expect(pixCalls).toBe(1);
+  expect(
+    await db!.charge.count({
+      where: { contractId: c.id, status: { in: ['PENDING', 'EXPIRED'] } },
+    }),
+  ).toBe(1);
 });
