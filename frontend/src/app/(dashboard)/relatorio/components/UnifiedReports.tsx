@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { useCallback, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { useQueryClient } from '@tanstack/react-query';
+import { consolidadoTagFor } from '@/lib/consolidado-tag';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useToast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
@@ -11,7 +12,10 @@ import { CoproductionReceipts } from '@/components/coproduction/CoproductionRece
 import { ReportsLayout } from './ReportsLayout';
 import { ReportFilterFields } from './ReportFilterFields';
 import { ReportPlatformSelect } from './ReportPlatformSelect';
+import { AtlasExtraCards } from './AtlasExtraCards';
 import { OwnedReportContent } from './OwnedReportContent';
+import { OwnedReportSeries } from './OwnedReportSeries';
+import { OwnedReportTransactions } from './OwnedReportTransactions';
 import { ReportSkeleton } from './ReportSkeleton';
 import type { ReportPlatform } from './report-types';
 import type { DateRange } from '../types';
@@ -111,11 +115,25 @@ export function UnifiedReports() {
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
                 {platform.name}
               </h2>
-              <OwnedReportContent
+              <div
                 key={`${platform.id}:${filters.startDate}:${filters.endDate}:${method}`}
-                filters={filters}
-                product
-              />
+                className="space-y-6"
+              >
+                <AdminOverview
+                  range={range}
+                  method={method}
+                  platform={platform}
+                />
+                {consolidadoTagFor(platform.tag) === 'ATLAS' && (
+                  <AtlasExtraCards filters={filters} />
+                )}
+                <OwnedReportSeries filters={filters} kind="mensal" />
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <OwnedReportSeries filters={filters} kind="metodos" />
+                  <OwnedReportSeries filters={filters} kind="status" />
+                </div>
+                <OwnedReportTransactions filters={filters} product />
+              </div>
             </div>
           ) : (
             <div className="space-y-6">

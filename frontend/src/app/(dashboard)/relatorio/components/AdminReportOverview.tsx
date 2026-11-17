@@ -33,6 +33,7 @@ import {
   applyLucroSimpayDetalheConsolidadoMerges,
   unwrapConsolidadoPayload,
 } from '../utils/consolidadoLucroMerge';
+import type { ReportPlatform } from './report-types';
 import { AdminReportMovements } from './AdminReportMovements';
 import { OwnedReportSeries } from './OwnedReportSeries';
 import { ReportResultsTable } from './ReportResultsTable';
@@ -119,10 +120,13 @@ type ConsolidadoResponse = {
 export default function AdminReportOverview({
   range,
   method = 'all',
+  platform,
 }: {
   range: DateRange;
   method?: string;
+  platform?: ReportPlatform;
 }) {
+  const platformScoped = !!platform;
   const api = useMemo(
     () =>
       createApiClient({
@@ -150,6 +154,7 @@ export default function AdminReportOverview({
       formatQueryDate(effectiveDateRange.end),
       DEFAULT_TRANSACTION_TYPE,
       filters.detalharLucro,
+      platform?.tag,
     ],
     queryFn: async () => {
       return api.get<ConsolidadoResponse>(endpoints.relatorios.consolidado, {
@@ -159,6 +164,7 @@ export default function AdminReportOverview({
           dataInicio: formatQueryDate(effectiveDateRange.start) ?? undefined,
           dataFim: formatQueryDate(effectiveDateRange.end) ?? undefined,
           transactionType: DEFAULT_TRANSACTION_TYPE,
+          plataforma: platform?.tag,
           ...(filters.detalharLucro ? { detalharLucro: '1' } : {}),
         },
       });
@@ -176,6 +182,7 @@ export default function AdminReportOverview({
         formatQueryDate(effectiveDateRange.end),
         DEFAULT_PERIOD_TYPE,
         DEFAULT_TRANSACTION_TYPE,
+        platform?.tag,
       ],
       enabled: needsSeparateLucroChartFetch,
       queryFn: async () => {
@@ -186,6 +193,7 @@ export default function AdminReportOverview({
             dataInicio: formatQueryDate(effectiveDateRange.start) ?? undefined,
             dataFim: formatQueryDate(effectiveDateRange.end) ?? undefined,
             transactionType: DEFAULT_TRANSACTION_TYPE,
+            plataforma: platform?.tag,
             detalharLucro: '1',
           },
         });
@@ -574,6 +582,7 @@ export default function AdminReportOverview({
             </>
           }
           filters={{
+            platform: platform?.tag,
             startDate: formatQueryDate(range.start) ?? undefined,
             endDate: formatQueryDate(range.end) ?? undefined,
             paymentMethod: method === 'all' ? undefined : method,
@@ -594,8 +603,10 @@ export default function AdminReportOverview({
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* <ReportDistributionPieCard
+      {!platformScoped && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* <ReportDistributionPieCard
           title="Distribuição por status"
           subtitle="Gráfico — quantidade no período"
           icon={Activity}
@@ -615,16 +626,16 @@ export default function AdminReportOverview({
           loading={isLoadingPorMetodo}
           suppressChartConsolidadoZero={suprimirGraficosPeloConsolidado}
         /> */}
-        <LucroSimpayPlataformaBarCard
-          title="Lucro Simintpay por plataforma"
-          subtitle={`Período filtrado (${ymdInicioGrafico} a ${ymdFimGrafico}) · mesma base do consolidado.`}
-          detalhe={lucroDetalheGrafico}
-          ymdStart={ymdInicioGrafico}
-          ymdEnd={ymdFimGrafico}
-          loading={carregandoDistribuicao || loadingLucroPlataformaChart}
-          hasTransactionsInPeriod={temTransacoesNoPeriodo}
-        />
-        {/* <TransactionDistributionCard
+            <LucroSimpayPlataformaBarCard
+              title="Lucro Simintpay por plataforma"
+              subtitle={`Período filtrado (${ymdInicioGrafico} a ${ymdFimGrafico}) · mesma base do consolidado.`}
+              detalhe={lucroDetalheGrafico}
+              ymdStart={ymdInicioGrafico}
+              ymdEnd={ymdFimGrafico}
+              loading={carregandoDistribuicao || loadingLucroPlataformaChart}
+              hasTransactionsInPeriod={temTransacoesNoPeriodo}
+            />
+            {/* <TransactionDistributionCard
           title="Transações por Status"
           subtitle="Distribuição por Status"
           icon={Activity}
@@ -632,7 +643,7 @@ export default function AdminReportOverview({
           items={porStatusData?.items ?? []}
           loading={isLoadingPorStatus}
         /> */}
-        {/* <TransactionDistributionCard
+            {/* <TransactionDistributionCard
           title="Transações por Método"
           subtitle="Distribuição por Método de Pagamento"
           icon={CreditCard}
@@ -640,49 +651,51 @@ export default function AdminReportOverview({
           items={porMetodoData?.items ?? []}
           loading={isLoadingPorMetodo}
         /> */}
-      </div>
+          </div>
 
-      {mensalError ? (
-        <ReportError retry={() => void retryMensal()} />
-      ) : (
-        <ReportResultsTable
-          title="Resultados mensais"
-          label="Mês"
-          monthly
-          admin
-          loading={isLoadingMensal}
-          rows={(mensalData?.meses ?? []).map((row) => ({
-            key: row.mes,
-            label: row.mes,
-            count: row.vendas,
-            gross: row.valorBruto,
-            acquirerFees: row.taxaAdquirente,
-            net: row.totalRepassado,
-            profit: row.lucroLiquido,
-          }))}
-        />
+          {mensalError ? (
+            <ReportError retry={() => void retryMensal()} />
+          ) : (
+            <ReportResultsTable
+              title="Resultados mensais"
+              label="Mês"
+              monthly
+              admin
+              loading={isLoadingMensal}
+              rows={(mensalData?.meses ?? []).map((row) => ({
+                key: row.mes,
+                label: row.mes,
+                count: row.vendas,
+                gross: row.valorBruto,
+                acquirerFees: row.taxaAdquirente,
+                net: row.totalRepassado,
+                profit: row.lucroLiquido,
+              }))}
+            />
+          )}
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <OwnedReportSeries
+              filters={{
+                startDate: formatQueryDate(range.start) ?? undefined,
+                endDate: formatQueryDate(range.end) ?? undefined,
+                paymentMethod: method === 'all' ? undefined : method,
+              }}
+              kind="metodos"
+              admin
+            />
+            <OwnedReportSeries
+              filters={{
+                startDate: formatQueryDate(range.start) ?? undefined,
+                endDate: formatQueryDate(range.end) ?? undefined,
+                paymentMethod: method === 'all' ? undefined : method,
+              }}
+              kind="status"
+              admin
+            />
+          </div>
+        </>
       )}
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <OwnedReportSeries
-          filters={{
-            startDate: formatQueryDate(range.start) ?? undefined,
-            endDate: formatQueryDate(range.end) ?? undefined,
-            paymentMethod: method === 'all' ? undefined : method,
-          }}
-          kind="metodos"
-          admin
-        />
-        <OwnedReportSeries
-          filters={{
-            startDate: formatQueryDate(range.start) ?? undefined,
-            endDate: formatQueryDate(range.end) ?? undefined,
-            paymentMethod: method === 'all' ? undefined : method,
-          }}
-          kind="status"
-          admin
-        />
-      </div>
     </TooltipRadix.Provider>
   );
 }
