@@ -32,6 +32,7 @@ import {
 export function CheckoutFlow({
   product,
   orderExtra,
+  addOns,
   dados,
   dadosSubtitle = 'Usados para emitir o pagamento e enviar seu acesso',
   pagamento,
@@ -70,6 +71,8 @@ export function CheckoutFlow({
   };
   /** Conteúdo extra na etapa Pedido (ex.: order bumps). */
   orderExtra?: ReactNode;
+  /** Order bumps: aparecem logo depois da forma de pagamento (etapa 3 no desktop). */
+  addOns?: ReactNode;
   dados: ReactNode;
   dadosSubtitle?: string;
   pagamento?: ReactNode;
@@ -320,6 +323,7 @@ export function CheckoutFlow({
               {status}
             </div>
           )}
+          {!paymentSplit && visible(2) && !bare && addOns}
         </div>
 
         <div className="flex flex-col gap-4 lg:hidden">

@@ -68,7 +68,7 @@ export function OrderBumpCard({
         'h-11 shrink-0 whitespace-nowrap rounded-full border px-[18px] text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 lg:h-[46px] lg:px-5 lg:text-[15px]',
         checked
           ? 'border-[rgba(246,182,122,.5)] bg-white/10 text-[#ffc48f]'
-          : 'border-transparent bg-[linear-gradient(90deg,#f6b67a,#f58a2a)] text-[#17131f] shadow-[0_8px_22px_-10px_rgba(245,138,42,.8)]',
+          : 'border-white/30 bg-[#f4f2f7] text-[#17131f]',
       )}
     >
       {checked ? '✓ Adicionado' : '+ Adicionar'}
@@ -94,7 +94,7 @@ export function OrderBumpCard({
         'rounded-[24px] p-px transition-shadow lg:rounded-[22px]',
         checked
           ? 'bg-[#f6b67a] shadow-[0_0_0_4px_rgba(246,182,122,.16)]'
-          : 'bg-[linear-gradient(135deg,rgba(141,128,244,.9),rgba(246,182,122,.55)_50%,rgba(245,138,42,.95))] shadow-[0_18px_44px_-22px_rgba(245,138,42,.75)]',
+          : 'bg-white/[0.13]',
       )}
     >
       <div className="flex flex-col gap-3 rounded-[23px] bg-[linear-gradient(140deg,rgba(30,24,44,.95)_0%,rgba(52,34,30,.95)_100%)] p-3.5 lg:rounded-[21px] lg:bg-[linear-gradient(120deg,rgba(30,24,44,.95)_0%,rgba(52,34,30,.95)_100%)] lg:px-[18px]">

@@ -26,7 +26,12 @@ import {
   CheckoutLoadingScreen,
   CheckoutSuccessScreen,
 } from '@/components/checkout/CheckoutStateScreens';
-import { GLASS, StatusPill, SummaryRow } from '@/components/checkout/ui';
+import {
+  GLASS,
+  LG_GLASS,
+  StatusPill,
+  SummaryRow,
+} from '@/components/checkout/ui';
 import { OrderBumpCard } from '@/components/simlink/LinkOffers';
 import { cx } from '@/utils/cx';
 import {
@@ -735,43 +740,50 @@ export default function OfferCheckout({
       }}
       total={recurring && trialDaysOf(offer) > 0 ? money(0) : money(total)}
       totalCaption={recurring ? frequencyLabel(offer) : 'Pagamento único'}
-      orderExtra={
-        <>
-          {bumps.length > 0 && (
-            <div
-              className={cx(
-                'flex flex-col gap-2.5 rounded-[26px] p-3.5 lg:gap-3.5 lg:rounded-[28px] lg:p-6',
-                GLASS,
-              )}
-            >
-              <div className="px-1 pb-1 pt-0.5 lg:p-0">
-                <div className="text-base lg:text-2xl lg:font-medium">
-                  Aproveite também
+      addOns={
+        bumps.length > 0 ? (
+          <div
+            className={cx(
+              'flex flex-col gap-2.5 lg:gap-3.5 lg:rounded-[28px] lg:p-7',
+              LG_GLASS,
+            )}
+          >
+            <div className="hidden items-center gap-3 lg:flex">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-sm font-semibold">
+                3
+              </span>
+              <div>
+                <div className="text-xl font-medium">
+                  Adicione ao seu pedido
                 </div>
-                <div className="mt-0.5 text-xs text-[#a9a3b8] lg:mt-1 lg:text-sm">
+                <div className="text-xs text-[#a9a3b8]">
                   Condições disponíveis só nesta compra
                 </div>
               </div>
-              {bumps.map((bump) => (
-                <OrderBumpCard
-                  key={bump.code}
-                  offer={{
-                    id: bump.code,
-                    tipo: 'ORDER_BUMP',
-                    chamada: null,
-                    titulo: bump.name,
-                    descricao: bump.description,
-                    imagemUrl: bump.imageUrl ?? null,
-                    valor: bump.amountCents / 100,
-                    valorOriginal: null,
-                  }}
-                  checked={selectedBumps.includes(bump.code)}
-                  disabled={loading || pricingLoading || Boolean(pix || boleto)}
-                  onToggle={() => toggleBump(bump.code)}
-                />
-              ))}
             </div>
-          )}
+            {bumps.map((bump) => (
+              <OrderBumpCard
+                key={bump.code}
+                offer={{
+                  id: bump.code,
+                  tipo: 'ORDER_BUMP',
+                  chamada: null,
+                  titulo: bump.name,
+                  descricao: bump.description,
+                  imagemUrl: bump.imageUrl ?? null,
+                  valor: bump.amountCents / 100,
+                  valorOriginal: null,
+                }}
+                checked={selectedBumps.includes(bump.code)}
+                disabled={loading || pricingLoading || Boolean(pix || boleto)}
+                onToggle={() => toggleBump(bump.code)}
+              />
+            ))}
+          </div>
+        ) : undefined
+      }
+      orderExtra={
+        <>
           {pricingError && (
             <button
               type="button"
