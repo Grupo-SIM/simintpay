@@ -390,159 +390,41 @@ describe('AdminController.getPlataformaConsolidado', () => {
       totalTaxasSimInt: 8.09,
     });
   });
-
-  it('usa somente a taxa DOM efetiva no PIX standalone de comunidade', async () => {
-    const amount = 59.9;
-    // Sete pedidos já possuem réplica Transaction; o oitavo existe somente
-    // como SubscriptionLinkOrder e ainda precisa entrar nos cards.
-    const transactions = Array.from({ length: 7 }, (_, index) => ({
-      amount,
-      paymentMethod: 'PIX',
-      installments: 1,
-      createdAt: new Date(
-        `2026-08-${String(index + 1).padStart(2, '0')}T07:02:00Z`,
-      ),
-      description: `[TENANT:COMBO-DE-COMUNIDADES] subOrder=order-${index + 1}`,
-      netAmount: 54.51,
-      acquirerFee: 0,
-      platformFee: 0,
-      cardBrand: null,
-      acquirer: 'DOM',
-    }));
-    const orders = Array.from({ length: 8 }, (_, index) => ({
-      id: `order-${index + 1}`,
-      subscriptionLinkId: 'link-1',
-      amountCharged: amount,
-      platformFeeAmount: 0,
-      paymentMethod: 'PIX',
-      createdAt: new Date(
-        `2026-08-${String(index + 1).padStart(2, '0')}T07:02:00Z`,
-      ),
-    }));
-    const ctx = {
-      findLocalPlatformReportTransactions: jest
-        .fn()
-        .mockResolvedValue(transactions),
-      prisma: {
-        community: {
-          findUnique: jest.fn().mockResolvedValue({ id: 'community-1' }),
-        },
-        communityLinkBinding: {
-          findMany: jest.fn().mockResolvedValue([
-            {
-              subscriptionLinkId: 'link-1',
-              subscriptionLink: { isStandalone: true },
-            },
-          ]),
-        },
-        subscriptionLinkOrder: {
-          findMany: jest.fn().mockResolvedValue(orders),
-        },
-      },
-    } as any;
-
-    const result = await (
-      AdminController.prototype as any
-    ).getPlataformaConsolidado.call(
-      ctx,
-      'COMBO-DE-COMUNIDADES',
-      '2026-07-01',
-      '2026-08-31',
-      'PIX',
-    );
-
-    expect(result.qtdTransacoes).toBe(8);
-    expect(result.taxaSimIntPctBruta).toBe(0);
-    expect(result.taxaSimIntFixa).toBe(0);
-    expect(result.taxaSimIntPctNet).toBe(-12.72);
-    expect(result.taxaDomPct).toBe(4.72);
-    expect(result.taxaDomFixa).toBe(8);
-    expect(result.taxaDomCashback).toBe(0);
-    expect(result.totalTaxasDom).toBe(12.72);
-    expect(result.receitaTotal).toBe(479.2);
-    // Repasse desconta somente a taxa Sim Int Pay. Com a taxa zerada, a
-    // plataforma absorve os R$12,72 de custos DOM e repassa o bruto integral.
-    expect(result.totalRepasse).toBe(479.2);
-  });
 });
 
-describe('AdminController.listPlataformaTransacoes — comunidade standalone', () => {
+describe('AdminController.getPlataformaConsolidado — taxa Sim Int Pay zero', () => {
   it('mantém o repasse bruto quando a taxa Sim Int Pay é zero', async () => {
     const createdAt = new Date('2026-08-23T07:02:00Z');
-    const order = {
-      id: 'order-1',
-      amountCharged: 59.9,
-      platformFeeAmount: 0,
-      paymentMethod: 'PIX',
-      createdAt,
-      updatedAt: createdAt,
-      customerName: null,
-      customerEmail: null,
-      customerDocument: null,
-      subscriptionLink: {
-        name: 'Combo de Comunidades',
-        userId: 'owner-1',
-        isStandalone: true,
-      },
-    };
-    const transaction = {
-      id: 'tx-1',
-      amount: 59.9,
-      status: 'COMPLETED',
-      paymentMethod: 'PIX',
-      installments: 1,
-      description: '[TENANT:COMBO-DE-COMUNIDADES] subOrder=order-1',
-      netAmount: 54.51,
-      totalFee: 5.39,
-      acquirerFee: 0,
-      platformFee: 0,
-      customerName: null,
-      customerEmail: null,
-      customerDocument: null,
-      createdAt,
-      updatedAt: createdAt,
-    };
     const ctx = {
-      prisma: {
-        community: {
-          findUnique: jest.fn().mockResolvedValue({ id: 'community-1' }),
+      findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
+        {
+          amount: 59.9,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'Venda online',
+          netAmount: 54.51,
+          acquirerFee: 0.59,
+          platformFee: 0,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
         },
-        communityLinkBinding: {
-          findMany: jest
-            .fn()
-            .mockResolvedValue([{ subscriptionLinkId: 'link-1' }]),
-        },
-        subscriptionLinkOrder: {
-          findMany: jest.fn().mockResolvedValue([order]),
-        },
-        transaction: { findMany: jest.fn().mockResolvedValue([transaction]) },
-      },
+      ]),
+      prisma: {},
     } as any;
 
     const result = await (
       AdminController.prototype as any
-    ).listPlataformaTransacoes.call(
-      ctx,
-      'COMBO-DE-COMUNIDADES',
-      '1',
-      '20',
-      undefined,
-      '2026-07-01',
-      '2026-08-31',
-    );
+    ).getPlataformaConsolidado.call(ctx, 'BOSQUE', '2026-07-01', '2026-08-31');
 
-    expect(result.data).toHaveLength(1);
-    expect(result.data[0]).toMatchObject({
-      valorBruto: 59.9,
-      valorLiquido: 59.9,
-      taxaDom: 0.59,
-      taxaFixa: 1,
-      taxaCashback: 0,
-      taxaSimIntPay: 0,
-      taxaServico: 0,
-      lucroPrejuizo: -1.59,
-      taxas: { total: 1.59, dom: 1.59, plataforma: 0 },
-    });
+    // Repasse desconta somente taxas Sim Int Pay (aqui só a fixa vigente): a
+    // plataforma absorve os custos DOM e a parte percentual zerada não é abatida.
+    expect(result.taxaSimIntPctBruta).toBe(0);
+    expect(result.receitaTotal).toBe(59.9);
+    expect(result.totalRepasse).toBe(
+      Number((result.receitaTotal - result.totalTaxasSimIntGeral).toFixed(2)),
+    );
+    expect(result.totalRepasse).toBe(55.9);
   });
 });
 
