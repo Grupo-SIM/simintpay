@@ -1,0 +1,137 @@
+{
+  "generatedAt": "2026-11-17T00:19:32.336Z",
+  "transactions": {
+    "DRAFT|PIX|-": {
+      "count": "19",
+      "amount": "3206.47",
+      "net": "3088.52"
+    },
+    "EXPIRED|PIX|-": {
+      "count": "1028",
+      "amount": "206087.19",
+      "net": "187702.94"
+    },
+    "COMPLETED|CREDIT_CARD|2fa81db4-401e-4e1a-b465-72520d6542b5": {
+      "count": "1",
+      "amount": "2220.8",
+      "net": "1632"
+    },
+    "COMPLETED|CREDIT_CARD|-": {
+      "count": "354",
+      "amount": "67509.59",
+      "net": "61511.89"
+    },
+    "DRAFT|CREDIT_CARD|-": {
+      "count": "1",
+      "amount": "22.72",
+      "net": "15"
+    },
+    "PENDING|PIX|-": {
+      "count": "79",
+      "amount": "18393.18",
+      "net": "16743.49"
+    },
+    "COMPLETED|BOLETO|-": {
+      "count": "1",
+      "amount": "2500",
+      "net": "2491"
+    },
+    "FAILED|CREDIT_CARD|-": {
+      "count": "474",
+      "amount": "95310.32",
+      "net": "86777.18"
+    },
+    "FAILED|PIX|-": {
+      "count": "151",
+      "amount": "27516.68",
+      "net": "24935.94"
+    },
+    "COMPLETED|PIX|-": {
+      "count": "4463",
+      "amount": "617083.27",
+      "net": "561189.64"
+    },
+    "PENDING|PIX|ea9d8262-8b85-480e-b889-3b18691f95a2": {
+      "count": "1",
+      "amount": "150",
+      "net": "135"
+    },
+    "PENDING|CREDIT_CARD|-": {
+      "count": "18",
+      "amount": "624.3",
+      "net": "522.63"
+    },
+    "REFUNDED|PIX|-": {
+      "count": "96",
+      "amount": "169.21",
+      "net": "127.12"
+    },
+    "COMPLETED|CREDIT_CARD|a5e3f713-5c9a-4b35-ae6a-16361bd94c12": {
+      "count": "1",
+      "amount": "785.81",
+      "net": "643.07"
+    },
+    "CHARGEBACK|CREDIT_CARD|-": {
+      "count": "3",
+      "amount": "215.24",
+      "net": "188.19"
+    },
+    "PENDING|CREDIT_CARD|a5e3f713-5c9a-4b35-ae6a-16361bd94c12": {
+      "count": "1",
+      "amount": "700",
+      "net": "643.07"
+    },
+    "FAILED|CREDIT_CARD|2fa81db4-401e-4e1a-b465-72520d6542b5": {
+      "count": "2",
+      "amount": "4519.6",
+      "net": "3201.2"
+    },
+    "REFUNDED|CREDIT_CARD|-": {
+      "count": "18",
+      "amount": "2650.52",
+      "net": "2393.24"
+    },
+    "REFUNDED|PIX|ea9d8262-8b85-480e-b889-3b18691f95a2": {
+      "count": "1",
+      "amount": "2",
+      "net": "0.98"
+    }
+  },
+  "wallets": {
+    "f4634cba-52ea-4669-a0c7-d1ff61b7ef20": "0|0",
+    "d4fbf80f-6f13-4bc6-8e15-ebook00000001": "0|0",
+    "a71b7fcd-60b1-4edb-ad4b-33a5a0ea9de5": "123.76|0",
+    "014a3db6-f155-48fb-945d-dd5e122a3a9e": "0|0",
+    "a71a5000-0000-4000-8000-000000000001": "106.68|0",
+    "1367efea-e162-4fe9-b7fb-bac1312a35a9": "165.34|0",
+    "2f13bbde-5fed-4bb9-bcdb-32d27a9fa77d": "0|0",
+    "7a032320-ca7b-4f18-99db-d28681a3a600": "152.83|0",
+    "99a2e2cf-f17d-4763-9f20-70a055b9c407": "3.8|0",
+    "01a122a5-4743-7562-8f01-c84182eaafd1": "268.91|0",
+    "ba2b57d6-e3bf-4395-af31-58454f27207a": "1336.86|0",
+    "7ff3fbbd-8f3b-4b21-84ca-c9671e92355a": "500|0",
+    "c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c": "0|0",
+    "2b2e27d9-fc80-4441-821c-890f67ffe324": "0|0",
+    "a2cedce5-1c47-4e85-a159-1ee807ad75c8": "0|0",
+    "84e4ec39-5616-4e69-8e3e-d2de3fe27e89": "0|0",
+    "08abd7ea-d2cb-436b-86c4-384246ecafe9": "0|0"
+  },
+  "coproductionAllocations": {
+    "014a3db6-f155-48fb-945d-dd5e122a3a9e|AVAILABLE": {
+      "count": "1",
+      "amount": "816"
+    },
+    "99a2e2cf-f17d-4763-9f20-70a055b9c407|AVAILABLE": {
+      "count": "14",
+      "amount": "544.85"
+    },
+    "7a032320-ca7b-4f18-99db-d28681a3a600|AVAILABLE": {
+      "count": "16",
+      "amount": "843.13"
+    },
+    "1367efea-e162-4fe9-b7fb-bac1312a35a9|AVAILABLE": {
+      "count": "1",
+      "amount": "0.95"
+    }
+  }
+}

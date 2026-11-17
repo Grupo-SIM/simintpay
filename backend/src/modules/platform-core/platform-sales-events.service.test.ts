@@ -29,13 +29,6 @@ function fixture() {
     customerDocument: '52998224725',
     statusHistory: [],
   };
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const email = { sendEbookAccessEmail: mock(async (_input: any) => {}) };
-  const storage = {
-    getReceiptBufferByStoredUrl: mock(async () => ({
-      buffer: Buffer.from('%PDF-1.7'),
-    })),
-  };
   const prisma = {
     platform: {
       findUnique: mock(async () => ({
@@ -100,15 +93,8 @@ function fixture() {
           ),
     ),
   };
-  const modules = {
-    get: (token: { name: string }) =>
-      token.name === 'EmailService' ? email : storage,
-  };
-  const service = new PlatformSalesEventsService(
-    prisma as never,
-    modules as never,
-  );
-  return { rows, tx, prisma, service, email };
+  const service = new PlatformSalesEventsService(prisma as never);
+  return { rows, tx, prisma, service };
 }
 test('outbox signs exact body, excludes document and deduplicates snapshots', async () => {
   const f = fixture();

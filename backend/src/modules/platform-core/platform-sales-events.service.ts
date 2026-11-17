@@ -1,6 +1,5 @@
 import { whereTransactionPlatform } from './transaction-platform';
 import { Injectable, Logger } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { Interval } from '@nestjs/schedule';
 import { createHash, createHmac } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -89,10 +88,7 @@ function legacyTokenHeader(
 export class PlatformSalesEventsService {
   private running = false;
   private readonly logger = new Logger(PlatformSalesEventsService.name);
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly modules: ModuleRef,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
   async history(c: PlatformContext, cursor: string) {
     if (cursor && !/^\d+$/.test(cursor)) throw new Error('Cursor inválido');
     const rows = await this.prisma.$queryRaw<
@@ -281,14 +277,11 @@ export class PlatformSalesEventsService {
         await this.prisma
           .$executeRaw`UPDATE "PlatformSalesEvent" SET "deliveredAt" = NOW(), attempts = attempts + 1, "lastError" = NULL WHERE "eventId" = ${row.eventId}`;
       }
-      // Ebook/file e-mails of an offer sale are sent by OfferFulfillmentService.
-      if (
-        (row.payload as { event?: string }).event === 'purchase_approved' &&
-        !row.emailDeliveredAt
-      ) {
+      const payload = row.payload as { event: string; orderId: string };
+      // O e-mail de acesso é enviado pelo OfferFulfillmentService; aqui só fechamos o marcador.
+      if (payload.event === 'purchase_approved' && !row.emailDeliveredAt)
         await this.prisma
           .$executeRaw`UPDATE "PlatformSalesEvent" SET "emailDeliveredAt" = NOW() WHERE "eventId" = ${row.eventId}`;
-      }
     } catch (error) {
       const delay = Math.min(
         3_600_000,

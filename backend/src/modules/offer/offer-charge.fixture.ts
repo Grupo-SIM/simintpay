@@ -12,11 +12,9 @@ export type FixtureOptions = {
   financial?: boolean;
   /** Row returned by the coproduction agreement lookup ($queryRaw). */
   agreement?: { version: number; participants: unknown[]; mode?: string };
-  offers?: any[];
-  /** Parent transaction visible to resolveFunnelOffer. */
+  /** Parent charge/transaction visible to the funnel resolution. */
   parent?: any;
-  funnelSales?: any[];
-  /** How many of funnelSales are COMPLETED transactions. */
+  /** How many funnel purchases of the parent are already paid. */
   paidFunnelCount?: number;
 };
 
@@ -62,9 +60,7 @@ export function makeFakePrisma(opts: FixtureOptions = {}) {
     version: 0,
   };
   let logs: any[] = [];
-  const offerSales: any[] = [];
   const walletUpserts: any[] = [];
-  const subscriptionOrderUpdates: any[] = [];
   const p: any = {
     user: { findUnique: async () => null },
     affiliateCommission: { findUnique: async () => null },
@@ -128,22 +124,6 @@ export function makeFakePrisma(opts: FixtureOptions = {}) {
       },
     },
     transactionStatusHistory: { create: async () => {} },
-    paymentLinkOffer: {
-      findMany: async () => opts.offers ?? [],
-      findFirst: async () => (opts.offers ?? [])[0] ?? null,
-    },
-    paymentLinkOfferSale: {
-      findMany: async () => opts.funnelSales ?? [],
-      createMany: async ({ data }: any) => {
-        offerSales.push(...data);
-      },
-    },
-    subscriptionLinkOrder: {
-      update: async (args: any) => {
-        subscriptionOrderUpdates.push(args);
-        return { id: args.where.id, status: 'pending', ...args.data };
-      },
-    },
   };
   const agreement = opts.agreement;
   const prisma: any = {
@@ -204,9 +184,7 @@ export function makeFakePrisma(opts: FixtureOptions = {}) {
     row: () => rows[rows.length - 1],
     wallet: () => wallet,
     logs: () => logs,
-    offerSales,
     walletUpserts,
-    subscriptionOrderUpdates,
   };
 }
 

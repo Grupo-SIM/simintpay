@@ -10,7 +10,7 @@ import {
   sendLinkDelivery,
   type LinkDelivery,
   type PurchasedItem,
-} from '../../application/use-cases/payment-link/payment-link-delivery';
+} from './offer-delivery';
 import { recordVoucherUsageOnce } from '../../application/use-cases/voucher/voucher-offer';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { EmailService } from '../../infrastructure/email/email.service';
@@ -256,7 +256,7 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Mesma composição de `resolveLinkDelivery`, mas lendo ofertas em vez de PaymentLinkOffer. */
+  /** Compõe a entrega (principal + bumps, ou só o upsell/downsell) a partir das ofertas. */
   private async buildDelivery(
     main: {
       id: string;
