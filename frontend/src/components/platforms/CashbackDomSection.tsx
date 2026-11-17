@@ -6,6 +6,7 @@ import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { FinancialNumberField } from './FinancialNumberField';
 import { CollapsibleSection } from './CollapsibleSection';
+import { FormSwitch } from '@/app/(dashboard)/cliente/links-pagamento/criar/components/FormSwitch';
 
 type Settings = {
   data: Record<string, Record<string, number>>;
@@ -91,39 +92,30 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
     selected === 'inherit'
       ? (globalValues.CASHBACK_DOM_ATIVO ?? 1) !== 0
       : selected === 'on';
-  const options: [Choice, string][] = global
-    ? [
-        ['on', 'Ativo'],
-        ['off', 'Desativado'],
-      ]
-    : [
-        ['inherit', 'Herdar do global'],
-        ['on', 'Ativo'],
-        ['off', 'Desativado'],
-      ];
   return (
     <CollapsibleSection title="Cashback DOM">
-      <div className="flex flex-wrap items-center gap-3">
-        <div role="radiogroup" aria-label="Cashback DOM" className="flex gap-2">
-          {options.map(([value, label]) => (
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">Cashback ativo</span>
+        <div className="flex items-center gap-3">
+          {!global && selected !== 'inherit' && (
             <button
-              key={value}
               type="button"
-              role="radio"
-              aria-checked={selected === value}
-              className="cursor-pointer rounded border px-4 py-2 aria-checked:bg-zinc-200 aria-checked:font-semibold dark:aria-checked:bg-white/15"
-              onClick={() => setChoice(value)}
+              className="cursor-pointer text-xs underline opacity-70"
+              onClick={() => setChoice('inherit')}
             >
-              {label}
+              Herdar do global
             </button>
-          ))}
+          )}
+          <FormSwitch
+            aria-label="Cashback ativo"
+            checked={enabled}
+            onChange={(on) => setChoice(on ? 'on' : 'off')}
+          />
         </div>
-        {!global && (
-          <span className="text-sm opacity-70">
-            Efetivo agora: {enabled ? 'ativo' : 'desativado'}
-          </span>
-        )}
       </div>
+      {!global && selected === 'inherit' && (
+        <p className="mt-1 text-xs opacity-70">Herdado do global</p>
+      )}
       {global && enabled && (
         <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
           <FinancialNumberField
