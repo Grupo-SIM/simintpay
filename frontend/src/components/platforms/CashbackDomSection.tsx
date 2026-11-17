@@ -103,16 +103,7 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
       ];
   return (
     <CollapsibleSection title="Cashback DOM">
-      <div className="mb-4 rounded border p-3 text-sm">
-        <p className="font-medium">
-          {global ? 'Cashback ativo' : 'Cashback nesta conta'}
-        </p>
-        <p className="mb-3 opacity-70">
-          Ativo, entra como custo fixo DOM nas transações online. Desativado, o
-          cashback é desligado em cada transação enviada à DOM e deixa de ser
-          cobrado.
-          {!global && ` Efetivo agora: ${enabled ? 'ativo' : 'desativado'}.`}
-        </p>
+      <div className="flex flex-wrap items-center gap-3">
         <div role="radiogroup" aria-label="Cashback DOM" className="flex gap-2">
           {options.map(([value, label]) => (
             <button
@@ -127,28 +118,28 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
             </button>
           ))}
         </div>
+        {!global && (
+          <span className="text-sm opacity-70">
+            Efetivo agora: {enabled ? 'ativo' : 'desativado'}
+          </span>
+        )}
       </div>
       {global && enabled && (
-        <div className="grid max-w-xl gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
           <FinancialNumberField
             name="CASHBACK_DOM_CUSTO"
-            label="Custo fixo do cashback DOM"
+            label="Custo fixo"
             value={cost ?? Math.round((values.CASHBACK_DOM_CUSTO ?? 0) * 100)}
             onChange={setCost}
             onValidityChange={(_, valid) => setInvalid(!valid)}
           />
           <FinancialNumberField
             name="CASHBACK_DOM_VALOR"
-            label="Bônus ao comprador em outras adquirentes"
+            label="Bônus em outras adquirentes"
             value={grant ?? Math.round((values.CASHBACK_DOM_VALOR ?? 0) * 100)}
             onChange={setGrant}
             onValidityChange={(_, valid) => setInvalid(!valid)}
           />
-          <p className="text-xs opacity-70 sm:col-span-2">
-            Compras aprovadas em outras adquirentes recebem o bônus como
-            cashback avulso da DOM (R$ 0 desativa) e o custo aparece nos
-            relatórios como taxa de cashback DOM.
-          </p>
         </div>
       )}
       <button
@@ -161,7 +152,7 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
         }
         onClick={() => save.mutate()}
       >
-        Salvar cashback
+        Salvar
       </button>
     </CollapsibleSection>
   );
