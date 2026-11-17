@@ -1,3 +1,4 @@
+import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   alertUnresolvedWebhook,
   offerWebhookResolutionEnabled,
@@ -679,12 +680,15 @@ export class SubscriptionWebhookService {
     // Notificar webhook externo (saas-netflix-back) com evento subscription_renewed
     const webhookUrl = link.webhookUrl ?? null;
     if (webhookUrl) {
-      const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      const token = getPlatformWebhookToken([
+        (link as any).platformTag,
+        ...((link as any).plataformas ?? []),
+      ]);
       fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-simpay-token': token,
+          ...(token ? { 'x-simpay-token': token } : {}),
         },
         body: JSON.stringify({
           event: 'subscription_renewed',
@@ -793,12 +797,15 @@ export class SubscriptionWebhookService {
       });
       const webhookUrl = linkOrder.subscriptionLink?.webhookUrl ?? null;
       if (webhookUrl) {
-        const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+        const token = getPlatformWebhookToken([
+          (linkOrder.subscriptionLink as any).platformTag,
+          ...((linkOrder.subscriptionLink as any).plataformas ?? []),
+        ]);
         fetch(webhookUrl, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            'x-simpay-token': token,
+            ...(token ? { 'x-simpay-token': token } : {}),
           },
           body: JSON.stringify({
             event: 'subscription_expired',

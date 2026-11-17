@@ -1,3 +1,4 @@
+import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import {
   captureCoproduction,
@@ -398,12 +399,16 @@ export class ChargePaymentLinkUseCase {
       );
 
       if (flags.needsWebhook && link.webhookUrl) {
-        void this.notifyExternalWebhook(link.webhookUrl, {
-          ...webhookPayload,
-          // Pedido principal mantém o nome do link (plataformas mapeiam o plano por ele).
-          planName: delivery.kind === 'OFFER' ? delivery.title : link.title,
-          items: delivery.items,
-        });
+        void this.notifyExternalWebhook(
+          link.webhookUrl,
+          getPlatformWebhookToken(link.plataformas),
+          {
+            ...webhookPayload,
+            // Pedido principal mantém o nome do link (plataformas mapeiam o plano por ele).
+            planName: delivery.kind === 'OFFER' ? delivery.title : link.title,
+            items: delivery.items,
+          },
+        );
       }
 
       // Só entrega se ESTA requisição aprovou a transação; se um webhook chegou antes,
@@ -443,15 +448,15 @@ export class ChargePaymentLinkUseCase {
 
   private async notifyExternalWebhook(
     webhookUrl: string,
+    token: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
     try {
       await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-simpay-token': token,
+          ...(token ? { 'x-simpay-token': token } : {}),
         },
         body: JSON.stringify(payload),
       });

@@ -1,3 +1,4 @@
+import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   captureCoproduction,
   withCoproduction,
@@ -231,20 +232,24 @@ export class CheckoutSubscriptionLinkCardUseCase {
     }
 
     // Notificar webhook externo configurado no link (ex: saas-netflix-back para atualizar plano do usuário)
-    void notifyExternalWebhook(link.webhookUrl ?? null, {
-      event: 'subscription_activated',
-      customerEmail: input.dto.customerEmail,
-      customerName: input.dto.customerName,
-      planName: link.name,
-      paymentMethod: 'CREDIT_CARD',
-      frequencyType: link.frequencyType,
-      amountCharged,
-      netAmount: financialQuote.netAmount,
-      orderId: order.id,
-      linkId: link.id,
-      ...splitDocument(cleanDoc),
-      phone: cleanPhone || undefined,
-    });
+    void notifyExternalWebhook(
+      link.webhookUrl ?? null,
+      [link.platformTag, ...(link.plataformas ?? [])],
+      {
+        event: 'subscription_activated',
+        customerEmail: input.dto.customerEmail,
+        customerName: input.dto.customerName,
+        planName: link.name,
+        paymentMethod: 'CREDIT_CARD',
+        frequencyType: link.frequencyType,
+        amountCharged,
+        netAmount: financialQuote.netAmount,
+        orderId: order.id,
+        linkId: link.id,
+        ...splitDocument(cleanDoc),
+        phone: cleanPhone || undefined,
+      },
+    );
 
     return {
       id: order.id,
@@ -256,16 +261,17 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
 async function notifyExternalWebhook(
   webhookUrl: string | null,
+  tags: ReadonlyArray<string | null | undefined>,
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!webhookUrl) return;
-  const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+  const token = getPlatformWebhookToken(tags);
   try {
     await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-simpay-token': token,
+        ...(token ? { 'x-simpay-token': token } : {}),
       },
       body: JSON.stringify(payload),
     });

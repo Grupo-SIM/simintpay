@@ -67,6 +67,21 @@ export function getPlatformIntegrationValue(
   return cache[canonicalTag(tag)]?.[key] ?? null;
 }
 
+/**
+ * Token for the legacy `x-simpay-token` header: the platform's own `WEBHOOK_SECRET`, the first one
+ * found among the link's platform tags. Empty when none is configured (the header is then omitted).
+ */
+export function getPlatformWebhookToken(
+  tags: ReadonlyArray<string | null | undefined>,
+): string {
+  for (const tag of tags) {
+    if (!tag) continue;
+    const value = getPlatformIntegrationValue(tag, 'WEBHOOK_SECRET');
+    if (value) return value;
+  }
+  return '';
+}
+
 export function invalidatePlatformIntegrationsCache(): void {
   cache = {};
   fetchedAt = 0;

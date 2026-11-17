@@ -26,7 +26,7 @@ Riscos conhecidos:
 - Oferta de plataforma sem `WEBHOOK_URL`+`WEBHOOK_SECRET` não notifica ninguém. `Offer.fulfillment.webhookUrl` foi removido (migration `20261110100000`), e os adaptadores gravam `webhookUrl: null` (`legacy-links.compat.ts:214,411`). Os 8 links Areaflix com `webhookUrl` só continuam avisando o `saas-netflix-back` se a plataforma AREAFLIX tiver os dois itens.
 - Contratos próprios não emitem `subscription_renewed` nem `subscription_expired`; só `subscription_activated` (primeiro ciclo).
 - `/pagatg/webhook/dom` e `/` não têm autenticação (`pagatg-webhook.controller.ts:15,22`).
-- `SIMPAY_WEBHOOK_TOKEN` é lido em 5 arquivos (#3 a #8) e está duplicado em `backend/.env`.
+- `SIMPAY_WEBHOOK_TOKEN` não é mais lido em nenhum emissor: o `x-simpay-token` dos emissores #3 a #8 usa o `WEBHOOK_SECRET` da plataforma do link (`getPlatformWebhookToken`) e o header é omitido quando a plataforma não tem segredo. A variável pode ser removida de `backend/.env` e dos ambientes.
 
 ### Passos
 
@@ -37,7 +37,7 @@ Riscos conhecidos:
 - [ ] **Corpo canônico:** incluir `planName` e `frequencyType` no corpo de `purchase_approved` (hoje só em `items`), para consumidores não dependerem do item principal.
 - [ ] **Cortar #3 a #6:** trocar `notifyExternalWebhook`/`notifyPaymentLinkExternalWebhook` por enfileiramento na outbox; remover a guarda `WEBHOOK_SECRET` e o token. Só depois do passo de configuração e de zero tráfego em `/webhooks-simpay` no `saas-netflix-back` (medir por `SimpayWebhookLog`).
 - [ ] **Cortar #7 e #8** junto com a migração dos contratos (seção 2).
-- [ ] Aposentar `/webhooks-simpay` e `SIMPAY_WEBHOOK_TOKEN` no `saas-netflix-back` e no simintpay.
+- [ ] Aposentar `/webhooks-simpay` no `saas-netflix-back` e o `x-simpay-token` no simintpay.
 - [ ] Autenticar ou remover `/pagatg/webhook/dom`.
 - [ ] Avisar integradores sobre `purchase_partially_refunded` (plano 0024).
 

@@ -1,3 +1,4 @@
+import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   alertUnresolvedWebhook,
   offerWebhookResolutionEnabled,
@@ -1647,12 +1648,15 @@ export class ProcessDomWebhookUseCase {
     // Notificar webhook externo configurado no link (ex: saas-netflix-back para atualizar plano)
     const webhookUrl = order.subscriptionLink.webhookUrl ?? null;
     if (webhookUrl) {
-      const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      const simpayToken = getPlatformWebhookToken([
+        (order.subscriptionLink as any).platformTag,
+        ...((order.subscriptionLink as any).plataformas ?? []),
+      ]);
       fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-simpay-token': simpayToken,
+          ...(simpayToken ? { 'x-simpay-token': simpayToken } : {}),
         },
         body: JSON.stringify({
           event: 'subscription_activated',
@@ -1871,14 +1875,14 @@ export class ProcessDomWebhookUseCase {
         },
       });
       if (signed) return; // Durable worker owns signed callbacks.
-      const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      const simpayToken = getPlatformWebhookToken(link.plataformas);
       // items: o que foi comprado nesta transação (principal + order bumps, ou só o upsell/downsell)
       const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
       await fetch(link.webhookUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-simpay-token': simpayToken,
+          ...(simpayToken ? { 'x-simpay-token': simpayToken } : {}),
         },
         body: JSON.stringify({
           event,
