@@ -81,7 +81,15 @@ export function ReportMovementSections({
         <MetricCard
           label="Coprodução"
           value={reportMoney(coproducao.creditedCents)}
-          detail={`${coproducao.count.toLocaleString('pt-BR')} ${coproducao.count === 1 ? 'recebimento' : 'recebimentos'} · Em mediação ${reportMoney(coproducao.lockedCents)} · Estornado ${reportMoney(coproducao.reversedCents)}`}
+          detail={[
+            `${coproducao.count.toLocaleString('pt-BR')} ${coproducao.count === 1 ? 'recebimento' : 'recebimentos'}`,
+            coproducao.lockedCents > 0 &&
+              `Em mediação ${reportMoney(coproducao.lockedCents)}`,
+            coproducao.reversedCents > 0 &&
+              `Estornado ${reportMoney(coproducao.reversedCents)}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
           icon={HandCoins}
           valueClassName="text-emerald-600 dark:text-emerald-400"
           iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
