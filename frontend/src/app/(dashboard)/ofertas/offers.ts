@@ -116,13 +116,6 @@ export const OFFER_TEMPLATES: Record<OfferTemplateId, OfferPreset> = {
   },
 };
 
-/** Descrição derivada dos atributos da oferta (não existe tipo armazenado). */
-export function offerLabel(offer: Pick<Offer, 'renewalMode'>): string {
-  if (offer.renewalMode === 'AUTO_CHARGE') return 'Assinatura no cartão';
-  if (offer.renewalMode === 'MANUAL_PAY') return 'Assinatura por PIX';
-  return 'Compra única';
-}
-
 export type OfferStatus = 'ACTIVE' | 'INACTIVE' | 'EXHAUSTED' | 'EXPIRED';
 export const OFFER_STATUSES: OfferStatus[] = [
   'ACTIVE',

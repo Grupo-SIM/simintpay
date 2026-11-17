@@ -35,7 +35,6 @@ import {
 import {
   OFFERS_QUERY_KEY,
   enumLabel,
-  offerLabel,
   methodLabels,
   offerStatus,
   recurrenceSummary,
@@ -146,16 +145,6 @@ export function OfferListing({
         <time dateTime={row.createdAt} className="whitespace-nowrap">
           {new Date(row.createdAt).toLocaleString('pt-BR')}
         </time>
-      ),
-    },
-    {
-      key: 'kind',
-      header: 'Tipo',
-      defaultWidth: 150,
-      render: (row) => (
-        <Badge tone="border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300">
-          {offerLabel(row)}
-        </Badge>
       ),
     },
     {

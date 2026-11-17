@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
   enumLabel,
-  offerLabel,
   offerStatus,
   recurrenceSummary,
   statusLabels,
@@ -14,18 +13,6 @@ describe('offers', () => {
     expect(enumLabel(statusLabels, 'ACTIVE')).toBe('Ativa');
     expect(enumLabel(statusLabels, 'NOVO')).toBe('NOVO');
     expect(enumLabel(statusLabels, null)).toBe('—');
-  });
-
-  test('rótulo da oferta é derivado dos atributos', () => {
-    expect(offerLabel({ renewalMode: 'NONE' })).toBe(
-      'Compra única',
-    );
-    expect(offerLabel({ renewalMode: 'AUTO_CHARGE' })).toBe(
-      'Assinatura no cartão',
-    );
-    expect(offerLabel({ renewalMode: 'MANUAL_PAY' })).toBe(
-      'Assinatura por PIX',
-    );
   });
 
   test('status segue a precedência inativa > expirada > esgotada > ativa', () => {

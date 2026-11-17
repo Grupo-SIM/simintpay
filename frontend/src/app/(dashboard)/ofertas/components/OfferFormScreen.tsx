@@ -50,7 +50,6 @@ import {
   OFFER_METHODS,
   OFFER_TEMPLATES,
   intervalLabels,
-  offerLabel,
   templateDescriptions,
   templateLabels,
   methodLabels,
@@ -315,18 +314,17 @@ function FormBody({
           </div>
         </div>
         <div className="mt-5">
-          <p className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            {id ? 'Tipo' : 'Modelo rápido'}
-          </p>
           {id ? (
-            <p className="text-sm" data-testid="offer-kind">
-              {offer ? offerLabel(offer) : ''}
-              {offer?.platformTag
-                ? ` · Plataforma ${offer.platformTag.toUpperCase()}`
-                : ''}
-            </p>
+            offer?.platformTag ? (
+              <p className="text-sm" data-testid="offer-platform">
+                Plataforma {offer.platformTag.toUpperCase()}
+              </p>
+            ) : null
           ) : (
             <>
+              <p className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Modelo rápido
+              </p>
               <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
                 O modelo preenche meios de pagamento e recorrência. Você ajusta
                 tudo abaixo.
