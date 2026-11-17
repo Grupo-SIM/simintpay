@@ -1,6 +1,7 @@
 import { whereTransactionPlatform } from '../../../modules/platform-core/transaction-platform';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { BillingCycleService } from '../../../modules/billing-core/billing-cycle.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type {
@@ -708,7 +709,6 @@ export class ReconcilePendingTransactionsUseCase {
         method: 'PIX',
         amountCents,
         offerId: { not: null },
-        contractId: null,
         transaction: {
           acquirer: 'DOM',
           settlementBasis: 'FINAL_NET',
@@ -741,7 +741,24 @@ export class ReconcilePendingTransactionsUseCase {
     const offer = model.offer!;
     const createdAt = new Date(row.created_at);
 
+    const document = row.customer_document?.replace(/\D/g, '') ?? undefined;
+    const email = row.customer_email?.trim().toLowerCase();
+    // Oferta recorrente: o checkout cria contrato + Charge do 1º ciclo antes da Transaction.
+    let created: { contractId: string; chargeId: string } | null = null;
     try {
+      if (model.contractId) {
+        if (!email || !row.customer_name) throw new Error('missing-customer');
+        const { contract, charge } = await new BillingCycleService(
+          this.prisma,
+        ).subscribe({
+          offerId: offer.id,
+          customerName: row.customer_name,
+          customerEmail: email,
+          customerDocument: document,
+          now: Number.isNaN(createdAt.getTime()) ? undefined : createdAt,
+        });
+        created = { contractId: contract.id, chargeId: charge.id };
+      }
       await this.prisma.$transaction(async (p) => {
         const claimed = await p.offer.updateMany({
           where: {
@@ -775,8 +792,7 @@ export class ReconcilePendingTransactionsUseCase {
             externalPaymentId: String(row.id),
             customerName: row.customer_name ?? undefined,
             customerEmail: row.customer_email ?? undefined,
-            customerDocument:
-              row.customer_document?.replace(/\D/g, '') ?? undefined,
+            customerDocument: document,
             customerPhone: row.customer_phone?.replace(/\D/g, '') ?? undefined,
             pixQrCode: row.pix_qrcode ?? undefined,
             pixContent: row.pix_content ?? undefined,
@@ -784,24 +800,48 @@ export class ReconcilePendingTransactionsUseCase {
             ...(Number.isNaN(createdAt.getTime()) ? {} : { createdAt }),
           },
         });
-        await p.charge.create({
-          data: {
-            offerId: offer.id,
-            ownerUserId: model.ownerUserId,
-            amountCents,
-            currency: model.currency,
-            method: 'PIX',
-            customerName: row.customer_name ?? undefined,
-            customerEmail: row.customer_email ?? undefined,
-            customerDocument:
-              row.customer_document?.replace(/\D/g, '') ?? undefined,
-            transactionId: txId,
-            attempts: 1,
-            snapshot: model.snapshot as Prisma.InputJsonValue,
-          },
-        });
+        if (created) {
+          await p.charge.update({
+            where: { id: created.chargeId },
+            data: {
+              transactionId: txId,
+              method: 'PIX',
+              amountCents,
+              attempts: 1,
+              snapshot: model.snapshot as Prisma.InputJsonValue,
+            },
+          });
+          await p.billingContract.update({
+            where: { id: created.contractId },
+            data: { acquirer: 'DOM', description: offer.name.slice(0, 120) },
+          });
+        } else {
+          await p.charge.create({
+            data: {
+              offerId: offer.id,
+              ownerUserId: model.ownerUserId,
+              amountCents,
+              currency: model.currency,
+              method: 'PIX',
+              customerName: row.customer_name ?? undefined,
+              customerEmail: row.customer_email ?? undefined,
+              customerDocument: document,
+              transactionId: txId,
+              attempts: 1,
+              snapshot: model.snapshot as Prisma.InputJsonValue,
+            },
+          });
+        }
       });
     } catch (err) {
+      if (created) {
+        await this.prisma.charge.deleteMany({
+          where: { id: created.chargeId },
+        });
+        await this.prisma.billingContract.deleteMany({
+          where: { id: created.contractId },
+        });
+      }
       return skip(
         `create-failed:${err instanceof Error ? err.message : String(err)}`,
       );
