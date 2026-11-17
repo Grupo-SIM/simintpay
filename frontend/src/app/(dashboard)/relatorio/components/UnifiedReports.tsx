@@ -19,13 +19,6 @@ import type { DateRange } from '../types';
 const AdminOverview = dynamic(() => import('./AdminReportOverview'), {
   loading: () => <ReportSkeleton />,
 });
-const PlatformDetails = dynamic(
-  () =>
-    import('./ProdutoReportSection').then(
-      (module) => module.ProdutoReportSection,
-    ),
-  { loading: () => <ReportSkeleton /> },
-);
 const AdminTransactions = dynamic(
   () =>
     import('./AdminReportTransactions').then(
@@ -114,12 +107,16 @@ export function UnifiedReports() {
         )}
         {admin ? (
           platform ? (
-            <PlatformDetails
-              key={`${platform.id}:${filters.startDate}:${filters.endDate}:${method}`}
-              platform={platform}
-              effectiveDateRange={range}
-              method={method}
-            />
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                {platform.name}
+              </h2>
+              <OwnedReportContent
+                key={`${platform.id}:${filters.startDate}:${filters.endDate}:${method}`}
+                filters={filters}
+                product
+              />
+            </div>
           ) : (
             <div className="space-y-6">
               <AdminOverview range={range} method={method} />
