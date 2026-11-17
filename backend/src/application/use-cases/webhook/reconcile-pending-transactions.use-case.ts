@@ -23,6 +23,11 @@ const FAILURE_STATUSES: Record<string, string> = {
   expired: 'EXPIRED',
 };
 
+/** Janela, idade mínima e prazo de expiração para DRAFTs sem domPaymentId. */
+const ORPHAN_WINDOW_HOURS = 72;
+const ORPHAN_MIN_AGE_MINUTES = 2;
+const ORPHAN_EXPIRE_AFTER_HOURS = 26;
+
 type ReconcileDetail = {
   id: string;
   domPaymentId: string;
@@ -467,6 +472,118 @@ export class ReconcilePendingTransactionsUseCase {
       this.logger.log(
         `${prefix} ended: outcome=${outcome} checked=${checked} completed=${completed} durationMs=${Date.now() - startedAt}`,
       );
+      this.activeRuns.delete(runKey);
+    }
+  }
+
+  /**
+   * Recupera transações órfãs: criadas como DRAFT, cuja cobrança na DOM pode ter sido criada
+   * sem que a resposta chegasse (timeout/queda), ficando sem `domPaymentId`. Sem ele, nem o
+   * webhook perdido nem o polling por PENDING conseguem liquidá-las.
+   *
+   * Casa pelo `cod_external` (= id da transação). Achou: anexa `domPaymentId`, promove a
+   * PENDING e reprocessa pelo caminho normal. Não achou: só marca EXPIRED depois de a listagem
+   * completa e de passar o prazo máximo do Pix; nunca apaga.
+   */
+  async recoverOrphanDrafts(): Promise<{ checked: number; recovered: number }> {
+    const prefix = '[Reconcile][draft]';
+    const runKey = 'draft:*';
+    if (this.activeRuns.has(runKey)) return { checked: 0, recovered: 0 };
+    this.activeRuns.set(runKey, { mode: 'draft', startedAt: Date.now() });
+    let recovered = 0;
+    try {
+      const token = process.env.DOM_TOKEN;
+      if (!token) return { checked: 0, recovered: 0 };
+      const now = Date.now();
+      const drafts = await this.prisma.transaction.findMany({
+        where: {
+          status: 'DRAFT',
+          acquirer: 'DOM',
+          domPaymentId: null,
+          createdAt: { gte: new Date(now - ORPHAN_WINDOW_HOURS * 3_600_000) },
+          updatedAt: { lte: new Date(now - ORPHAN_MIN_AGE_MINUTES * 60_000) },
+        },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+        take: 200,
+      });
+      if (drafts.length === 0) return { checked: 0, recovered: 0 };
+
+      const domMap = new Map<string, DomTransactionItem>();
+      const beginDate = this.toYmd(drafts[0].createdAt);
+      const endDate = this.toYmd(new Date(now + 86_400_000));
+      let listedAll = false;
+      for (let page = 1; page <= 40; page++) {
+        let txs: DomTransactionItem[];
+        try {
+          const res = await this.gateway.listDomTransactions(token, {
+            page,
+            limit: 100,
+            begin_date: beginDate,
+            end_date: endDate,
+          });
+          txs = res.transactions ?? [];
+        } catch (err) {
+          this.logger.warn(
+            `${prefix} erro ao listar DOM (p.${page}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+          break;
+        }
+        for (const t of txs)
+          if (t.cod_external) domMap.set(String(t.cod_external), t);
+        if (txs.length < 100) {
+          listedAll = true;
+          break;
+        }
+      }
+
+      for (const draft of drafts) {
+        const dom = domMap.get(draft.id);
+        if (!dom?.id) {
+          if (
+            listedAll &&
+            now - draft.createdAt.getTime() >
+              ORPHAN_EXPIRE_AFTER_HOURS * 3_600_000
+          ) {
+            await this.prisma.transaction.updateMany({
+              where: { id: draft.id, status: 'DRAFT', domPaymentId: null },
+              data: { status: 'EXPIRED' },
+            });
+            this.logger.warn(
+              `${prefix} expired: tx=${draft.id} reason=no-DOM-match`,
+            );
+          }
+          continue;
+        }
+        const attached = await this.prisma.transaction.updateMany({
+          where: { id: draft.id, status: 'DRAFT', domPaymentId: null },
+          data: {
+            status: 'PENDING',
+            domPaymentId: String(dom.id),
+            externalPaymentId: String(dom.id),
+            ...(dom.pix_qrcode ? { pixQrCode: dom.pix_qrcode } : {}),
+            ...(dom.pix_content ? { pixContent: dom.pix_content } : {}),
+            ...(dom.pix_expire ? { pixExpire: new Date(dom.pix_expire) } : {}),
+          },
+        });
+        if (attached.count !== 1) continue;
+        recovered++;
+        this.logger.warn(
+          `${prefix} recovered: tx=${draft.id} domPaymentId=${dom.id} domStatus=${dom.status}`,
+        );
+        await this.execute({
+          transactionId: draft.id,
+          direct: true,
+          minAgeMinutes: 0,
+        });
+      }
+      return { checked: drafts.length, recovered };
+    } catch (err) {
+      this.logger.error(
+        `${prefix} erro: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { checked: 0, recovered };
+    } finally {
       this.activeRuns.delete(runKey);
     }
   }
