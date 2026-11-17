@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { SingleDatePickerField } from '@/app/(dashboard)/links-pagamento/components/SingleDatePickerField';
+import { SingleDatePickerField } from './SingleDatePickerField';
 
 export function ChargeDateField({
   label,

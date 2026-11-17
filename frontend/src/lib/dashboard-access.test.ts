@@ -10,8 +10,6 @@ describe('client dashboard route boundary', () => {
       '/relatorio',
       '/plataformas',
       '/plataformas/SHOP',
-      '/cliente/planos/criar',
-      '/cliente/boletos',
       '/transacoes',
       '/transacoes/123',
       '/painel',
@@ -25,9 +23,6 @@ describe('client dashboard route boundary', () => {
       '/admin/leads',
       '/painel/revalida',
       '/painel/renovada',
-      '/assinantes',
-      '/planos/criar',
-      '/planos-pix/123/assinantes',
       '/transacoes-admin',
     ])
       assert.equal(canClientAccessPath(route), false, route);

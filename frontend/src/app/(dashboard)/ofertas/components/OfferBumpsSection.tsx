@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
+import { PaymentLinkPreviewModal } from './PaymentLinkPreviewModal';
 import { Eye, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Dropdown } from '@/components/ui/Dropdown';

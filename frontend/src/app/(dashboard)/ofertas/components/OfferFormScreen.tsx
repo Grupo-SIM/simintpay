@@ -1,6 +1,6 @@
 'use client';
 
-import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
+import { PaymentLinkPreviewModal } from './PaymentLinkPreviewModal';
 import { Button } from '@/components/ui/Button';
 import { EmailPreview } from '@/components/ui/EmailPreview';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
@@ -16,7 +16,7 @@ import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { saveCoproduction } from '@/features/coproduction/coproduction.service';
 import { useCoproductionDraft } from '@/features/coproduction/use-coproduction-draft';
 import { endpoints } from '@/services/api/endpoints';
-import { FormSwitch } from '../../cliente/links-pagamento/criar/components/FormSwitch';
+import { FormSwitch } from '@/components/ui/FormSwitch';
 import {
   DebouncedInput as Input,
   ProductEditState,

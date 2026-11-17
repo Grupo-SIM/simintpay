@@ -38,7 +38,7 @@ export default function ClienteLayout({ children }: { children: ReactNode }) {
               : 'Sua conta está em análise.'}
           </h1>
           <p className="mt-2 text-sm text-amber-800 dark:text-amber-300/90">
-            Você poderá criar links e planos assim que for aprovada pela equipe.
+            Você poderá criar ofertas assim que for aprovada pela equipe.
           </p>
         </div>
       </div>

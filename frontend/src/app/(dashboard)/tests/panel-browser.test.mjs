@@ -4,7 +4,7 @@ import postcss from 'postcss';
 import tailwind from '@tailwindcss/postcss';
 
 // Real page components, local navigation adapter, mocked APIs. External requests are blocked.
-test('panel controls, platform search, accounts and subscriber filters', async () => {
+test('panel controls, platform search, accounts and transactions', async () => {
   const bundle = await Bun.build({
     entrypoints: [import.meta.dir + '/panel-browser-entry.tsx'],
     target: 'browser',
@@ -83,15 +83,6 @@ test('panel controls, platform search, accounts and subscriber filters', async (
     ownerUserId: 'owner',
     owner: { id: 'owner', name: 'Maria' },
   }));
-  const subscriber = (id, status, extra = {}) => ({
-    id,
-    nome: id,
-    status,
-    frequencia: 'MONTHLY',
-    intervalo: 1,
-    plataforma: 'LOJA-29',
-    ...extra,
-  });
   await context.route('**/*', async (route) => {
     const request = route.request(),
       url = new URL(request.url());
@@ -151,25 +142,6 @@ test('panel controls, platform search, accounts and subscriber filters', async (
           ? respond({ message: 'Falha simulada' }, 400)
           : respond({ data: { userId: 'new', email: 'nova@test.local' } });
       return respond({ data: {}, created: 0, linked: 0, walletsUpdated: 0 });
-    }
-    if (path === '/assinantes') {
-      const q = url.searchParams;
-      const rows =
-        q.get('statusGroup') === 'deactivated'
-          ? [subscriber('Desativada', 'CANCELLED')]
-          : [
-              subscriber('Ativa', 'ACTIVE'),
-              subscriber('Desativada', 'CANCELLED'),
-              subscriber('Desconhecida', 'NEW'),
-              subscriber('Pausada', 'CANCELLED', { isPaused: true }),
-            ];
-      return respond({
-        data: rows,
-        total: rows.length,
-        page: Number(q.get('page') ?? 1),
-        pageSize: 20,
-        hasNextPage: false,
-      });
     }
     if (path === '/transacoes')
       return respond({
@@ -309,67 +281,6 @@ test('panel controls, platform search, accounts and subscriber filters', async (
     await page.getByRole('dialog').waitFor();
     expect(page.url()).toContain('tab=usuarios');
 
-    await go('/assinantes');
-    await page.getByText('Desativada', { exact: true }).waitFor();
-    expect(
-      await page
-        .getByRole('button', { name: 'Excluir do histórico', exact: true })
-        .count(),
-    ).toBe(1);
-    await page.locator('thead input[type="checkbox"]').check();
-    expect(
-      await page
-        .getByRole('button', { name: 'Excluir do histórico (1)', exact: true })
-        .isEnabled(),
-    ).toBe(true);
-    expect(
-      await page
-        .getByRole('button', { name: 'Pausar (1)', exact: true })
-        .isEnabled(),
-    ).toBe(true);
-    await page.getByRole('button', { name: 'Limpar', exact: true }).click();
-    await page.getByRole('button', { name: 'Status', exact: true }).click();
-    await page
-      .getByRole('option', { name: 'Desativadas', exact: true })
-      .click();
-    await page.waitForFunction(() =>
-      location.search.includes('statusGroup=deactivated'),
-    );
-    await page.getByRole('button', { name: 'Intervalo', exact: true }).click();
-    await page.getByRole('option', { name: 'Anual', exact: true }).click();
-    await page.waitForFunction(() =>
-      location.search.includes('frequency=YEARLY'),
-    );
-    expect(
-      reads.some(
-        (read) =>
-          read.path === '/assinantes' &&
-          read.query.statusGroup === 'deactivated' &&
-          read.query.frequency === 'YEARLY',
-      ),
-    ).toBe(true);
-    const beforeDelete = writes.length;
-    await page
-      .getByRole('button', { name: 'Excluir do histórico', exact: true })
-      .click();
-    expect(writes.length).toBe(beforeDelete);
-    await page
-      .getByRole('button', {
-        name: 'Confirmar excluir do histórico',
-        exact: true,
-      })
-      .click();
-    await page.waitForFunction(() =>
-      document.body.textContent.includes('Removida do histórico'),
-    );
-    expect(
-      writes.some(
-        (write) =>
-          write.method === 'DELETE' &&
-          write.path.includes('Desativada/history'),
-      ),
-    ).toBe(true);
-
     await go('/transacoes');
     await page.getByText('Plano mensal', { exact: false }).waitFor();
     expect(await page.locator('tbody').textContent()).not.toContain('TENANT:');
@@ -444,10 +355,6 @@ test('panel controls, platform search, accounts and subscriber filters', async (
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
       await page.screenshot({ path: `/tmp/simintpay-account-${theme}.png` });
     }
-    await go('/preview');
-    expect(
-      await page.getByRole('button', { name: 'Ajustar', exact: true }).count(),
-    ).toBe(0);
     expect(errors).toEqual([]);
   } finally {
     await browser.close();

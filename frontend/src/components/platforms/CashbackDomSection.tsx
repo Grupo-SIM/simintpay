@@ -6,7 +6,7 @@ import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { FinancialNumberField } from './FinancialNumberField';
 import { CollapsibleSection } from './CollapsibleSection';
-import { FormSwitch } from '@/app/(dashboard)/cliente/links-pagamento/criar/components/FormSwitch';
+import { FormSwitch } from '@/components/ui/FormSwitch';
 
 type Settings = {
   data: Record<string, Record<string, number>>;

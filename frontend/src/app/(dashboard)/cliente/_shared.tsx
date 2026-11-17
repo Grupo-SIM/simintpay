@@ -21,45 +21,12 @@ export const CHECKOUT_BASE_URL = (
   'https://checkout.simintermediacoes.com'
 ).replace(/\/$/, '');
 
-/** Monta a URL pública de checkout de cada produto. Retorna null quando faltam dados. */
-export function checkoutUrlPlano(id: string | null | undefined): string | null {
-  return id
-    ? `${CHECKOUT_BASE_URL}/?simPlanCode=${encodeURIComponent(id)}`
-    : null;
-}
-export function checkoutUrlLinkPagamento(
-  id: string | null | undefined,
-): string | null {
-  return id
-    ? `${CHECKOUT_BASE_URL}/?simLinkCode=${encodeURIComponent(id)}`
-    : null;
-}
-export function checkoutUrlAssinatura(
-  code: string | null | undefined,
-): string | null {
-  return code
-    ? `${CHECKOUT_BASE_URL}/?subscriptionLinkCode=${encodeURIComponent(code)}`
-    : null;
-}
-export function checkoutUrlPixPlan(
-  linkCode: string | null | undefined,
-): string | null {
-  return linkCode
-    ? `${CHECKOUT_BASE_URL}/?code=${encodeURIComponent(linkCode)}`
-    : null;
-}
+/** Monta a URL pública de checkout da oferta. Retorna null quando faltam dados. */
 export function checkoutUrlOferta(
   code: string | null | undefined,
 ): string | null {
   return code
     ? `${CHECKOUT_BASE_URL}/?oferta=${encodeURIComponent(code)}`
-    : null;
-}
-export function checkoutUrlBoleto(
-  id: string | null | undefined,
-): string | null {
-  return id
-    ? `${CHECKOUT_BASE_URL}/?simBoletoCode=${encodeURIComponent(id)}`
     : null;
 }
 

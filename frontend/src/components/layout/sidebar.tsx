@@ -34,7 +34,7 @@ const MENU_ITEMS = [
   { href: '/painel', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/transacoes', icon: CreditCard, label: 'Transações' },
   { href: '/saques', icon: ArrowDownToLine, label: 'Saques' },
-  { href: '/assinantes', icon: Users, label: 'Assinantes' },
+  { href: '/ofertas/assinantes', icon: Users, label: 'Assinantes' },
   { href: '/cobrancas', icon: Receipt, label: 'Cobranças' },
   { href: '/relatorio', icon: BarChart2, label: 'Relatórios' },
 ];
@@ -380,7 +380,7 @@ export function Sidebar() {
               open={open}
               pathname={pathname}
               labelStyle={labelStyle}
-              href="/assinantes"
+              href="/ofertas/assinantes"
               icon={Users}
               label="Assinantes"
             />
