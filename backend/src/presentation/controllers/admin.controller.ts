@@ -2640,17 +2640,8 @@ export class AdminController {
       })
       .filter(Boolean);
 
-    // Registros "completos" (CPF preenchido + status de atividade conhecido +
-    // vinculado a uma conta Simintpay) sobem para o topo da página atual.
-    // Ordenação estável: dentro de cada grupo mantém a ordem original (createdAt desc).
-    const isComplete = (row: any) =>
-      !!row.cpf && row.isAtivo !== null && row.vinculado === true;
-    const sortedData = [...data].sort(
-      (a: any, b: any) => Number(isComplete(b)) - Number(isComplete(a)),
-    );
-
     return {
-      data: sortedData,
+      data,
       total: combinedTotal,
       page: pageNum,
       pageSize: size,
