@@ -1,10 +1,12 @@
 'use client';
 import { useEffect } from 'react';
+import { consolidadoTagFor } from '@/lib/consolidado-tag';
 import { ApiError } from '@/services/api/types';
 import { useReportApi, useReportQuery } from '@/hooks/use-report-api';
 import { ReportError } from './ReportError';
 import { ReportSkeleton } from './ReportSkeleton';
 import { ReportSummaryCards } from './ReportSummaryCards';
+import { AtlasExtraCards } from './AtlasExtraCards';
 import { OwnedReportTransactions } from './OwnedReportTransactions';
 import { OwnedReportSeries } from './OwnedReportSeries';
 import { OwnedReportProfitChart } from './OwnedReportProfitChart';
@@ -48,6 +50,11 @@ export function OwnedReportContent({
   return (
     <div className="space-y-6">
       <ReportSummaryCards data={query.data} />
+      {product &&
+        filters.platform &&
+        consolidadoTagFor(filters.platform) === 'ATLAS' && (
+          <AtlasExtraCards filters={filters} />
+        )}
       {hasPlatforms && (
         <>
           {!product && <OwnedReportProfitChart filters={filters} />}
