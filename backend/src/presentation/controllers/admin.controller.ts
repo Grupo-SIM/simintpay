@@ -4,7 +4,6 @@ import {
 } from '../../modules/offer/offer-legacy-freeze';
 import { offerWritesOnlyEnabled } from '../../modules/offer/offer-writes-flag';
 import { generateOfferCode } from '../../modules/offer/offer-code';
-import { offerPlatformReadsEnabled } from '../../modules/offer/offer-read-flag';
 import {
   listAreaflixOfferOrders,
   paidAreaflixEmails,
@@ -281,11 +280,7 @@ function buildConsolidadoTransactionWhere(
   if (input.paymentLink?.trim()) {
     // `Transaction.offerId` is backfilled from `paymentLinkId` (same id): either column matches.
     const link = input.paymentLink.trim();
-    and.push(
-      offerPlatformReadsEnabled()
-        ? { OR: [{ paymentLinkId: link }, { offerId: link }] }
-        : { paymentLinkId: link },
-    );
+    and.push({ OR: [{ paymentLinkId: link }, { offerId: link }] });
   }
 
   if (input.planName?.trim()) {
@@ -2364,32 +2359,9 @@ export class AdminController {
             .then((rows) => new Set(rows.map((r) => r.userId)))
         : Promise.resolve(new Set<string>()),
 
-      areaflixEmails.length > 0 && offerPlatformReadsEnabled()
+      areaflixEmails.length > 0
         ? paidAreaflixEmails(this.prisma, areaflixEmails)
-        : areaflixEmails.length > 0
-          ? this.prisma.subscriptionLink
-              .findMany({
-                where: {
-                  webhookUrl: { contains: 'areaflix', mode: 'insensitive' },
-                },
-                select: { id: true },
-              })
-              .then((links) => {
-                const ids = links.map((l) => l.id);
-                if (ids.length === 0) return new Set<string>();
-                return this.prisma.subscriptionLinkOrder
-                  .findMany({
-                    where: {
-                      subscriptionLinkId: { in: ids },
-                      customerEmail: { in: areaflixEmails },
-                      status: { in: ['paid', 'active', 'approved'] },
-                    },
-                    select: { customerEmail: true },
-                    distinct: ['customerEmail'],
-                  })
-                  .then((rows) => new Set(rows.map((r) => r.customerEmail)));
-              })
-          : Promise.resolve(new Set<string>()),
+        : Promise.resolve(new Set<string>()),
     ]);
 
     // Product projections reuse persisted snapshots and explicit ownership.
@@ -7323,68 +7295,14 @@ export class AdminController {
     const ps = pageSize ? Number(pageSize) : 50;
     const skip = (p - 1) * ps;
 
-    if (offerPlatformReadsEnabled()) {
-      const listed = await listAreaflixOfferOrders(this.prisma, {
-        skip,
-        take: ps,
-        status,
-        customerEmail,
-        customerName,
-      });
-      return { ...listed, page: p, pageSize: ps };
-    }
-
-    // Filtrar apenas links de assinatura que pertencem à Areaflix (webhookUrl contém "areaflix")
-    const areaflixLinks = await this.prisma.subscriptionLink.findMany({
-      where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },
-      select: { id: true },
+    const listed = await listAreaflixOfferOrders(this.prisma, {
+      skip,
+      take: ps,
+      status,
+      customerEmail,
+      customerName,
     });
-    const areaflixLinkIds = areaflixLinks.map((l) => l.id);
-
-    const where: any = { subscriptionLinkId: { in: areaflixLinkIds } };
-    if (status) where.status = status;
-    if (customerEmail)
-      where.customerEmail = { contains: customerEmail, mode: 'insensitive' };
-    if (customerName)
-      where.customerName = { contains: customerName, mode: 'insensitive' };
-
-    const [total, items] = await this.prisma.$transaction([
-      this.prisma.subscriptionLinkOrder.count({ where }),
-      this.prisma.subscriptionLinkOrder.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: ps,
-        include: {
-          subscriptionLink: {
-            select: {
-              name: true,
-              amount: true,
-              platformFee: true,
-              frequencyType: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    const areaflixPaidWhere = {
-      subscriptionLinkId: { in: areaflixLinkIds },
-      status: { in: ['paid', 'active', 'approved'] },
-    };
-    const totalRevenue = await this.prisma.subscriptionLinkOrder.aggregate({
-      where: areaflixPaidWhere,
-      _sum: { amountCharged: true, platformFeeAmount: true },
-    });
-
-    return {
-      total,
-      page: p,
-      pageSize: ps,
-      totalRevenue: Number(totalRevenue._sum.amountCharged ?? 0),
-      totalFee: Number(totalRevenue._sum.platformFeeAmount ?? 0),
-      items,
-    };
+    return { ...listed, page: p, pageSize: ps };
   }
 
   @Get('relatorios/atlas-consolidado')

@@ -1,4 +1,3 @@
-import { offerPlatformReadsEnabled } from '../../modules/offer/offer-read-flag';
 import {
   offerAuditRow,
   offerGroupWhere,
@@ -264,70 +263,10 @@ export class AdminClientesController {
     }
 
     // Alvo: link/plano de cliente SEM plataforma atribuída.
-    if (offerPlatformReadsEnabled())
-      return this.backfillOffers(clientIds, apply, withSubs, TAG);
-    const where = { userId: { in: clientIds }, plataformas: { isEmpty: true } };
-
-    const [paymentLinks, plans, subscriptionLinks] = await Promise.all([
-      this.prisma.paymentLink.count({ where }),
-      this.prisma.plan.count({ where }),
-      withSubs
-        ? this.prisma.subscriptionLink.count({ where })
-        : Promise.resolve(0),
-    ]);
-
-    // Amostra (até 10) de links pra você conferir antes de aplicar.
-    const amostraPaymentLinks = await this.prisma.paymentLink.findMany({
-      where,
-      select: { id: true, title: true, userId: true },
-      take: 10,
-    });
-
-    if (!apply) {
-      return {
-        dryRun: true,
-        clientes: clientIds.length,
-        afetados: {
-          paymentLinks,
-          plans,
-          subscriptionLinks: withSubs
-            ? subscriptionLinks
-            : 'ignorado (use includeSubscriptions=true)',
-        },
-        amostraPaymentLinks,
-        comoAplicar: 'Rode de novo com dry=false para gravar.',
-      };
-    }
-
-    const [linksRes, plansRes, subsRes] = await Promise.all([
-      this.prisma.paymentLink.updateMany({
-        where,
-        data: { plataformas: [TAG] },
-      }),
-      this.prisma.plan.updateMany({ where, data: { plataformas: [TAG] } }),
-      withSubs
-        ? this.prisma.subscriptionLink.updateMany({
-            where,
-            data: { plataformas: [TAG] },
-          })
-        : Promise.resolve({ count: 0 }),
-    ]);
-
-    return {
-      dryRun: false,
-      tag: TAG,
-      clientes: clientIds.length,
-      atualizados: {
-        paymentLinks: linksRes.count,
-        plans: plansRes.count,
-        subscriptionLinks: withSubs
-          ? subsRes.count
-          : 'ignorado (use includeSubscriptions=true)',
-      },
-    };
+    return this.backfillOffers(clientIds, apply, withSubs, TAG);
   }
 
-  /** Same backfill through `Offer` (flag `OFFER_PLATFORM_READS=1`): offers without platform. */
+  /** Backfill through `Offer`: offers without platform. */
   private async backfillOffers(
     clientIds: string[],
     apply: boolean,
@@ -493,21 +432,11 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
-    if (offerPlatformReadsEnabled())
-      return {
-        data: (await this.offerAudit('plan', clientId)).map((r) =>
-          this.attach(r),
-        ),
-      };
-    const rows = await this.prisma.plan.findMany({
-      where: {
-        user: { clientStatus: { not: null } },
-        ...(clientId ? { userId: clientId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    });
-    return { data: rows.map((r) => this.attach(r)) };
+    return {
+      data: (await this.offerAudit('plan', clientId)).map((r) =>
+        this.attach(r),
+      ),
+    };
   }
 
   @Get('planos-pix')
@@ -516,16 +445,7 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
-    const rows = offerPlatformReadsEnabled()
-      ? await this.offerAudit('pixPlan', clientId)
-      : await this.prisma.pixCreditPlan.findMany({
-          where: {
-            user: { clientStatus: { not: null } },
-            ...(clientId ? { userId: clientId } : {}),
-          },
-          orderBy: { createdAt: 'desc' },
-          include: { user: { select: { id: true, name: true, email: true } } },
-        });
+    const rows = await this.offerAudit('pixPlan', clientId);
     // PixCreditPlan não tem campo `name` — só `description`. A UI espera `name`.
     return {
       data: rows.map((r) => {
@@ -541,21 +461,11 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
-    if (offerPlatformReadsEnabled())
-      return {
-        data: (await this.offerAudit('paymentLink', clientId)).map((r) =>
-          this.attach(r),
-        ),
-      };
-    const rows = await this.prisma.paymentLink.findMany({
-      where: {
-        user: { clientStatus: { not: null } },
-        ...(clientId ? { userId: clientId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    });
-    return { data: rows.map((r) => this.attach(r)) };
+    return {
+      data: (await this.offerAudit('paymentLink', clientId)).map((r) =>
+        this.attach(r),
+      ),
+    };
   }
 
   @Get('links-assinatura')
@@ -564,21 +474,11 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
-    if (offerPlatformReadsEnabled())
-      return {
-        data: (await this.offerAudit('subscriptionLink', clientId)).map((r) =>
-          this.attach(r),
-        ),
-      };
-    const rows = await this.prisma.subscriptionLink.findMany({
-      where: {
-        user: { clientStatus: { not: null } },
-        ...(clientId ? { userId: clientId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    });
-    return { data: rows.map((r) => this.attach(r)) };
+    return {
+      data: (await this.offerAudit('subscriptionLink', clientId)).map((r) =>
+        this.attach(r),
+      ),
+    };
   }
 
   private attach<
