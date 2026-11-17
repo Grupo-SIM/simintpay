@@ -71,7 +71,7 @@ function fixture() {
       count: async ({ where }: any) =>
         rows.filter((row) => matches(row, where)).length,
     },
-    pixCreditPlan: { count: async () => 2 },
+    offer: { count: async () => 2 },
     $queryRaw: async () => [
       {
         platform: 'atlas',

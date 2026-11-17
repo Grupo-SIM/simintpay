@@ -99,7 +99,7 @@ test('generic seller stats alias equals scoped canonical projection with real su
   f.context.tag = 'AREAFLIX';
   f.platform.tag = 'AREAFLIX';
   const p: any = f.prisma;
-  p.subscriptionLink = { findMany: async () => [{ id: 'link' }] };
+  p.offer = { findMany: async () => [{ id: 'link' }] };
   p.subscriptionLinkOrder = {
     findMany: async ({ where }: any) =>
       where.status.in

@@ -38,14 +38,8 @@ test('listing inheritance uses settlement tags and preserves empty OWN overrides
       expect(query.text).toContain(
         "CASE WHEN own.mode = 'OWN' THEN own.participants ELSE inherited.participants END",
       );
-      expect(query.text).toContain('platform."ownerUserId" = p."userId"');
-      expect(query.text).toContain(
-        product === 'planos-pix'
-          ? 'p."tenantTag"'
-          : product === 'links-assinatura'
-            ? 'coalesce(p."platformTag", p.plataformas[1])'
-            : 'p.plataformas[1]',
-      );
+      expect(query.text).toContain('platform."ownerUserId" = p."ownerUserId"');
+      expect(query.text).toContain('p."platformTag"');
     }
   }
 });

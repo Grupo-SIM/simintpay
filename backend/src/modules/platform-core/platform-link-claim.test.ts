@@ -23,13 +23,11 @@ function fixture() {
       }),
       count: mock(async () => 1),
     },
-    paymentLink: {
-      findMany: mock(async () => [{ id: 'link' }]),
+    offer: {
+      findMany: mock(async (args: any) =>
+        args.where.id.in.map((id: string) => ({ id })),
+      ),
       updateMany: mock(async () => ({ count: 1 })),
-    },
-    subscriptionLink: {
-      findMany: async () => [],
-      updateMany: mock(async () => ({ count: 0 })),
     },
     subscriptionLinkOrder: { updateMany: mock() },
     transaction: { updateMany: mock() },
@@ -68,17 +66,17 @@ test('claim changes future links and never rewrites settled ledger or historical
   });
   expect(p.transaction.updateMany).not.toHaveBeenCalled();
   expect(p.subscriptionLinkOrder.updateMany).not.toHaveBeenCalled();
-  expect(p.paymentLink.updateMany.mock.calls[0][0].where.plataformas).toEqual({
-    has: 'AREAFLIX',
-  });
+  expect(p.offer.updateMany.mock.calls[0][0].where.platformTag).toBe(
+    'AREAFLIX',
+  );
 });
 test('unattributed and foreign links block claim before mutation', async () => {
   const { p, service } = fixture();
-  p.paymentLink.findMany.mockImplementation(async () => []);
+  p.offer.findMany.mockImplementation(async () => []);
   await expect(
     service.claim('AREAFLIX', 'owner', { paymentLinkIds: ['foreign'] }),
   ).rejects.toThrow();
-  expect(p.paymentLink.updateMany).not.toHaveBeenCalled();
+  expect(p.offer.updateMany).not.toHaveBeenCalled();
 });
 test('retroactive transfer credits once and honors historical transfer logs', async () => {
   const { p, service } = fixture();
