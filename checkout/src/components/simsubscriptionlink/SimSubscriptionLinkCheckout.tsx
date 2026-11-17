@@ -196,10 +196,19 @@ export default function SimSubscriptionLinkCheckout() {
   );
 
   // Dados do cliente
-  const [name, setName] = useState('');
-  const [document, setDocument] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  // Dados já informados pelo parceiro (?name=&document=&email=&phone=) iniciam preenchidos.
+  const [name, setName] = useState(
+    () => searchParams.get('name')?.trim() ?? '',
+  );
+  const [document, setDocument] = useState(() =>
+    maskCpfCnpj(searchParams.get('document') ?? ''),
+  );
+  const [email, setEmail] = useState(
+    () => searchParams.get('email')?.trim() ?? '',
+  );
+  const [phone, setPhone] = useState(() =>
+    maskPhoneBr(searchParams.get('phone') ?? ''),
+  );
 
   // Cartão
   const [cardNumber, setCardNumber] = useState('');
