@@ -89,10 +89,6 @@ import {
   calculateAreaflixSellerNet,
 } from '../../helpers/areaflix-fees.helper';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
-import {
-  resolveLinkDelivery,
-  sendLinkDelivery,
-} from '../payment-link/payment-link-delivery';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -747,17 +743,9 @@ export class ProcessDomWebhookUseCase {
           }
         }
 
-        // PDF delivery / e-mail de ebook personalizado do link de pagamento
-        if (existing.paymentLinkId && this.emailService) {
-          void this.sendPaymentLinkFilesToCustomer(existing);
-        }
-
-        // Notificar webhook externo configurado no link de pagamento (ex: areaflix)
+        // Entrega e webhook externo pertencem à oferta (billing-core); aqui só se identifica a oferta.
         if (existing.paymentLinkId) {
-          void this.notifyPaymentLinkExternalWebhook(
-            existing,
-            'purchase_approved',
-          );
+          void this.reportLinkWithoutLegacyRow(existing.paymentLinkId);
         }
       }
 
@@ -768,10 +756,7 @@ export class ProcessDomWebhookUseCase {
         existing.status === TransactionStatus.COMPLETED &&
         existing.paymentLinkId
       ) {
-        void this.notifyPaymentLinkExternalWebhook(
-          existing,
-          'purchase_refunded',
-        );
+        void this.reportLinkWithoutLegacyRow(existing.paymentLinkId);
       }
     } else {
       const amountReais = Number(data.amount) / 100;
@@ -1877,7 +1862,7 @@ export class ProcessDomWebhookUseCase {
     return true;
   }
 
-  /** Plan 0023: the legacy link row is gone; try the Offer, alert on a miss. */
+  /** Plan 0023: a transaction that still carries a legacy link id; resolve the Offer, alert on a miss. */
   private async reportLinkWithoutLegacyRow(linkId: string): Promise<void> {
     const hit = await resolveOfferByLinkReference(this.prisma, linkId);
     if (hit) {
@@ -1887,128 +1872,5 @@ export class ProcessDomWebhookUseCase {
       return;
     }
     alertUnresolvedWebhook(this.logger, 'dom.payment-link', linkId);
-  }
-
-  private async sendPaymentLinkFilesToCustomer(tx: {
-    id: string;
-    paymentLinkId: string | null;
-    customerEmail: string | null;
-    customerName: string | null;
-  }): Promise<void> {
-    if (!tx.paymentLinkId || !tx.customerEmail || !this.emailService) return;
-
-    try {
-      const link = await this.prisma.paymentLink.findUnique({
-        where: { id: tx.paymentLinkId },
-        include: { files: true },
-      });
-      if (!link) {
-        await this.reportLinkWithoutLegacyRow(tx.paymentLinkId);
-        return;
-      }
-      const signed = await this.prisma.platformIntegration.findFirst({
-        where: {
-          key: 'WEBHOOK_SECRET',
-          encryptedValue: { not: null },
-          platform: { tag: { in: link.plataformas } },
-        },
-      });
-      if (signed) return; // Durable platform outbox delivers e-mail and retries.
-
-      // Pedido principal: produto + order bumps. Upsell/downsell: só o material da oferta.
-      const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
-      await sendLinkDelivery(
-        {
-          email: this.emailService,
-          storage: this.storage,
-          logger: this.logger,
-        },
-        {
-          email: tx.customerEmail,
-          name: tx.customerName,
-          transactionId: tx.id,
-        },
-        delivery,
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(
-        `[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`,
-      );
-    }
-  }
-
-  /**
-   * Notifica o webhook externo configurado no link de pagamento avulso (ex: areaflix)
-   * com purchase_approved / purchase_refunded.
-   */
-  private async notifyPaymentLinkExternalWebhook(
-    tx: {
-      id: string;
-      paymentLinkId: string | null;
-      customerEmail: string | null;
-      customerName: string | null;
-      customerDocument: string | null;
-      customerPhone: string | null;
-      amount: Prisma.Decimal;
-      netAmount: Prisma.Decimal | null;
-      paymentMethod: PaymentMethod;
-    },
-    event: 'purchase_approved' | 'purchase_refunded',
-  ): Promise<void> {
-    if (!tx.paymentLinkId) return;
-
-    try {
-      const link = await this.prisma.paymentLink.findUnique({
-        where: { id: tx.paymentLinkId },
-        include: { files: true },
-      });
-      if (!link) {
-        await this.reportLinkWithoutLegacyRow(tx.paymentLinkId);
-        return;
-      }
-      if (!link.webhookUrl) return;
-
-      const signed = await this.prisma.platformIntegration.findFirst({
-        where: {
-          key: 'WEBHOOK_SECRET',
-          encryptedValue: { not: null },
-          platform: { tag: { in: link.plataformas } },
-        },
-      });
-      if (signed) return; // Durable worker owns signed callbacks.
-      const simpayToken = getPlatformWebhookToken(link.plataformas);
-      // items: o que foi comprado nesta transação (principal + order bumps, ou só o upsell/downsell)
-      const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
-      await fetch(link.webhookUrl, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(simpayToken ? { 'x-simpay-token': simpayToken } : {}),
-        },
-        body: JSON.stringify({
-          event,
-          customerEmail: tx.customerEmail,
-          customerName: tx.customerName,
-          // Pedido principal mantém o nome do link (plataformas mapeiam o plano por ele).
-          planName: delivery.kind === 'OFFER' ? delivery.title : link.title,
-          items: delivery.items,
-          paymentMethod: String(tx.paymentMethod),
-          amountCharged: Number(tx.amount),
-          netAmount: Number(Number(tx.netAmount ?? tx.amount).toFixed(2)),
-          orderId: tx.id,
-          linkId: link.id,
-          ...provisionDocPayload(tx.customerDocument ?? undefined),
-          phone: tx.customerPhone ?? undefined,
-        }),
-      });
-      this.logger.log(
-        `[DomWebhook] Webhook externo (${event}) notificado para link ${link.id}, tx=${tx.id}`,
-      );
-    } catch (err: unknown) {
-      this.logger.warn(
-        `[DomWebhook] Falha ao notificar webhook externo do link ${tx.paymentLinkId} (${event}): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
   }
 }

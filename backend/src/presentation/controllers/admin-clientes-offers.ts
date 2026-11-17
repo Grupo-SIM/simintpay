@@ -1,16 +1,13 @@
 import type { Prisma } from '@prisma/client';
 
 /**
- * Plan 0023, phase 3: the admin client audit lists and backfills legacy products. With
- * `OFFER_PLATFORM_READS=1` the same groups are selected through `Offer` (the id is the legacy id,
+ * Plan 0023, phase 3: the admin client audit lists and backfills legacy products. The
+ * groups are selected through `Offer` (the id is the legacy id,
  * `legacyType` says where a migrated offer came from, native offers fall in the recurring or
  * one-off group by `renewalMode`).
  */
 export type OfferGroup =
-  | 'plan'
-  | 'pixPlan'
-  | 'paymentLink'
-  | 'subscriptionLink';
+  'plan' | 'pixPlan' | 'paymentLink' | 'subscriptionLink';
 
 export function offerGroupWhere(group: OfferGroup): Prisma.OfferWhereInput {
   switch (group) {

@@ -3,8 +3,7 @@ import type { PrismaService } from '../../infrastructure/database/prisma/prisma.
 /**
  * Phase 4 of plan 0023 (cut the writers): with `OFFER_WRITES_ONLY=1` the legacy public checkouts,
  * REST CRUD and platform routes write only to `Offer`. Off by default; the legacy path is
- * untouched while it is off. Read flags (`OFFER_PLATFORM_READS`, `OFFERS_READ_ENABLED`) are
- * independent. There is no financial dual-write: one path writes money, and with the flag on
+ * untouched while it is off. Readers go through `Offer` unconditionally. There is no financial dual-write: one path writes money, and with the flag on
  * it is the offer one.
  */
 export const OFFER_WRITES_ONLY_ENV = 'OFFER_WRITES_ONLY';

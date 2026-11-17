@@ -2,8 +2,7 @@ import { ChargeStatus, Prisma } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
 /**
- * Plan 0023, phase 3: AreaFlix subscription sales through `Offer` (flag
- * `OFFER_PLATFORM_READS=1`). The legacy admin screens picked subscription links whose
+ * Plan 0023, phase 3: AreaFlix subscription sales through `Offer`. The legacy admin screens picked subscription links whose
  * `webhookUrl` contained "areaflix"; the offer equivalent is a recurring offer of the AREAFLIX
  * platform. A paid `SubscriptionLinkOrder` is a `Charge` (`PAID`), listed in the legacy order shape.
  */
