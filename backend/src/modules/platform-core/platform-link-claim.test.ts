@@ -27,9 +27,10 @@ function fixture() {
       findMany: mock(async (args: any) =>
         args.where.id.in.map((id: string) => ({ id })),
       ),
-      updateMany: mock(async () => ({ count: 1 })),
+      updateMany: mock(async (args: any) => ({
+        count: args.where.renewalMode === 'NONE' ? 1 : 0,
+      })),
     },
-    subscriptionLinkOrder: { updateMany: mock() },
     transaction: { updateMany: mock() },
     platformIntegration: { findUnique: mock(async () => ({ url: 'source' })) },
     user: {
@@ -65,7 +66,6 @@ test('claim changes future links and never rewrites settled ledger or historical
     transferred: { paymentLinks: 1, transactions: 0, orders: 0 },
   });
   expect(p.transaction.updateMany).not.toHaveBeenCalled();
-  expect(p.subscriptionLinkOrder.updateMany).not.toHaveBeenCalled();
   expect(p.offer.updateMany.mock.calls[0][0].where.platformTag).toBe(
     'AREAFLIX',
   );

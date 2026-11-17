@@ -446,11 +446,6 @@ export class PlatformAdministrationService {
       orderBy: { createdAt: 'desc' },
       skip: (pageNum - 1) * size,
       take: size,
-      include: {
-        pixPlanOrder: {
-          select: { pixCreditPlanId: true, customerDocument: true },
-        },
-      },
     });
 
     const liquidityFactor = getPlatformTaxaEffective(

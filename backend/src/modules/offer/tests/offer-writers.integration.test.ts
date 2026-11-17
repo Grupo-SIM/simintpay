@@ -88,7 +88,6 @@ test.skipIf(!db)(
       plataformas: [tag],
     } as never);
     const id = created.data.id;
-    expect(await prisma.paymentLink.findUnique({ where: { id } })).toBeNull();
     expect((await compat.listPaymentLinks(actor, {} as never)).total).toBe(1);
     await compat.updatePaymentLink(actor, id, { titulo: 'Livro 2' } as never);
     expect((await prisma.offer.findUnique({ where: { id } }))!.name).toBe(
@@ -120,7 +119,6 @@ test.skipIf(!db)(
     const offer = await prisma.offer.findUnique({ where: { id } });
     expect(offer?.platformTag).toBe(context.tag);
     expect(offer?.ownerUserId).toBe(context.ownerUserId);
-    expect(await prisma.paymentLink.findUnique({ where: { id } })).toBeNull();
     const replay = await controller.create(
       req,
       { titulo: 'Livro', valor: 27 } as never,
@@ -143,70 +141,55 @@ test.skipIf(!db)(
       files: unknown[];
     };
     expect(files.files).toHaveLength(1);
-    expect(
-      await prisma.paymentLinkFile.count({ where: { paymentLinkId: id } }),
-    ).toBe(0);
     await expect(
       controller.update(req, 'foreign', { titulo: 'x' } as never),
     ).rejects.toThrow();
   },
 );
 
-test.skipIf(!db)(
-  'platform plan import (mirrorPlan) writes Offer',
-  async () => {
-    const { prisma, owner, tag } = await seed();
-    const service = new PlatformFinanceService(prisma as never);
-    const data = {
-      name: 'Pro',
-      price: 49.9,
-      type: 'MONTHLY',
-      paymentMethods: 'CREDIT_CARD',
-    } as never;
-    const code = `PLAN${tag}`;
-    const first = await service.mirrorPlan(tag, owner.id, code, data);
-    expect(first.created).toBe(true);
-    const again = await service.mirrorPlan(tag, owner.id, code, {
-      ...(data as object),
-      name: 'Pro 2',
-    } as never);
-    expect(again).toMatchObject({ created: false, id: first.id });
-    const row = await prisma.offer.findUnique({ where: { code } });
-    expect([row!.name, row!.amountCents, row!.renewalMode]).toEqual([
-      'Pro 2',
-      4990,
-      'AUTO_CHARGE',
-    ]);
-    expect(await prisma.plan.findUnique({ where: { code } })).toBeNull();
-    const other = await prisma.user.create({
-      data: { email: `o-${tag}@w.local`, password: 'x', name: 'o' },
-    });
-    await expect(
-      service.mirrorPlan(tag, other.id, code, data),
-    ).rejects.toThrow();
-  },
-);
+test.skipIf(!db)('platform plan import (mirrorPlan) writes Offer', async () => {
+  const { prisma, owner, tag } = await seed();
+  const service = new PlatformFinanceService(prisma as never);
+  const data = {
+    name: 'Pro',
+    price: 49.9,
+    type: 'MONTHLY',
+    paymentMethods: 'CREDIT_CARD',
+  } as never;
+  const code = `PLAN${tag}`;
+  const first = await service.mirrorPlan(tag, owner.id, code, data);
+  expect(first.created).toBe(true);
+  const again = await service.mirrorPlan(tag, owner.id, code, {
+    ...(data as object),
+    name: 'Pro 2',
+  } as never);
+  expect(again).toMatchObject({ created: false, id: first.id });
+  const row = await prisma.offer.findUnique({ where: { code } });
+  expect([row!.name, row!.amountCents, row!.renewalMode]).toEqual([
+    'Pro 2',
+    4990,
+    'AUTO_CHARGE',
+  ]);
+  const other = await prisma.user.create({
+    data: { email: `o-${tag}@w.local`, password: 'x', name: 'o' },
+  });
+  await expect(service.mirrorPlan(tag, other.id, code, data)).rejects.toThrow();
+});
 
-test.skipIf(!db)(
-  'admin cobrança link is an Offer',
-  async () => {
-    const { prisma, owner } = await seed();
-    const make = (
-      AdminController.prototype as never as {
-        createCobrancaLink: (
-          u: string,
-          t: string,
-          a: number,
-          d: string | null,
-        ) => Promise<{ id: string }>;
-      }
-    ).createCobrancaLink.bind({ prisma });
-    const offer = await make(owner.id, 'Cobrança', 20, null);
-    expect(
-      (await prisma.offer.findUnique({ where: { id: offer.id } }))!.platformTag,
-    ).toBe('SIMINTPAY');
-    expect(
-      await prisma.paymentLink.findUnique({ where: { id: offer.id } }),
-    ).toBeNull();
-  },
-);
+test.skipIf(!db)('admin cobrança link is an Offer', async () => {
+  const { prisma, owner } = await seed();
+  const make = (
+    AdminController.prototype as never as {
+      createCobrancaLink: (
+        u: string,
+        t: string,
+        a: number,
+        d: string | null,
+      ) => Promise<{ id: string }>;
+    }
+  ).createCobrancaLink.bind({ prisma });
+  const offer = await make(owner.id, 'Cobrança', 20, null);
+  expect(
+    (await prisma.offer.findUnique({ where: { id: offer.id } }))!.platformTag,
+  ).toBe('SIMINTPAY');
+});

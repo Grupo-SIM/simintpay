@@ -1,20 +1,12 @@
 import { whereTransactionPlatform } from './transaction-platform';
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { EmailService } from '../../infrastructure/email/email.service';
-import { StorageService } from '../../infrastructure/storage/storage.service';
 import { Interval } from '@nestjs/schedule';
 import { createHash, createHmac } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import type { PlatformContext } from './platform-context.service';
 import type { ChargeItem } from '../offer/offer-fulfillment';
-import {
-  loadDeliveryAttachments,
-  purchasedItemsByTransaction,
-  resolveLinkDelivery,
-  DEFAULT_DELIVERY_BODY,
-} from '../../application/use-cases/payment-link/payment-link-delivery';
 const OFFER_ITEM_TYPE = { MAIN: 'PRINCIPAL', BUMP: 'ORDER_BUMP' } as const;
 
 /** Offer sale facts for the platform payload: items as sold (snapshot) plus offer/charge ids. */
@@ -148,30 +140,20 @@ export class PlatformSalesEventsService {
           where: {
             userId: p.ownerUserId,
             id: { gt: cursor },
-            OR: [
-              { paymentLink: { plataformas: { has: p.tag } } },
-              whereTransactionPlatform(p.tag),
-            ],
+            OR: [whereTransactionPlatform(p.tag)],
           },
           include: {
-            paymentLink: true,
             statusHistory: { orderBy: { createdAt: 'asc' } },
           },
           orderBy: { id: 'asc' },
           take: 100,
         });
-        const itemsByTx = await purchasedItemsByTransaction(
-          this.prisma,
-          transactions,
-        );
         const offerSales = await offerSalesByTransaction(
           this.prisma,
           transactions.map((t) => t.id),
         );
         for (const tx of transactions) {
-          const url =
-            tx.paymentLink?.webhookUrl ||
-            p.integrations.find((i) => i.key === 'WEBHOOK_URL')?.url;
+          const url = p.integrations.find((i) => i.key === 'WEBHOOK_URL')?.url;
           if (!url) continue;
           const snapshots = tx.statusHistory.map((h) => ({
             status: String(h.toStatus),
@@ -221,8 +203,7 @@ export class PlatformSalesEventsService {
               occurredAt: snapshot.em.toISOString(),
               event,
               orderId: tx.id,
-              linkId:
-                tx.paymentLinkId ?? offerSales.get(tx.id)?.linkId ?? undefined,
+              linkId: offerSales.get(tx.id)?.linkId ?? undefined,
               ...(offerSales.has(tx.id)
                 ? {
                     offerId: offerSales.get(tx.id)!.offerId,
@@ -236,11 +217,9 @@ export class PlatformSalesEventsService {
               customerEmail: tx.customerEmail,
               customerName: tx.customerName,
               tracking: tx.tracking ?? {},
-              ...(itemsByTx.has(tx.id)
-                ? { items: itemsByTx.get(tx.id) }
-                : offerSales.has(tx.id)
-                  ? { items: offerSales.get(tx.id)!.items }
-                  : {}),
+              ...(offerSales.has(tx.id)
+                ? { items: offerSales.get(tx.id)!.items }
+                : {}),
               ...(event === 'pix_generated'
                 ? {
                     pixContent: tx.pixContent,
@@ -302,42 +281,11 @@ export class PlatformSalesEventsService {
         await this.prisma
           .$executeRaw`UPDATE "PlatformSalesEvent" SET "deliveredAt" = NOW(), attempts = attempts + 1, "lastError" = NULL WHERE "eventId" = ${row.eventId}`;
       }
-      const payload = row.payload as { event: string; orderId: string };
-      if (payload.event === 'purchase_approved' && !row.emailDeliveredAt) {
-        const tx = await this.prisma.transaction.findUnique({
-          where: { id: payload.orderId },
-          include: { paymentLink: { include: { files: true } } },
-        });
-        const enabledAt = config.createdAt;
-        const existedBeforeIntegration =
-          tx && enabledAt && tx.createdAt < enabledAt;
-        if (
-          !existedBeforeIntegration &&
-          tx?.status === 'COMPLETED' &&
-          tx.paymentLink &&
-          tx.customerEmail
-        ) {
-          // Pedido principal: produto + order bumps. Upsell/downsell: só o material da oferta.
-          const delivery = await resolveLinkDelivery(
-            this.prisma,
-            tx.id,
-            tx.paymentLink,
-          );
-          const attachments = await loadDeliveryAttachments(
-            this.modules.get(StorageService, { strict: false }),
-            delivery.files,
-          );
-          await this.modules
-            .get(EmailService, { strict: false })
-            .sendEbookAccessEmail({
-              to: tx.customerEmail,
-              customerName: tx.customerName || 'Cliente',
-              title: delivery.title,
-              body: delivery.body || DEFAULT_DELIVERY_BODY,
-              redirectUrl: delivery.redirectUrl,
-              attachments,
-            });
-        }
+      // Ebook/file e-mails of an offer sale are sent by OfferFulfillmentService.
+      if (
+        (row.payload as { event?: string }).event === 'purchase_approved' &&
+        !row.emailDeliveredAt
+      ) {
         await this.prisma
           .$executeRaw`UPDATE "PlatformSalesEvent" SET "emailDeliveredAt" = NOW() WHERE "eventId" = ${row.eventId}`;
       }

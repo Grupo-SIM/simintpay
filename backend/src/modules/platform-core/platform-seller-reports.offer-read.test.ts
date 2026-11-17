@@ -18,7 +18,7 @@ test('areaflix totals are read through Offer', async () => {
       }),
     },
     offer: { findMany: mock(async () => [{ id: 'link-1' }]) },
-    subscriptionLinkOrder: {
+    billingContract: {
       findMany: mock(async () => [
         { customerEmail: 'a@x.com' },
         { customerEmail: 'b@x.com' },

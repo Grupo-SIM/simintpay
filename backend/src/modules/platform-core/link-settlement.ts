@@ -111,17 +111,11 @@ export async function settleFinalNet(
   return true;
 }
 
-type LinkRef = { paymentLinkId?: string | null; offerId?: string | null };
+type LinkRef = { offerId?: string | null };
 
-/**
- * Same product on both sides. The Offer id (which keeps the legacy
- * link id after the migration) is also accepted, so a row
- * carrying only `offerId` and one carrying only `paymentLinkId` still match.
- */
+/** Same product on both sides (`Offer.id` keeps the id of the old link). */
 export function sameLinkOwner(a: LinkRef, b: LinkRef): boolean {
-  if ((a.paymentLinkId ?? null) === (b.paymentLinkId ?? null)) return true;
-  const key = (r: LinkRef) => r.offerId ?? r.paymentLinkId ?? null;
-  return key(a) !== null && key(a) === key(b);
+  return (a.offerId ?? null) === (b.offerId ?? null);
 }
 
 /** Unique gateway reference arbitrates response/webhook/polling races; existing ownership and snapshots are immutable. */

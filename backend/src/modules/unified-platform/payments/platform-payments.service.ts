@@ -255,8 +255,7 @@ export class PlatformPaymentsService {
         : existing.description;
       if (
         existing.userId !== financialUserId ||
-        (existing.offerId ?? existing.paymentLinkId ?? undefined) !==
-          input.linkId ||
+        (existing.offerId ?? undefined) !== input.linkId ||
         !(existing.financialSnapshot
           ? new Prisma.Decimal(
               (

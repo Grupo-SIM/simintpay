@@ -23,21 +23,11 @@ function fixture() {
     pixExpire: new Date(Date.now() + 3600_000),
     createdAt: new Date(),
     updatedAt: new Date(),
-    paymentLinkId: 'link',
     customerEmail: 'maria@example.com',
     customerPhone: '5511999999999',
     customerName: 'Maria',
     customerDocument: '52998224725',
     statusHistory: [],
-    paymentLink: {
-      title: 'Livro',
-      webhookUrl: 'https://central.test/api/simintpay/webhook',
-      emailBody: 'Obrigado!',
-      redirectUrl: 'https://central.test/obrigado',
-      files: [
-        { fileName: 'ebook.pdf', fileUrl: 'https://storage.test/ebook.pdf' },
-      ],
-    },
   };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const email = { sendEbookAccessEmail: mock(async (_input: any) => {}) };
@@ -58,7 +48,12 @@ function fixture() {
           tag: 'CENTRAL-INFO',
           ownerUserId: 'owner',
           owner: { isActive: true },
-          integrations: [],
+          integrations: [
+            {
+              key: 'WEBHOOK_URL',
+              url: 'https://central.test/api/simintpay/webhook',
+            },
+          ],
         },
       ]),
     },
@@ -70,8 +65,6 @@ function fixture() {
       findUnique: mock(async () => ({ encryptedValue: secret })),
     },
     charge: { findMany: mock(async (): Promise<any[]> => []) },
-    paymentLinkOfferSale: { findMany: mock(async () => []) },
-    paymentLinkOffer: { findMany: mock(async () => []) },
     $executeRaw: mock(async (parts: TemplateStringsArray, ...values: any[]) => {
       const sql = parts.join('?');
       if (sql.startsWith('INSERT')) {
@@ -117,7 +110,7 @@ function fixture() {
   );
   return { rows, tx, prisma, service, email };
 }
-test('outbox signs exact body, excludes document, delivers PDFs and deduplicates snapshots', async () => {
+test('outbox signs exact body, excludes document and deduplicates snapshots', async () => {
   const f = fixture();
   const requests: any[] = [];
   globalThis.fetch = mock(async (_url: any, init: any) => {
@@ -139,10 +132,6 @@ test('outbox signs exact body, excludes document, delivers PDFs and deduplicates
     netAmountCents: 2400,
     tracking: { utm_content: 'A1' },
   });
-  expect(f.email.sendEbookAccessEmail).toHaveBeenCalledTimes(1);
-  expect(
-    f.email.sendEbookAccessEmail.mock.calls[0][0].attachments,
-  ).toHaveLength(1);
 });
 test('HTTP failure leaves durable retry and identical event identity', async () => {
   const f = fixture();
@@ -183,7 +172,6 @@ test('refund and chargeback preserve approved history; no raw card or document',
 });
 test('offer sales carry the sold items and offer ids to the platform webhook', async () => {
   const f = fixture();
-  Object.assign(f.tx, { paymentLinkId: null, paymentLink: null });
   f.prisma.charge.findMany.mockImplementation(async () => [
     {
       id: 'ch',

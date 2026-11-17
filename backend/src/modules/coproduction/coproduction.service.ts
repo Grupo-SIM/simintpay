@@ -11,11 +11,13 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import {
   allocateNet,
   canonicalProduct,
+  isProductKey,
   productOwnerColumn,
   productTables,
   productTagSql,
   validateAgreement,
   type Product,
+  type ProductKey,
   type Snapshot,
 } from './coproduction';
 
@@ -99,11 +101,13 @@ export class CoproductionService {
     product: string,
     id: string,
   ) {
-    if (!Object.hasOwn(productTables, product))
+    if (!isProductKey(product))
       throw new BadRequestException('Tipo de produto inválido');
-    const table = Prisma.raw('"' + productTables[product as Product] + '"');
+    const table = Prisma.raw(
+      '"' + productTables[canonicalProduct(product)] + '"',
+    );
     const ownerColumn = Prisma.raw(
-      '"' + productOwnerColumn(product as Product) + '"',
+      '"' + productOwnerColumn(canonicalProduct(product)) + '"',
     );
     const rows = await tx.$queryRaw<{ userId: string }[]>(
       Prisma.sql`SELECT ${ownerColumn} AS "userId" FROM ${table} WHERE id = ${id} FOR SHARE`,
@@ -186,9 +190,7 @@ export class CoproductionService {
 
   /** Legacy product keys follow the offer; unknown keys stay for `authorize` to refuse. */
   private key(product: string): string {
-    return Object.hasOwn(productTables, product)
-      ? canonicalProduct(product as Product)
-      : product;
+    return isProductKey(product) ? canonicalProduct(product) : product;
   }
 
   get(actorId: string, requested: string, id: string) {
@@ -202,7 +204,7 @@ export class CoproductionService {
           ...saved,
           ...(product === 'plataformas' ? { mode: 'OWN' as const } : {}),
         },
-        await captureCoproduction(tx, product as Product, id, ownerId),
+        await captureCoproduction(tx, product as ProductKey, id, ownerId),
       );
     });
   }
@@ -246,7 +248,7 @@ export class CoproductionService {
       return this.present(
         tx,
         { version, participants, mode: input.mode ?? 'OWN' },
-        await captureCoproduction(tx, product as Product, id, ownerId),
+        await captureCoproduction(tx, product as ProductKey, id, ownerId),
       );
     });
   }
@@ -365,12 +367,12 @@ export class CoproductionService {
 /** Capture before contacting the gateway. Public responses must never include this object. */
 export async function captureCoproduction(
   prisma: Pick<Prisma.TransactionClient, '$queryRaw'>,
-  product: Product,
+  requested: ProductKey,
   productId: string,
   ownerUserId: string,
   platformTag?: string,
 ): Promise<Snapshot | null> {
-  product = canonicalProduct(product);
+  const product = canonicalProduct(requested);
   const rows = await prisma.$queryRaw<
     Saved[]
   >`SELECT version, participants, mode FROM "CoproductionAgreement" WHERE product = ${product} AND "productId" = ${productId}`;

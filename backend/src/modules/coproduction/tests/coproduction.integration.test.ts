@@ -12,7 +12,7 @@ import {
   persistLinkCharge,
 } from '../../platform-core/link-settlement';
 import { settleFinancialSubscription } from '../../financial-policy/financial-subscription';
-import type { Product } from '../coproduction';
+import type { ProductKey } from '../coproduction';
 import {
   coproductionTotals,
   coproductionInfo,
@@ -34,6 +34,17 @@ afterAll(async () => {
 });
 const run = (name: string, body: () => Promise<void>) =>
   test.skipIf(!db)(name, body, 30000);
+const offerData = (ownerId: string, over: Record<string, unknown> = {}) =>
+  ({
+    ownerUserId: ownerId,
+    createdByUserId: ownerId,
+    code: crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase(),
+    name: 'Local',
+    amountCents: 10000,
+    acceptedMethods: ['PIX'],
+    ...over,
+  }) as never;
+
 async function fixture() {
   const prisma = db!;
   const user = (
@@ -56,9 +67,7 @@ async function fixture() {
     user('USER', 'PENDING'),
     user('ADMIN'),
   ]);
-  const product = await prisma.paymentLink.create({
-    data: { userId: owner.id, title: 'Local sale', amount: 100 },
-  });
+  const product = await prisma.offer.create({ data: offerData(owner.id) });
   const service = new CoproductionService(prisma as never);
   return { prisma, owner, partner, outsider, pending, admin, product, service };
 }
@@ -66,46 +75,23 @@ run(
   'all five product endpoints authorize owners/admin and reject pending accounts/foreign products',
   async () => {
     const f = await fixture();
-    const factories: [Product, () => Promise<{ id: string }>][] = [
-      ['links-pagamento', async () => f.product],
-      [
-        'links-assinatura',
-        () =>
-          db!.subscriptionLink.create({
-            data: {
-              userId: f.owner.id,
-              name: 'Local',
-              amount: 100,
-              frequencyType: 'MONTHLY',
-            },
-          }),
-      ],
-      [
-        'boletos',
-        () =>
-          db!.boleto.create({
-            data: { userId: f.owner.id, title: 'Local', amount: 100 },
-          }),
-      ],
-      [
-        'planos',
-        () =>
-          db!.plan.create({
-            data: {
-              userId: f.owner.id,
-              name: 'Local',
-              price: 100,
-              type: 'MONTHLY',
-            },
-          }),
-      ],
-      [
-        'planos-pix',
-        () =>
-          db!.pixCreditPlan.create({
-            data: { userId: f.owner.id, price: 100, type: 'MONTHLY' },
-          }),
-      ],
+    const factories: [ProductKey, () => Promise<{ id: string }>][] = [
+      ['ofertas', async () => f.product],
+      ...(
+        [
+          'links-pagamento',
+          'links-assinatura',
+          'boletos',
+          'planos',
+          'planos-pix',
+        ] as const
+      ).map(
+        (alias) =>
+          [alias, () => db!.offer.create({ data: offerData(f.owner.id) })] as [
+            ProductKey,
+            () => Promise<{ id: string }>,
+          ],
+      ),
     ];
     for (const [kind, create] of factories) {
       const p = await create();
@@ -521,61 +507,23 @@ run(
         { email: f.outsider.email, percentageBps: 2000 },
       ],
     };
-    const products = [
+    const products = (
       [
+        'ofertas',
         'links-pagamento',
-        (tx: Prisma.TransactionClient) =>
-          tx.paymentLink.create({
-            data: {
-              userId: f.owner.id,
-              title: 'Initial agreement',
-              amount: 100,
-            },
-          }),
-      ],
-      [
         'links-assinatura',
-        (tx: Prisma.TransactionClient) =>
-          tx.subscriptionLink.create({
-            data: {
-              userId: f.owner.id,
-              name: 'Initial agreement',
-              amount: 100,
-              frequencyType: 'MONTHLY',
-            },
-          }),
-      ],
-      [
         'boletos',
-        (tx: Prisma.TransactionClient) =>
-          tx.boleto.create({
-            data: {
-              userId: f.owner.id,
-              title: 'Initial agreement',
-              amount: 100,
-            },
-          }),
-      ],
-      [
         'planos',
-        (tx: Prisma.TransactionClient) =>
-          tx.plan.create({
-            data: {
-              userId: f.owner.id,
-              name: 'Initial agreement',
-              price: 100,
-              type: 'MONTHLY',
-            },
-          }),
-      ],
-      [
         'planos-pix',
-        (tx: Prisma.TransactionClient) =>
-          tx.pixCreditPlan.create({
-            data: { userId: f.owner.id, price: 100, type: 'MONTHLY' },
-          }),
-      ],
-    ] as const;
+      ] as const
+    ).map(
+      (kind) =>
+        [
+          kind,
+          (tx: Prisma.TransactionClient) =>
+            tx.offer.create({ data: offerData(f.owner.id) }),
+        ] as const,
+    );
     for (const [kind, create] of products) {
       const saved = await createWithCoproduction(
         db! as never,
@@ -658,14 +606,14 @@ run(
         f.owner.id,
         config,
         async (tx) => {
-          await tx.paymentLink.create({
-            data: { userId: f.owner.id, title, amount: 100 },
+          await tx.offer.create({
+            data: offerData(f.owner.id, { name: title }),
           });
           throw new Error('create rollback');
         },
       ),
     ).rejects.toThrow('create rollback');
-    expect(await db!.paymentLink.count({ where: { title } })).toBe(0);
+    expect(await db!.offer.count({ where: { name: title } })).toBe(0);
     await expect(
       createWithCoproduction(
         db! as never,
@@ -775,60 +723,25 @@ run(
       version: 0,
       participants: [{ email: f.partner.email, percentageBps: 500 }],
     });
-    const products: [Product, { id: string }][] = [
+    const products: [ProductKey, { id: string }][] = [
       [
         'links-pagamento',
-        await db!.paymentLink.update({
+        await db!.offer.update({
           where: { id: f.product.id },
-          data: { plataformas: [tag] },
+          data: { platformTag: tag },
         }),
       ],
-      [
-        'links-assinatura',
-        await db!.subscriptionLink.create({
-          data: {
-            userId: f.owner.id,
-            name: 'Local',
-            amount: 100,
-            frequencyType: 'MONTHLY',
-            plataformas: [tag],
-          },
-        }),
-      ],
-      [
-        'boletos',
-        await db!.boleto.create({
-          data: {
-            userId: f.owner.id,
-            title: 'Local',
-            amount: 100,
-            plataformas: [tag],
-          },
-        }),
-      ],
-      [
-        'planos',
-        await db!.plan.create({
-          data: {
-            userId: f.owner.id,
-            name: 'Local',
-            price: 100,
-            type: 'MONTHLY',
-            plataformas: [tag],
-          },
-        }),
-      ],
-      [
-        'planos-pix',
-        await db!.pixCreditPlan.create({
-          data: {
-            userId: f.owner.id,
-            price: 100,
-            type: 'MONTHLY',
-            tenantTag: tag,
-          },
-        }),
-      ],
+      ...(await Promise.all(
+        (['links-assinatura', 'boletos', 'planos', 'planos-pix'] as const).map(
+          async (alias) =>
+            [
+              alias,
+              await db!.offer.create({
+                data: offerData(f.owner.id, { platformTag: tag }),
+              }),
+            ] as [ProductKey, { id: string }],
+        ),
+      )),
     ];
     for (const [kind, p] of products) {
       expect(

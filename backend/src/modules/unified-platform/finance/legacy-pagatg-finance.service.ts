@@ -21,12 +21,7 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 const TENANT_PAGATG_TAG = '[TENANT:PAGATG]';
 
 type TxStatus =
-  | 'PENDING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'REFUNDED'
-  | 'EXPIRED'
-  | 'DRAFT';
+  'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
 @Injectable()
 export class InternalPagatgFinanceService {
@@ -202,9 +197,16 @@ export class InternalPagatgFinanceService {
         orderBy: { createdAt: 'desc' },
         skip: (pageNum - 1) * size,
         take: size,
-        include: { pixPlanOrder: { select: { customerId: true } } },
       }),
     ]);
+    const accessByTx = new Map(
+      (
+        await this.prisma.offerAccess.findMany({
+          where: { lastTransactionId: { in: items.map((t) => t.id) } },
+          select: { lastTransactionId: true, customerId: true },
+        })
+      ).map((a) => [a.lastTransactionId, a.customerId]),
+    );
 
     const taxaFixa = getPlatformTaxaEffective(
       'PAGATG',
@@ -220,7 +222,7 @@ export class InternalPagatgFinanceService {
         return {
           id: t.id,
           userId: t.userId,
-          customerId: t.pixPlanOrder?.customerId ?? null,
+          customerId: accessByTx.get(t.id) ?? null,
           amount: Number(t.amount),
           name: t.customerName ?? null,
           email: t.customerEmail ?? null,

@@ -2,44 +2,42 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 export const productTables = {
-  'links-pagamento': 'PaymentLink',
-  'links-assinatura': 'SubscriptionLink',
-  boletos: 'Boleto',
-  planos: 'Plan',
-  'planos-pix': 'PixCreditPlan',
   plataformas: 'Platform',
   ofertas: 'Offer',
 } as const;
-/** Column holding the financial owner: Platform and Offer name it `ownerUserId`, legacy products `userId`. */
-export function productOwnerColumn(product: Product): string {
-  return product === 'plataformas' || product === 'ofertas'
-    ? 'ownerUserId'
-    : 'userId';
-}
 export type Product = keyof typeof productTables;
-const legacyProducts: readonly Product[] = [
+/**
+ * Product keys old clients still send. Every legacy product is an offer with the same id, so they
+ * resolve to `ofertas`; there is no table behind them anymore.
+ */
+export const legacyProductAliases = [
   'links-pagamento',
   'links-assinatura',
   'boletos',
   'planos',
   'planos-pix',
-];
-/**
- * A legacy product key (still accepted from old clients) resolves to `ofertas` (same id): the
- * table, owner column, platform tag and the agreement key all follow the offer.
- */
-export function canonicalProduct(product: Product): Product {
-  return legacyProducts.includes(product) ? 'ofertas' : product;
+] as const;
+export type ProductKey = Product | (typeof legacyProductAliases)[number];
+/** Column holding the financial owner: both `Platform` and `Offer` name it `ownerUserId`. */
+export function productOwnerColumn(_product: Product): string {
+  return 'ownerUserId';
+}
+/** True for a current product key or a legacy alias. */
+export function isProductKey(value: string): boolean {
+  return (
+    Object.hasOwn(productTables, value) ||
+    (legacyProductAliases as readonly string[]).includes(value)
+  );
+}
+/** Resolves a current key or a legacy alias to the product that stores the agreement. */
+export function canonicalProduct(product: string): Product {
+  return (legacyProductAliases as readonly string[]).includes(product)
+    ? 'ofertas'
+    : (product as Product);
 }
 /** SQL expression (alias `p`) of the single platform tag of a product row. */
-export function productTagSql(product: Product): string {
-  return product === 'planos-pix'
-    ? 'p."tenantTag"'
-    : product === 'links-assinatura'
-      ? 'coalesce(p."platformTag", p.plataformas[1])'
-      : product === 'ofertas'
-        ? 'p."platformTag"'
-        : 'p.plataformas[1]';
+export function productTagSql(_product: Product): string {
+  return 'p."platformTag"';
 }
 export type Participant = { email: string; percentageBps: number };
 export type Agreement = {

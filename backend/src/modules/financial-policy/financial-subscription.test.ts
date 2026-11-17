@@ -33,7 +33,6 @@ test('subscription renewal persists unknown realized cost without inventing a pr
           ...create,
           status: 'COMPLETED',
           settlementBasis: 'FINAL_NET',
-          paymentLinkId: null,
         };
       },
     },

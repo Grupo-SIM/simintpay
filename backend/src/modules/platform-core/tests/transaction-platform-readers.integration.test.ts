@@ -215,20 +215,22 @@ run(
 );
 
 run(
-  'explicit null stays untagged for a sole owner with a platform-bound payment link',
+  'explicit null stays untagged for a sole owner with a platform-bound offer',
   async () => {
     const f = await fixture();
     await db!.platform.delete({ where: { id: f.second.id } });
-    const link = await db!.paymentLink.create({
+    const link = await db!.offer.create({
       data: {
-        userId: f.owner.id,
-        title: 'Bound link',
-        amount: 10,
-        plataformas: [f.first.tag],
+        ownerUserId: f.owner.id,
+        createdByUserId: f.owner.id,
+        code: crypto.randomUUID().replaceAll('-', '').slice(0, 12),
+        name: 'Bound link',
+        amountCents: 1000,
+        platformTag: f.first.tag,
       },
     });
     const row = await f.sale(`Pedido [TENANT:${f.first.tag}]`, {
-      paymentLinkId: link.id,
+      offerId: link.id,
     });
     expect(await f.report(f.first)).toContain(row.id);
     await db!.transaction.update({

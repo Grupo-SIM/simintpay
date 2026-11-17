@@ -6,11 +6,11 @@ import {
   productOwnerColumn,
   productTagSql,
   productTables,
-  type Product,
+  type ProductKey,
 } from './coproduction';
 
 /** Match settlement inheritance, including an explicit empty OWN override. */
-function effectiveAgreements(requested: Product) {
+function effectiveAgreements(requested: ProductKey) {
   const product = canonicalProduct(requested);
   if (product === 'plataformas')
     return Prisma.sql`SELECT "productId", participants FROM "CoproductionAgreement" WHERE product = ${product} AND mode = 'OWN'`;
@@ -38,7 +38,7 @@ export type CoproductionInfo = {
 /** Products whose effective agreement lists the user as a participant. */
 export async function sharedProductIds(
   db: Db,
-  product: Product,
+  product: ProductKey,
   userId: string,
 ): Promise<string[]> {
   const rows = await db.$queryRaw<
@@ -51,7 +51,7 @@ export async function sharedProductIds(
 /** Keyed by product id; products without active participants are absent. */
 export async function coproductionInfo(
   db: Db,
-  product: Product,
+  product: ProductKey,
   userId: string,
   items: { id: string; userId?: string | null }[],
 ): Promise<Map<string, CoproductionInfo>> {

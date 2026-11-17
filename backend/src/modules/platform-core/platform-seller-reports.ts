@@ -21,7 +21,7 @@ export class PlatformSellerReports {
     private readonly expectedContext?: PlatformContext,
   ) {}
 
-  /** AreaFlix subscription products: Offer (same id as the legacy link). */
+  /** AreaFlix subscription products: every offer of the platform (same id as the old link). */
   private async areaflixLinkIds(): Promise<string[]> {
     const offers = await this.prisma.offer.findMany({
       where: { platformTag: 'AREAFLIX' },
@@ -97,18 +97,20 @@ export class PlatformSellerReports {
       if (linkIds.length === 0) return { totalContas: 0, sellersAtivos: 0 };
 
       const [clientesTotais, assinantesAtivos] = await Promise.all([
-        this.prisma.subscriptionLinkOrder.findMany({
+        this.prisma.billingContract.findMany({
           where: {
-            subscriptionLinkId: { in: linkIds },
-            status: { notIn: ['pending', 'cancelled', 'expired', 'failed'] },
+            offerId: { in: linkIds },
+            customerEmail: { not: null },
+            status: { not: 'CANCELLED' },
           },
           select: { customerEmail: true },
           distinct: ['customerEmail'],
         }),
-        this.prisma.subscriptionLinkOrder.findMany({
+        this.prisma.billingContract.findMany({
           where: {
-            subscriptionLinkId: { in: linkIds },
-            status: { in: ['paid', 'active', 'approved'] },
+            offerId: { in: linkIds },
+            customerEmail: { not: null },
+            status: 'ACTIVE',
           },
           select: { customerEmail: true },
           distinct: ['customerEmail'],
@@ -147,7 +149,7 @@ export class PlatformSellerReports {
      * `fonteSaldo=carteiras` — usado só pela aba "Saldos por Plataforma".
      * Força as mesmas fontes de /admin/plataformas/saldos-resumo (ledger do dono ou
      * carteiras de ExternalPlatformUser), em vez dos fluxos de assinantes. Sem isso,
-     * plataformas como a Áreaflix caem na listagem por subscriptionLinkOrder e o modal
+     * plataformas como a Áreaflix caem na listagem por contratos de oferta e o modal
      * vem vazio mesmo com o card mostrando contas. Os demais consumidores deste endpoint
      * (modais de "sellers ativos" do Relatório por Produto) não passam o parâmetro e
      * mantêm o comportamento original.
@@ -159,12 +161,12 @@ export class PlatformSellerReports {
       const linkIds = await this.areaflixLinkIds();
       if (!linkIds.length) return empty;
 
-      const statusFilter = somenteAtivos
-        ? { in: ['paid', 'active', 'approved'] }
-        : { notIn: ['pending', 'cancelled', 'expired', 'failed'] };
-
-      const allOrders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: { subscriptionLinkId: { in: linkIds }, status: statusFilter },
+      const allContracts = await this.prisma.billingContract.findMany({
+        where: {
+          offerId: { in: linkIds },
+          customerEmail: { not: null },
+          status: somenteAtivos ? 'ACTIVE' : { not: 'CANCELLED' },
+        },
         select: {
           customerEmail: true,
           customerName: true,
@@ -175,9 +177,9 @@ export class PlatformSellerReports {
         orderBy: { createdAt: 'desc' },
       });
 
-      const total = allOrders.length;
-      const paged = allOrders.slice(skip, skip + size);
-      const emails = paged.map((o) => o.customerEmail);
+      const total = allContracts.length;
+      const paged = allContracts.slice(skip, skip + size);
+      const emails = paged.map((o) => o.customerEmail ?? '');
 
       const extUsers = await this.prisma.externalPlatformUser.findMany({
         where: {
@@ -209,7 +211,7 @@ export class PlatformSellerReports {
           name: o.customerName,
           email: o.customerEmail,
           cpf: o.customerDocument,
-          ...(walletMap.get(o.customerEmail) ?? unavailableSellerWallet),
+          ...(walletMap.get(o.customerEmail ?? '') ?? unavailableSellerWallet),
           createdAt: o.createdAt,
         })),
         total,

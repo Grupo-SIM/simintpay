@@ -18,16 +18,11 @@ function period(alias: Prisma.Sql, filters: Period) {
     ${filters.paymentMethod ? Prisma.sql`AND ${alias}."paymentMethod"::text = ${filters.paymentMethod}` : Prisma.empty}`;
 }
 
-function subscriptionTags() {
-  return Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`sl."platformTag"`)} WHERE sl."platformTag" IS NOT NULL AND sl."platformTag" <> '')`;
-}
-
 /** One projection for cards, charts and details. Reads only; never changes historical wallets. */
 export function ownedReportSource(scope: PlatformScope, filters: Period) {
-  // Offer.id is the legacy product id; offers carry a single tag. `paymentLinkId` is a fallback
-  // only while Transaction.paymentLinkId exists.
+  // Offer.id is the legacy product id; offers carry a single tag.
   const linkTags = Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`l."platformTag"`)} WHERE l."platformTag" IS NOT NULL AND l."platformTag" <> '')`;
-  const saleLinkId = Prisma.sql`coalesce(t."offerId", t."paymentLinkId")`;
+  const saleLinkId = Prisma.sql`t."offerId"`;
   const ids = scope.map((p) => p.id);
   const selected = ids.length
     ? Prisma.sql`p.id IN (${Prisma.join(ids)})`
@@ -46,15 +41,6 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
       t.description, t."customerName"
     FROM "Transaction" t
     LEFT JOIN "Offer" l ON l.id = ${saleLinkId}
-    LEFT JOIN LATERAL (
-      SELECT ARRAY(SELECT DISTINCT tag FROM "SubscriptionLinkOrder" o
-        JOIN "Offer" sl ON sl.id = o."subscriptionLinkId"
-        CROSS JOIN LATERAL unnest(${subscriptionTags()}) tag
-        WHERE o."userId" = t."userId" AND (
-          EXISTS (SELECT 1 FROM regexp_matches(coalesce(t.description, ''), ${String.raw`subOrder=([^\s\]]+)`}, 'gi') m WHERE m[1] = o.id)
-          OR (o."domPixPaymentId" IS NOT NULL AND (t."domPaymentId" = o."domPixPaymentId" OR t."externalPaymentId" = o."domPixPaymentId"))
-        )) AS tags
-    ) subscription ON true
     CROSS JOIN LATERAL (SELECT ${reportMarkerTags()} AS tags) marker
     CROSS JOIN LATERAL (SELECT ${linkTags} AS tags) link
     JOIN "Platform" p ON (
@@ -68,30 +54,7 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
       END
     )
     WHERE ${selected} ${period(Prisma.sql`t`, filters)}
-    UNION ALL
-    SELECT 'comunidade_order_' || o.id AS id, o."userId", o."createdAt", 'COMPLETED' AS status,
-      o."paymentMethod"::text AS "paymentMethod", o."amountCharged" AS amount,
-      CASE WHEN o."financialSnapshot" ? 'coproduction' THEN
-        coalesce((o."financialSnapshot"->>'netCents')::numeric / 100, (o."financialSnapshot" #>> '{coproductionLegacy,netAmount}')::numeric)
-        - coalesce((SELECT sum(floor(coalesce((o."financialSnapshot"->>'netCents')::numeric,
-          (o."financialSnapshot" #>> '{coproductionLegacy,netAmount}')::numeric * 100) * (participant->>'percentageBps')::numeric / 10000) / 100)
-          FROM jsonb_array_elements(o."financialSnapshot" #> '{coproduction,participants}') participant), 0)
-      ELSE o."amountCharged" - o."platformFeeAmount" END AS "netAmount", o."platformFeeAmount" AS "totalFee", p.tag AS "platformTag",
-      ${reportBuyerCpfSql(Prisma.sql`o."customerDocument"`)} AS "customerKey",
-      CASE WHEN o."financialSnapshot"->>'buyerInterestCents' ~ '^[0-9]+$' THEN (o."financialSnapshot"->>'buyerInterestCents')::numeric / 100
-        WHEN o."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
-      sl.name AS description, o."customerName"
-    FROM "SubscriptionLinkOrder" o
-    JOIN "Offer" sl ON sl.id = o."subscriptionLinkId"
-    CROSS JOIN LATERAL (SELECT ${subscriptionTags()} AS tags) link
-    JOIN "Platform" p ON p."ownerUserId" = o."userId" AND link.tags = ARRAY[p.tag]
-    WHERE ${selected} AND o.status = 'paid' ${period(Prisma.sql`o`, filters)}
-      AND NOT EXISTS (
-        SELECT 1 FROM "Transaction" t WHERE t."userId" = o."userId" AND (
-          EXISTS (SELECT 1 FROM regexp_matches(coalesce(t.description, ''), ${String.raw`subOrder=([^\s\]]+)`}, 'gi') m WHERE m[1] = o.id)
-          OR (o."domPixPaymentId" IS NOT NULL AND (t."domPaymentId" = o."domPixPaymentId" OR t."externalPaymentId" = o."domPixPaymentId"))
-        )
-      )`;
+`;
 }
 
 /** Unknown single tags and excluded merchant history must not masquerade as complete history. */

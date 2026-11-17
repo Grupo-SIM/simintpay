@@ -92,8 +92,8 @@ test('PAGATG alias reais and canonical cents produce equivalent ledger and credi
 });
 test('plan mirror rejects global code owned by another product', async () => {
   const { prisma, finance } = fixture();
-  prisma.plan = {
-    findUnique: async () => ({ userId: 'owner', plataformas: ['OTHER'] }),
+  prisma.offer = {
+    findUnique: async () => ({ ownerUserId: 'owner', platformTag: 'OTHER' }),
     update: mock(async () => ({})),
     create: mock(async () => ({})),
   };
@@ -104,10 +104,10 @@ test('plan mirror rejects global code owned by another product', async () => {
       type: 'MONTHLY',
     }),
   ).rejects.toThrow('Plano sem vínculo');
-  expect(prisma.plan.update).not.toHaveBeenCalled();
+  expect(prisma.offer.update).not.toHaveBeenCalled();
 });
 
-test('existing Pagatg plan import equals legacy mirror without creating provider subscriptions', async () => {
+test('existing Pagatg plan import equals the alias import without creating provider subscriptions', async () => {
   const old = fixture(),
     current = fixture();
   const context = {
@@ -122,7 +122,7 @@ test('existing Pagatg plan import equals legacy mirror without creating provider
       isActive: true,
       owner: { isActive: true },
     });
-    f.prisma.plan = {
+    f.prisma.offer = {
       findUnique: async () => null,
       create: mock(async ({ data }: any) => ({ id: 'plan', ...data })),
     };
@@ -148,14 +148,11 @@ test('existing Pagatg plan import equals legacy mirror without creating provider
     externalPlanId: 'provider',
   });
   expect(after).toEqual(before);
-  const a = old.prisma.plan.create.mock.calls[0][0].data,
-    b = current.prisma.plan.create.mock.calls[0][0].data;
-  expect({ ...a, price: String(a.price) }).toEqual({
-    ...b,
-    price: String(b.price),
-  });
-  expect(b.plataformas).toEqual(['PAGATG']);
-  expect(b.userId).toBe('owner');
+  const a = old.prisma.offer.create.mock.calls[0][0].data,
+    b = current.prisma.offer.create.mock.calls[0][0].data;
+  expect(a).toEqual(b);
+  expect(b.platformTag).toBe('PAGATG');
+  expect(b.ownerUserId).toBe('owner');
   await expect(
     canonical.importPlan(
       { ...context, tag: 'OTHER' },
@@ -176,7 +173,7 @@ test('existing Pagatg plan import equals legacy mirror without creating provider
       type: 'MONTHLY',
     }),
   ).rejects.toThrow('Contexto');
-  expect(current.prisma.plan.create).toHaveBeenCalledTimes(1);
+  expect(current.prisma.offer.create).toHaveBeenCalledTimes(1);
 });
 
 afterEach(async () =>

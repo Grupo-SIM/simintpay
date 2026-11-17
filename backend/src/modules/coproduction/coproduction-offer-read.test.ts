@@ -4,7 +4,6 @@ import {
   canonicalProduct,
   productOwnerColumn,
   productTagSql,
-  type Product,
 } from './coproduction';
 import { coproductionInfo, sharedProductIds } from './coproduction-view';
 
@@ -45,7 +44,7 @@ describe('coproduction reads through Offer', () => {
     const expected = offer.queries[0];
     for (const product of legacy) {
       const r = recorder();
-      await sharedProductIds(r.db, product as Product, 'u');
+      await sharedProductIds(r.db, product, 'u');
       expect(r.queries[0].sql).toBe(expected.sql);
       expect(r.queries[0].values).toEqual(expected.values);
       expect(r.queries[0].sql).toContain('"Offer"');

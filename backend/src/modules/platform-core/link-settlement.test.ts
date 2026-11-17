@@ -6,7 +6,7 @@ function fixture() {
   let row: any = {
     id: 'sale',
     userId: 'original',
-    paymentLinkId: 'link',
+    offerId: 'link',
     settlementBasis: 'FINAL_NET',
     status: 'PENDING',
     netAmount: d(87),
@@ -138,7 +138,7 @@ test('late response cannot replace a settled snapshot or original ownership', as
     f.p,
     {
       userId: 'original',
-      paymentLinkId: 'link',
+      offerId: 'link',
       domPaymentId: 'gateway',
       amount: 100,
       netAmount: 99,
@@ -152,7 +152,7 @@ test('late response cannot replace a settled snapshot or original ownership', as
       f.p,
       {
         userId: 'new-owner',
-        paymentLinkId: 'link',
+        offerId: 'link',
         domPaymentId: 'gateway',
         amount: 100,
       },

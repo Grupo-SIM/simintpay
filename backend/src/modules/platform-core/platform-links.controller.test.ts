@@ -1,32 +1,51 @@
 import { expect, mock, test } from 'bun:test';
 import { PlatformLinksController } from './platform-links.controller';
+
 const context = {
   id: 'platform',
   tag: 'CENTRAL-INFO',
   ownerUserId: 'owner',
   acquirer: 'DOM',
 };
+
 function fixture() {
   process.env.SIMPAY_CHECKOUT_URL = 'https://checkout.test/';
-  const execute = mock(async () => ({ data: { id: 'link' } }));
+  const created = {
+    id: 'link',
+    code: 'CODE',
+    name: 'Livro',
+    amountCents: 2700,
+    isActive: true,
+    renewalMode: 'NONE',
+    acceptedMethods: ['PIX'],
+    fulfillment: {},
+    metadata: {},
+    platformTag: 'CENTRAL-INFO',
+    ownerUserId: 'owner',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const create = mock(async (..._args: unknown[]) => created);
   const prisma = {
-    offer: { findUnique: mock(async () => null) },
-    paymentLink: {
+    offer: {
       findUnique: mock(async () => null),
-      findFirst: mock(async () => null),
+      findFirst: mock(async (..._args: unknown[]) => null),
     },
   };
   const controller = new PlatformLinksController(
     prisma as never,
-    { get: () => ({ execute }) } as never,
+    {
+      get: () => ({ create }),
+    } as never,
   );
   return {
     controller,
     prisma,
-    execute,
+    create,
     req: { platformContext: context } as never,
   };
 }
+
 test('canonical creation derives owner and platform from credential', async () => {
   const f = fixture();
   const result = await f.controller.create(
@@ -34,12 +53,14 @@ test('canonical creation derives owner and platform from credential', async () =
     { titulo: 'Livro', valor: 27 },
     'unique-key',
   );
-  expect(f.execute.mock.calls[0][0]).toMatchObject({
-    userId: 'owner',
-    dto: { plataformas: ['CENTRAL-INFO'] },
+  expect(f.create.mock.calls[0][0]).toMatchObject({ id: 'owner' });
+  expect(f.create.mock.calls[0][1]).toMatchObject({
+    ownerUserId: 'owner',
+    platformTag: 'CENTRAL-INFO',
   });
   expect(result.checkoutUrl).toBe('https://checkout.test/?simLinkCode=link');
 });
+
 test('rejects minimum price, missing key, non-HTTPS callback and platform injection', async () => {
   const f = fixture();
   await expect(
@@ -62,20 +83,21 @@ test('rejects minimum price, missing key, non-HTTPS callback and platform inject
       'key',
     ),
   ).rejects.toThrow();
-  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.create).not.toHaveBeenCalled();
 });
+
 test('update and files cannot address another platform link', async () => {
   const f = fixture();
   await expect(
     f.controller.update(f.req, 'foreign', { titulo: 'Troca' }),
   ).rejects.toThrow();
   await expect(f.controller.files(f.req, 'foreign', [])).rejects.toThrow();
-  expect(f.prisma.paymentLink.findFirst.mock.calls[0][0]).toMatchObject({
+  expect(f.prisma.offer.findFirst.mock.calls[0][0]).toMatchObject({
     where: {
       id: 'foreign',
-      userId: 'owner',
-      plataformas: { has: 'CENTRAL-INFO' },
+      ownerUserId: 'owner',
+      platformTag: 'CENTRAL-INFO',
     },
   });
-  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.create).not.toHaveBeenCalled();
 });

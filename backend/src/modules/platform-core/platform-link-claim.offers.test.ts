@@ -20,10 +20,6 @@ function fixture() {
       }),
     },
     offer,
-    subscriptionLink: {
-      findMany: async () => [],
-      updateMany: mock(async () => ({ count: 0 })),
-    },
     $transaction: async (f: any) => f(p),
   };
   return { p, offer, service: new PlatformLinkClaim(p) };
