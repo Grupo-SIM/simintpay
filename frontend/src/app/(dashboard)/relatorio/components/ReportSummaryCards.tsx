@@ -41,7 +41,7 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
           label="Lucro bruto"
           value={reportMoney(s.netCents + coCents)}
           icon={Banknote}
-          tooltip="Líquido das vendas e participações de coprodução antes da taxa de saque."
+          tooltip="Líquido das vendas e participações de coprodução antes dos custos."
           valueClassName="text-cyan-600 dark:text-cyan-400"
           iconClassName="text-cyan-600 dark:text-cyan-400"
         />
@@ -71,7 +71,7 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
           label="Juros brutos"
           value={reportMoney(s.interestCents ?? 0)}
           icon={CreditCard}
-          tooltip="Juros de parcelamento cobrados do comprador nas vendas do período. Vendas sem juros registrados contam como zero."
+          tooltip="Juros de parcelamento cobrados do comprador nas vendas do período."
           valueClassName="text-amber-600 dark:text-amber-400"
           iconClassName="text-amber-600 dark:text-amber-400"
         />
@@ -83,7 +83,7 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
               : reportMoney(s.withdrawalFeesCents)
           }
           icon={ArrowDownToLine}
-          tooltip="Total de taxas cobradas nos saques aprovados ou concluídos das plataformas selecionadas no período. O filtro de método aplica-se somente às vendas."
+          tooltip="Total de taxa cobrada nos saques do período."
           valueClassName="text-orange-600 dark:text-orange-400"
           iconClassName="text-orange-600 dark:text-orange-400"
         />

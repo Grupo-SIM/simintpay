@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   TrendingUp,
   Wallet,
   ArrowUpRight,
   Percent,
-  RefreshCw,
   Activity,
   CreditCard,
   Banknote,
@@ -62,8 +61,8 @@ function formatQueryDate(d: Date | null): string | null {
 const METRIC_TT = {
   totalTransacoes: 'Transações aprovadas no período.',
   receitaTotal: 'Valor bruto das vendas aprovadas.',
-  margemPct:
-    'Margem percentual aplicada pela Sim Int Pay, sem juros de parcelamento.',
+  margemTaxa:
+    'Margem percentual e por transação aplicadas pela Sim Int Pay, sem juros de parcelamento.',
   margemParcelamento:
     'Margem dos juros de parcelamento que fica na Sim Int Pay.',
   margemSaque: 'Taxa de saque cobrada pela Sim Int Pay.',
@@ -71,15 +70,11 @@ const METRIC_TT = {
     'Receita Sim Int Pay. Menos as taxas de adquirentes, resulta no lucro líquido.',
   parcelamentoAdq: 'Juros de parcelamento cobrados pela adquirente.',
   totalAdquirente: 'Soma dos custos desta adquirente.',
-  taxasAdquirentes:
-    'Soma dos custos de todas as adquirentes: taxa %, taxa por transação, cashback, parcelamento e saque.',
+  taxasAdquirentes: 'Soma dos custos de todas as adquirentes.',
   valorLiquido: 'Líquido total das transações.',
-  lucroLiquido:
-    'Lucro das transações + receita de taxas de saque − custos de saque.',
+  lucroLiquido: 'Margem de taxas + taxas de saque - custos de saque.',
   roi: 'Lucro líquido ÷ receita total.',
-  totalRepasse:
-    'Líquido das vendas destinado aos donos das plataformas, incluindo o Grupo SIM.',
-  saquesAprovados: 'Saques aprovados. Ícone alterna quantidade/valor.',
+  totalRepasse: 'Líquido das vendas destinado aos clientes.',
   saquesPendentes: 'Saques aguardando aprovação.',
   lucroSaque: 'Arrecadado com taxas de saque.',
   taxaSaqueDOM: 'Custo DOM por saque: R$ 3,50 cada.',
@@ -139,7 +134,6 @@ export default function AdminReportOverview({
 
   const filters = { periodPreset: 'custom', detalharLucro: true };
   const effectiveDateRange = range;
-  const [showSaqueValue, setShowSaqueValue] = useState(false);
   const {
     data: consolidado,
     isLoading: isLoadingConsolidado,
@@ -441,7 +435,7 @@ export default function AdminReportOverview({
             iconClassName="text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400"
           />
           <MetricCard
-            label="ROI"
+            label="Margem de Lucro Líquido"
             tooltip={METRIC_TT.roi}
             value={roiFormatado}
             valueClassName="text-purple-600 dark:text-purple-400"
@@ -450,101 +444,22 @@ export default function AdminReportOverview({
           />
         </ReportMetricSection>
 
-        {/* ── Boleto ── */}
-        {boletoResumo && boletoResumo.quantidade > 0 && (
-          <section className="flex flex-col gap-3">
-            <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-              Boleto
-            </h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              <MetricCard
-                label="Boletos pagos"
-                value={
-                  isLoadingConsolidado
-                    ? 'Carregando...'
-                    : boletoResumo.quantidade.toLocaleString('pt-BR')
-                }
-                valueClassName="text-sky-600 dark:text-sky-400"
-                icon={Hash}
-                iconClassName="text-sky-600 bg-sky-50 dark:bg-sky-950/30 dark:text-sky-400"
-              />
-              <MetricCard
-                label="Bruto em boletos"
-                value={
-                  isLoadingConsolidado
-                    ? 'Carregando...'
-                    : formatBRL(boletoResumo.valorBruto)
-                }
-                valueClassName="text-emerald-600 dark:text-emerald-400"
-                icon={TrendingUp}
-                iconClassName="text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400"
-              />
-              <MetricCard
-                label="Taxa DOM (boleto)"
-                tooltip="Custo DOM por boleto pago: R$ 3,49 + R$ 1,00."
-                value={
-                  isLoadingConsolidado
-                    ? 'Carregando...'
-                    : formatBRL(boletoResumo.taxaDom)
-                }
-                valueClassName="text-rose-600 dark:text-rose-400"
-                icon={Percent}
-                iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
-              />
-              <MetricCard
-                label="Taxa Sim Int Pay (boleto)"
-                tooltip="Receita Sim Int Pay nos boletos do período."
-                value={
-                  isLoadingConsolidado
-                    ? 'Carregando...'
-                    : formatBRL(boletoResumo.taxaSimIntPay)
-                }
-                valueClassName="text-indigo-600 dark:text-indigo-400"
-                icon={Percent}
-                iconClassName="text-indigo-600 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400"
-              />
-              <MetricCard
-                label="Lucro em boletos"
-                tooltip="Lucro nos boletos: taxa Sim Int Pay − taxa DOM."
-                value={
-                  isLoadingConsolidado
-                    ? 'Carregando...'
-                    : formatBRL(boletoResumo.lucro)
-                }
-                valueClassName="text-cyan-600 dark:text-cyan-400"
-                icon={Banknote}
-                iconClassName="text-cyan-600 bg-cyan-50 dark:bg-cyan-950/30 dark:text-cyan-400"
-              />
-            </div>
-          </section>
-        )}
-
         {/* ── Taxas Sim Int Pay: somente a margem aplicada ── */}
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Taxas Sim Int Pay
+            Lucro SimIntPay
           </h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {[
+              ['Taxa', margem.taxaPercentual, Percent, METRIC_TT.margemTaxa],
               [
-                'Margem (%)',
-                margem.taxaPercentual,
-                Percent,
-                METRIC_TT.margemPct,
-              ],
-              [
-                'Margem de parcelamento',
+                'Parcelamento',
                 margem.parcelamento,
                 CreditCard,
                 METRIC_TT.margemParcelamento,
               ],
-              [
-                'Margem de saque',
-                margem.taxaSaque,
-                Wallet,
-                METRIC_TT.margemSaque,
-              ],
-              ['Total de margem', totalMargem, Wallet, METRIC_TT.totalMargem],
+              ['Saque', margem.taxaSaque, Wallet, METRIC_TT.margemSaque],
+              ['Total', totalMargem, Wallet, METRIC_TT.totalMargem],
             ].map(([label, value, Icon, tooltip]) => (
               <MetricCard
                 key={label as string}
@@ -618,6 +533,18 @@ export default function AdminReportOverview({
         })}
 
         <AdminReportMovements
+          boletos={
+            boletoResumo && boletoResumo.quantidade > 0 ? (
+              <MetricCard
+                label="Boletos"
+                value={formatBRL(boletoResumo.valorBruto)}
+                detail={`${boletoResumo.quantidade.toLocaleString('pt-BR')} ${boletoResumo.quantidade === 1 ? 'boleto' : 'boletos'}`}
+                valueClassName="text-sky-600 dark:text-sky-400"
+                icon={Receipt}
+                iconClassName="text-sky-600 bg-sky-50 dark:bg-sky-950/30 dark:text-sky-400"
+              />
+            ) : undefined
+          }
           extra={
             <>
               <MetricCard
@@ -634,19 +561,15 @@ export default function AdminReportOverview({
               />
               <MetricCard
                 label="Saques aprovados"
-                tooltip={METRIC_TT.saquesAprovados}
                 value={
                   isLoadingConsolidado
                     ? 'Carregando...'
-                    : showSaqueValue
-                      ? formatBRL(consolidado?.saquesAprovados?.valor)
-                      : `${consolidado?.saquesAprovados?.quantidade ?? 0} aprovados`
+                    : formatBRL(consolidado?.saquesAprovados?.valor)
                 }
+                detail={`${consolidado?.saquesAprovados?.quantidade ?? 0} ${consolidado?.saquesAprovados?.quantidade === 1 ? 'saque' : 'saques'}`}
                 valueClassName="text-amber-500"
                 icon={ArrowUpRight}
                 iconClassName="text-amber-500 bg-amber-50 dark:bg-amber-950/30"
-                onAction={() => setShowSaqueValue(!showSaqueValue)}
-                actionIcon={RefreshCw}
               />
             </>
           }

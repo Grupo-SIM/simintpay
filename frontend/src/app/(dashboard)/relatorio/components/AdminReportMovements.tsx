@@ -8,9 +8,11 @@ import type { ReportSummary } from './report-types';
 
 export function AdminReportMovements({
   filters,
+  boletos,
   extra,
 }: {
   filters: Record<string, string | undefined>;
+  boletos?: ReactNode;
   extra?: ReactNode;
 }) {
   const api = useReportApi();
@@ -24,5 +26,11 @@ export function AdminReportMovements({
   });
   if (query.isPending) return <ReportSkeleton />;
   if (query.isError) return <ReportError retry={() => void query.refetch()} />;
-  return <ReportMovementSections summary={query.data.summary} extra={extra} />;
+  return (
+    <ReportMovementSections
+      summary={query.data.summary}
+      boletos={boletos}
+      extra={extra}
+    />
+  );
 }

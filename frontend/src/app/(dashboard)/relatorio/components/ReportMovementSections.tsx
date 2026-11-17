@@ -15,11 +15,14 @@ export function ReportMovementSections({
   summary: s,
   coproducao,
   hasPlatforms = true,
+  boletos,
   extra,
 }: {
   summary: ReportSummary['summary'];
   coproducao?: ReportSummary['coproducao'];
   hasPlatforms?: boolean;
+  /** Card de boletos, exibido antes de estornos. */
+  boletos?: ReactNode;
   extra?: ReactNode;
 }) {
   const money = (value: number | undefined) =>
@@ -39,7 +42,6 @@ export function ReportMovementSections({
             icon={TrendingUp}
             valueClassName="text-emerald-600 dark:text-emerald-400"
             iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
-            tooltip="Valor bruto e quantidade de vendas aprovadas no período."
           />
           <MetricCard
             label="Vendas pendentes"
@@ -57,6 +59,7 @@ export function ReportMovementSections({
             valueClassName="text-rose-600 dark:text-rose-400"
             iconClassName="bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
           />
+          {boletos}
           <MetricCard
             label="Estornos"
             value={money(s.refundedCents)}
@@ -64,7 +67,6 @@ export function ReportMovementSections({
             icon={TrendingDown}
             valueClassName="text-rose-600 dark:text-rose-400"
             iconClassName="bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
-            tooltip="Valor líquido estornado e quantidade de vendas estornadas."
           />
           <MetricCard
             label="Chargebacks"
@@ -73,7 +75,6 @@ export function ReportMovementSections({
             icon={AlertTriangle}
             valueClassName="text-orange-600 dark:text-orange-400"
             iconClassName="bg-orange-50 text-orange-600 dark:bg-orange-950/30 dark:text-orange-400"
-            tooltip="Valor líquido contestado e quantidade de vendas com chargeback."
           />
         </>
       )}
@@ -93,7 +94,7 @@ export function ReportMovementSections({
           icon={HandCoins}
           valueClassName="text-emerald-600 dark:text-emerald-400"
           iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
-          tooltip="Participações de coprodução creditadas na sua carteira. Não representa saldo disponível para saque."
+          tooltip="Participações de coprodução creditadas na sua carteira."
         />
       )}
       {extra}
