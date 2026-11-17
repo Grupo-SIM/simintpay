@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FunnelOfferScreen } from '@/components/simlink/LinkOffers';
+import { OfferFunnelView } from '@/components/ofertas/OfferFunnelScreen';
 import {
   isFunnelPreviewMessage,
   normalizeFunnelPreviewDraft,
@@ -123,30 +123,27 @@ export function FunnelPreview({
         ))}
       </nav>
       {offer ? (
-        <FunnelOfferScreen
+        <OfferFunnelView
           key={offer.id}
-          preview
           stage={offer.role === 'UPSELL' ? 'upsell' : 'downsell'}
-          offer={{
-            id: offer.id,
-            tipo: offer.role,
-            chamada: null,
-            titulo: offer.name,
-            descricao: offer.description,
-            imagemUrl: null,
-            valor: offer.amountCents / 100,
-            valorCartao: offer.amountCents / 100,
-            valorOriginal: null,
+          bump={{
+            code: offer.id,
+            role: offer.role,
+            name: offer.name,
+            description: offer.description,
+            amountCents: offer.amountCents,
+            imageUrl: offer.imageUrl,
+            headline: offer.headline,
+            originalAmountCents: offer.originalAmountCents,
+            countdownSeconds: offer.countdownSeconds,
           }}
-          linkId="preview"
-          method="credit"
-          customer={{ name: '', email: '', document: '', phone: '' }}
-          parentPaymentId="preview"
-          buildCardBody={async () => ({})}
-          onAccepted={() =>
-            setIndex(nextFunnelPreviewOffer(draft, index, true))
-          }
-          onDeclined={() =>
+          price={0}
+          isCard
+          loading={false}
+          error=""
+          pix={null}
+          onAccept={() => setIndex(nextFunnelPreviewOffer(draft, index, true))}
+          onDecline={() =>
             setIndex(nextFunnelPreviewOffer(draft, index, false))
           }
         />

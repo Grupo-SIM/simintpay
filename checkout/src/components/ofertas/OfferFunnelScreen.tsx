@@ -14,11 +14,13 @@ import {
   PixDisplay,
   usePixConfirmation,
 } from '@/components/simlink/PixPayment';
+import { discountLabel } from '@/components/simlink/LinkOffers';
 import {
   CtaButton,
   DesktopHeader,
   ErrorBox,
   GLASS,
+  ProductImage,
   Screen,
   Spinner,
   formatCurrency,
@@ -37,6 +39,7 @@ import {
   funnelPrice,
 } from '@/lib/offer-funnel-model';
 import { tokenizeTypedCard, type TypedCard } from './offer-card-token';
+import { useFunnelCountdown } from './useFunnelCountdown';
 
 type Customer = {
   name: string;
@@ -49,6 +52,13 @@ export type AcceptedFunnelOffer = {
   code: string;
   name: string;
   amount: number;
+};
+
+type FunnelPix = {
+  id: string;
+  content: string | null;
+  qrCode: string | null;
+  expire: string | null;
 };
 
 const api = (code: string) =>
@@ -81,12 +91,7 @@ export function OfferFunnelScreen({
   const [loadFailed, setLoadFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [pix, setPix] = useState<{
-    id: string;
-    content: string | null;
-    qrCode: string | null;
-    expire: string | null;
-  } | null>(null);
+  const [pix, setPix] = useState<FunnelPix | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
@@ -125,8 +130,6 @@ export function OfferFunnelScreen({
   if (!target) return <CheckoutLoadingScreen message="Carregando a oferta…" />;
 
   const isCard = method !== 'pix';
-  const isDown = stage === 'downsell';
-  const original = bump.amountCents / 100;
 
   async function accept() {
     setError('');
@@ -191,90 +194,274 @@ export function OfferFunnelScreen({
     }
   }
 
-  const headline = isDown
-    ? 'Última chance: uma condição especial para você'
-    : 'Espere! Seu pedido ainda pode ficar melhor';
+  return (
+    <OfferFunnelView
+      stage={stage}
+      bump={bump}
+      price={price}
+      isCard={isCard}
+      loading={loading}
+      error={error}
+      pix={pix}
+      onAccept={accept}
+      onDecline={onDeclined}
+    />
+  );
+}
+
+/**
+ * Apresentação do upsell/downsell (mobile e desktop), sem I/O: também alimenta a prévia do funil
+ * no dashboard. O timer começa ao montar; ao zerar, desabilita o CTA e recusa a oferta após ~2s,
+ * exceto com PIX gerado ou cobrança em andamento. Sem `countdownSeconds` não há timer.
+ */
+export function OfferFunnelView({
+  stage,
+  bump,
+  price,
+  isCard,
+  loading,
+  error,
+  pix,
+  onAccept,
+  onDecline,
+}: {
+  stage: 'upsell' | 'downsell';
+  bump: PublicBump;
+  /** Preço cobrado no meio do pedido; 0 usa o preço base da oferta. */
+  price: number;
+  isCard: boolean;
+  loading: boolean;
+  error: string;
+  pix: Pick<FunnelPix, 'content' | 'qrCode' | 'expire'> | null;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  const isDown = stage === 'downsell';
+  const timer = useFunnelCountdown(bump.countdownSeconds);
+  const expired = timer.expired;
+  const busy = loading || Boolean(pix);
+
+  useEffect(() => {
+    if (!expired || busy) return;
+    const id = setTimeout(onDecline, 2000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expired, busy]);
+
+  const basePrice = bump.amountCents / 100;
+  const original =
+    bump.originalAmountCents != null ? bump.originalAmountCents / 100 : null;
+  const off = discountLabel(basePrice, original);
+  const hasDiscount = off != null;
+  const shown = price || basePrice;
+
+  const headline = sanitizeCheckoutText(
+    bump.headline ||
+      (isDown
+        ? 'Última chance: uma condição especial para você'
+        : 'Espere! Seu pedido ainda pode ficar melhor'),
+  );
   const title = sanitizeCheckoutText(bump.name);
   const desc = bump.description ? sanitizeCheckoutText(bump.description) : '';
+  const note1 = isCard ? '1x no mesmo cartão' : 'Pagamento via PIX';
+  const note2 = isCard ? 'sem digitar de novo' : 'um novo código será gerado';
   const ctaLabel = isDown
-    ? `Quero por ${formatCurrency(price)}`
-    : 'Sim, quero aproveitar';
+    ? `Quero por ${formatCurrency(shown)}`
+    : `Sim, adicionar por ${formatCurrency(shown)}`;
   const declineLabel = isDown
     ? 'Não, finalizar meu pedido'
     : 'Não, obrigado. Seguir sem esta oferta';
 
+  const timerEl = timer.enabled ? (
+    <div
+      className={cx(
+        'flex w-full flex-col gap-2 rounded-2xl border border-white/[0.14] bg-white/[0.07] px-4 py-3 text-left',
+        expired && 'opacity-80',
+      )}
+      role="timer"
+    >
+      <div className="flex items-center justify-between gap-3 text-[13px] text-[#d9d4e3] lg:text-sm">
+        <span>{expired ? 'Oferta encerrada' : 'Esta condição expira em'}</span>
+        <span className="font-semibold tabular-nums text-[#ffc48f]">
+          {timer.label}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-[linear-gradient(90deg,#a99ef8,#f6b67a)] transition-[width] duration-300"
+          style={{ width: `${(timer.remaining / timer.total) * 100}%` }}
+        />
+      </div>
+    </div>
+  ) : null;
+
+  const action = pix ? (
+    <PixDisplay
+      embedded
+      pixContent={pix.content}
+      qrCode={pix.qrCode}
+      pixExpire={pix.expire}
+    />
+  ) : (
+    <CtaButton type="button" onClick={onAccept} disabled={loading || expired}>
+      {loading ? (
+        <>
+          <Spinner size={18} width={3} />
+          {isCard ? 'Processando seu cartão…' : 'Gerando seu PIX…'}
+        </>
+      ) : (
+        ctaLabel
+      )}
+    </CtaButton>
+  );
+  const errorEl = error ? <ErrorBox>{error}</ErrorBox> : null;
+  const declineEl = !loading ? (
+    <button
+      type="button"
+      onClick={onDecline}
+      className="pb-1 text-center text-sm text-[#a9a3b8] transition hover:text-[#d9d4e3] lg:pb-0 lg:text-[15px]"
+    >
+      {declineLabel}
+    </button>
+  ) : null;
+
+  const priceBox = (
+    <div className="flex items-center justify-between rounded-[20px] bg-white/[0.07] px-4 py-3.5 lg:px-5 lg:py-4">
+      <div>
+        {hasDiscount && (
+          <div className="text-[13px] text-[#7d778b] line-through lg:text-sm">
+            {formatCurrency(original!)}
+          </div>
+        )}
+        <div className="text-[30px] font-semibold tabular-nums lg:text-4xl">
+          {formatCurrency(shown)}
+        </div>
+      </div>
+      <div className="text-right text-xs leading-[1.4] text-[#a9a3b8] lg:text-[13px] lg:leading-[1.45]">
+        {note1}
+        <br />
+        {note2}
+      </div>
+    </div>
+  );
+
   return (
     <Screen variant={isDown ? 'downsell' : 'default'}>
       <DesktopHeader />
-      <div className="flex flex-1 flex-col items-center gap-[18px] text-center lg:gap-6">
-        <div className="flex items-center gap-2 rounded-full border border-white/[0.14] bg-white/[0.08] px-3.5 py-2 text-[13px] text-[#d9d4e3] lg:text-sm">
+
+      <div className="flex flex-col items-center gap-[18px] text-center lg:gap-4">
+        <div className="flex items-center gap-2 rounded-full border border-white/[0.14] bg-white/[0.08] px-3.5 py-2 text-[13px] text-[#d9d4e3] lg:px-4 lg:py-[9px] lg:text-sm">
           <span className="h-2 w-2 rounded-full bg-[#7be3b0]" />
           {isDown
             ? 'Seu pedido está garantido'
             : 'Pagamento aprovado · não feche esta página'}
         </div>
-        <h1 className="px-1.5 text-[26px] font-medium leading-[1.2] [text-wrap:balance] lg:max-w-[760px] lg:text-4xl lg:leading-[1.15]">
-          {headline}
-        </h1>
-        <div
-          className={cx(
-            'flex w-full max-w-[560px] flex-col gap-4 rounded-[28px] p-5 text-left',
-            GLASS,
+        <div className="flex flex-col gap-2 px-1.5 lg:max-w-[760px]">
+          <h1 className="text-[26px] font-medium leading-[1.2] [text-wrap:balance] lg:text-4xl lg:leading-[1.15]">
+            {headline}
+          </h1>
+          {isDown && desc && (
+            <p className="text-sm text-[#a9a3b8] lg:text-base">{desc}</p>
           )}
-        >
-          {bump.imageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+        </div>
+      </div>
+
+      {/* Mobile */}
+      <div className="flex flex-1 flex-col gap-[18px] lg:hidden">
+        {timerEl}
+        {isDown ? (
+          <div
+            className={cx(
+              'flex flex-col items-center gap-4 rounded-[28px] p-5 text-center',
+              GLASS,
+            )}
+          >
+            <ProductImage
               src={bump.imageUrl}
-              alt={title}
-              className="max-h-[260px] w-full rounded-[20px] object-cover"
+              className="h-[140px] w-[140px] rounded-[28px]"
             />
-          )}
-          <div className="text-[21px] font-medium lg:text-[26px]">{title}</div>
-          {desc && (
-            <div className="whitespace-pre-line text-sm leading-normal text-[#b8b2c6] lg:text-[15px]">
+            <div className="text-xl font-medium">{title}</div>
+            <div className="flex flex-col items-center gap-0.5">
+              {hasDiscount && (
+                <span className="text-sm text-[#7d778b] line-through">
+                  {formatCurrency(original!)}
+                </span>
+              )}
+              <span className="text-[40px] font-semibold leading-[1.1] tabular-nums">
+                {formatCurrency(shown)}
+              </span>
+              <span className="text-xs text-[#a9a3b8]">{note1}</span>
+            </div>
+            {pix && action}
+          </div>
+        ) : (
+          <div
+            className={cx('flex flex-col gap-4 rounded-[28px] p-3.5', GLASS)}
+          >
+            <ProductImage
+              src={bump.imageUrl}
+              className="h-[180px] w-full rounded-[20px]"
+            />
+            <div className="flex flex-col gap-2 px-1.5">
+              {hasDiscount && (
+                <span className="self-start rounded-full bg-[linear-gradient(90deg,#a99ef8,#f6b67a)] px-2.5 py-1 text-xs font-semibold uppercase text-[#17131f]">
+                  {off} · Oferta única pós-compra
+                </span>
+              )}
+              <div className="text-[21px] font-medium">{title}</div>
+              {desc && (
+                <div className="whitespace-pre-line text-sm leading-normal text-[#b8b2c6]">
+                  {desc}
+                </div>
+              )}
+            </div>
+            {priceBox}
+            {pix && action}
+          </div>
+        )}
+        <div className="flex-1" />
+        {errorEl}
+        {!pix && action}
+        {declineEl}
+      </div>
+
+      {/* Desktop */}
+      <div
+        className={cx(
+          'hidden w-full max-w-[1000px] self-center rounded-[28px] p-5 lg:grid lg:items-stretch lg:gap-8',
+          bump.imageUrl
+            ? 'lg:grid-cols-[440px_minmax(0,1fr)]'
+            : 'lg:grid-cols-1',
+          GLASS,
+        )}
+      >
+        <ProductImage
+          src={bump.imageUrl}
+          className="h-full min-h-[380px] w-full rounded-[22px]"
+        />
+        <div className="flex flex-col gap-[18px] pb-2 pr-2 pt-3">
+          {timerEl}
+          <div className="flex items-center gap-2.5">
+            {off && (
+              <span className="rounded-full bg-[linear-gradient(90deg,#a99ef8,#f6b67a)] px-2.5 py-1 text-xs font-semibold text-[#17131f]">
+                {off}
+              </span>
+            )}
+            <span className="text-xs uppercase tracking-[.08em] text-[#a9a3b8]">
+              Oferta única pós-compra
+            </span>
+          </div>
+          <div className="text-[28px] font-medium leading-[1.2]">{title}</div>
+          {!isDown && desc && (
+            <div className="whitespace-pre-line text-[15px] leading-[1.55] text-[#b8b2c6]">
               {desc}
             </div>
           )}
-          <div className="flex items-center justify-between rounded-[20px] bg-white/[0.07] px-4 py-3.5 lg:px-5 lg:py-4">
-            <div className="text-[30px] font-semibold tabular-nums lg:text-4xl">
-              {formatCurrency(price || original)}
-            </div>
-            <div className="text-right text-xs leading-[1.4] text-[#a9a3b8] lg:text-[13px]">
-              {isCard ? '1x no mesmo cartão' : 'Pagamento via PIX'}
-              <br />
-              {isCard ? 'sem digitar de novo' : 'um novo código será gerado'}
-            </div>
-          </div>
-          {pix ? (
-            <PixDisplay
-              embedded
-              pixContent={pix.content}
-              qrCode={pix.qrCode}
-              pixExpire={pix.expire}
-            />
-          ) : (
-            <CtaButton type="button" onClick={accept} disabled={loading}>
-              {loading ? (
-                <>
-                  <Spinner size={18} width={3} />
-                  {isCard ? 'Processando seu cartão…' : 'Gerando seu PIX…'}
-                </>
-              ) : (
-                ctaLabel
-              )}
-            </CtaButton>
-          )}
-          {error && <ErrorBox>{error}</ErrorBox>}
-          {!loading && (
-            <button
-              type="button"
-              onClick={onDeclined}
-              className="text-center text-sm text-[#a9a3b8] transition hover:text-[#d9d4e3] lg:text-[15px]"
-            >
-              {declineLabel}
-            </button>
-          )}
+          {priceBox}
+          <div className="flex-1" />
+          {errorEl}
+          {action}
+          {declineEl}
         </div>
       </div>
     </Screen>
