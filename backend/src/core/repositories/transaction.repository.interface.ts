@@ -19,7 +19,7 @@ export type CreateTransactionData = {
   customerEmail?: string | null;
   customerDocument?: string | null;
   customerPhone?: string | null;
-  paymentLinkId?: string | null;
+  offerId?: string | null;
 };
 
 export interface ITransactionRepository {

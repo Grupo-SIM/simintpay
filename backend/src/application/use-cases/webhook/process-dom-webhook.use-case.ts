@@ -1,15 +1,6 @@
-import { MIGRATED_ORDER_STATUS } from '../../../modules/billing-core/legacy-order-migration';
-import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
-import {
-  alertUnresolvedWebhook,
-  resolveOfferByLinkReference,
-} from '../../../modules/billing-core/webhook-offer-resolution';
+import { alertUnresolvedWebhook } from '../../../modules/billing-core/webhook-offer-resolution';
 import { quoteCardOwnerShare } from '../../../modules/financial-policy/platform-fee-schedule';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
-import {
-  closeFinancialSubscription,
-  settleFinancialSubscription,
-} from '../../../modules/financial-policy/financial-subscription';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import {
   ebookOrderCreditMetadata,
@@ -61,8 +52,6 @@ import {
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { PixPlanService } from '../pix-plan/pix-plan.service';
-import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { VoucherService } from '../voucher/voucher.service';
 import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
@@ -80,14 +69,6 @@ import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
 import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
-import {
-  documentType,
-  splitDocument as provisionDocPayload,
-} from '../../utils/document.util';
-import {
-  isAreaflixLink,
-  calculateAreaflixSellerNet,
-} from '../../helpers/areaflix-fees.helper';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -159,8 +140,6 @@ export class ProcessDomWebhookUseCase {
     @Optional()
     @Inject(PAYMENT_GATEWAY)
     private readonly paymentGateway?: IPaymentGateway,
-    @Optional() private readonly pixPlanService?: PixPlanService,
-    @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
     @Optional() private readonly storage?: StorageService,
     @Optional() @Inject(QUEUE_SERVICE) private readonly queue?: IQueueService,
@@ -242,15 +221,7 @@ export class ProcessDomWebhookUseCase {
       if (serial) {
         await this.handleMachineSync(event, serial);
       } else {
-        // Verificar se é uma SubscriptionLinkOrder
-        const handled = await this.handleSubscriptionLinkPix(
-          event.data.id,
-          event.data.status,
-          wh.id,
-        );
-        if (!handled) {
-          await this.handleTransaction(event);
-        }
+        await this.handleTransaction(event);
       }
 
       await this.prisma.webhookEvent.update({
@@ -672,29 +643,6 @@ export class ProcessDomWebhookUseCase {
         );
         void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
 
-        // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
-        if (this.pixPlanService) {
-          try {
-            await this.pixPlanService.handlePixPlanWebhook(existing.id, {
-              name: data.customer?.name ?? '',
-              email: data.customer?.email ?? '',
-              document: data.customer?.document ?? '',
-              document_type: documentType(data.customer?.document),
-              mobile_phone: data.customer?.mobile_phone,
-            });
-          } catch (pixPlanError: any) {
-            this.logger.error(
-              `[DomWebhook] Erro ao processar PIX-PLAN para tx ${existing.id}: ${pixPlanError.message}`,
-            );
-          }
-        }
-
-        // SSE: notificar checkout de planos PIX em tempo real
-        this.pixPlanEvents?.emit({
-          transactionId: existing.id,
-          status: 'COMPLETED',
-        });
-
         // SSE: notificar checkout genérico (ebook/pagatg) pelo domPaymentId
         if (data.id) {
           this.checkoutEvents?.emit({
@@ -742,21 +690,6 @@ export class ProcessDomWebhookUseCase {
             );
           }
         }
-
-        // Entrega e webhook externo pertencem à oferta (billing-core); aqui só se identifica a oferta.
-        if (existing.paymentLinkId) {
-          void this.reportLinkWithoutLegacyRow(existing.paymentLinkId);
-        }
-      }
-
-      // Reembolso/chargeback de link de pagamento: notificar webhook externo para revogar acesso
-      if (
-        (nextStatus === TransactionStatus.REFUNDED ||
-          nextStatus === TransactionStatus.CHARGEBACK) &&
-        existing.status === TransactionStatus.COMPLETED &&
-        existing.paymentLinkId
-      ) {
-        void this.reportLinkWithoutLegacyRow(existing.paymentLinkId);
       }
     } else {
       const amountReais = Number(data.amount) / 100;
@@ -1609,268 +1542,5 @@ export class ProcessDomWebhookUseCase {
     this.logger.log(
       `[DomWebhook] Máquineta sincronizada: ${serial} → tx ${tx.id}`,
     );
-  }
-
-  // ─── SubscriptionLinkOrder ────────────────────────────────────────────────
-
-  private async handleSubscriptionLinkPix(
-    domPixPaymentId: string,
-    domStatus: string,
-    webhookEventDbId: string,
-  ): Promise<boolean> {
-    const order = await this.prisma.subscriptionLinkOrder.findFirst({
-      where: { domPixPaymentId },
-      include: { subscriptionLink: true },
-    });
-
-    // Pedido já migrado para a oferta: a Transaction/Charge liquida pelo caminho comum.
-    if (!order || order.status === MIGRATED_ORDER_STATUS) return false;
-    const financialInput = order.financialSnapshot
-      ? {
-          snapshot: order.financialSnapshot,
-          amount: order.amountCharged,
-          paymentId: domPixPaymentId,
-          userId: order.userId,
-          method: 'PIX' as const,
-          name: order.subscriptionLink.name,
-          customerName: order.customerName,
-          customerEmail: order.customerEmail,
-          customerDocument: order.customerDocument,
-          tracking: order.tracking,
-        }
-      : null;
-    if (domStatus === 'paid' && financialInput)
-      await settleFinancialSubscription(this.prisma, financialInput);
-    if ((domStatus === 'expired' || domStatus === 'failed') && financialInput)
-      await closeFinancialSubscription(
-        this.prisma,
-        financialInput,
-        domStatus === 'expired' ? 'EXPIRED' : 'FAILED',
-      );
-
-    this.logger.log(
-      `[DomWebhook] SubscriptionLinkOrder ${order.id} encontrada para domPixPaymentId=${domPixPaymentId}, status=${domStatus}`,
-    );
-
-    if (domStatus !== 'paid') {
-      const statusMap: Record<string, string> = {
-        expired: 'expired',
-        failed: 'failed',
-        refunded: 'refunded',
-      };
-      const newStatus = statusMap[domStatus];
-      if (newStatus && order.status === 'pending') {
-        await this.prisma.subscriptionLinkOrder.update({
-          where: { id: order.id },
-          data: { status: newStatus },
-        });
-      }
-      await this.prisma.webhookEvent.update({
-        where: { id: webhookEventDbId },
-        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
-      });
-      return true;
-    }
-
-    // Já processado
-    if (order.status === 'paid') {
-      await this.prisma.webhookEvent.update({
-        where: { id: webhookEventDbId },
-        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
-      });
-      return true;
-    }
-
-    // Marcar como pago
-    await this.prisma.subscriptionLinkOrder.update({
-      where: { id: order.id },
-      data: { status: 'paid' },
-    });
-
-    // SSE: notificar checkout de assinatura em tempo real
-    this.checkoutEvents?.emit({
-      domPaymentId: domPixPaymentId,
-      status: 'COMPLETED',
-    });
-
-    // Enviar email de acesso
-    if (this.emailService) {
-      try {
-        if (order.subscriptionLink.emailBody?.trim()) {
-          await this.emailService.sendEbookAccessEmail({
-            to: order.customerEmail,
-            customerName: order.customerName,
-            title: order.subscriptionLink.name,
-            body: order.subscriptionLink.emailBody,
-            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
-          });
-        } else {
-          await this.emailService.sendSubscriptionAccess({
-            to: order.customerEmail,
-            customerName: order.customerName,
-            linkName: order.subscriptionLink.name,
-            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
-            orderId: order.id,
-          });
-        }
-        this.logger.log(
-          `[DomWebhook] Email de acesso enviado para ${order.customerEmail}`,
-        );
-      } catch (err: unknown) {
-        this.logger.error(
-          `[DomWebhook] Erro ao enviar email para order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`,
-        );
-      }
-    }
-
-    // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel)
-    const isAfSubLink =
-      !order.financialSnapshot &&
-      isAreaflixLink({
-        webhookUrl: order.subscriptionLink.webhookUrl,
-        platformTag: (order.subscriptionLink as any).platformTag,
-        plataformas: (order.subscriptionLink as any).plataformas,
-      });
-    const afSubNet = isAfSubLink
-      ? calculateAreaflixSellerNet(Number(order.amountCharged), 'PIX')
-      : null;
-
-    // Notificar webhook externo configurado no link (ex: saas-netflix-back para atualizar plano)
-    const webhookUrl = order.subscriptionLink.webhookUrl ?? null;
-    if (webhookUrl) {
-      const simpayToken = getPlatformWebhookToken([
-        (order.subscriptionLink as any).platformTag,
-        ...((order.subscriptionLink as any).plataformas ?? []),
-      ]);
-      fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(simpayToken ? { 'x-simpay-token': simpayToken } : {}),
-        },
-        body: JSON.stringify({
-          event: 'subscription_activated',
-          customerEmail: order.customerEmail,
-          customerName: order.customerName,
-          planName: order.subscriptionLink.name,
-          paymentMethod: 'PIX',
-          frequencyType: order.subscriptionLink.frequencyType,
-          amountCharged: Number(order.amountCharged),
-          netAmount:
-            afSubNet ??
-            Number(
-              (
-                Number(order.amountCharged) -
-                Number(order.platformFeeAmount ?? 0)
-              ).toFixed(2),
-            ),
-          orderId: order.id,
-          linkId: order.subscriptionLinkId,
-          ...provisionDocPayload(order.customerDocument),
-          phone: order.customerPhone ?? undefined,
-        }),
-      }).catch((err: unknown) => {
-        this.logger.warn(
-          `[DomWebhook] Falha ao notificar webhookUrl ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
-    }
-
-    const whAf = (order.subscriptionLink.webhookUrl ?? '').toLowerCase();
-    // platformTag explícito tem prioridade; fallback legado: webhookUrl contém 'areaflix'
-    const subPlatformTag = (
-      order.subscriptionLink.platformTag ||
-      (order.subscriptionLink as any).plataformas?.[0] ||
-      (whAf.includes('areaflix') ? 'AREAFLIX' : '')
-    ).toUpperCase();
-
-    if (
-      subPlatformTag &&
-      subPlatformTag !== 'GLOBAL' &&
-      order.domPixPaymentId
-    ) {
-      // Cria transação com [TENANT:{platform}] para QUALQUER plataforma associada ao link
-      const exists = await this.prisma.transaction.findFirst({
-        where: { domPaymentId: order.domPixPaymentId },
-        select: { id: true },
-      });
-      if (!exists) {
-        const gross = Number(order.amountCharged);
-        const pf = Number(order.platformFeeAmount);
-        const netForSeller = afSubNet ?? gross - pf;
-        const newTx = await this.prisma.transaction.create({
-          data: {
-            userId: order.userId,
-            amount: gross,
-            netAmount: netForSeller,
-            status: TransactionStatus.COMPLETED,
-            paymentMethod: PaymentMethod.PIX,
-            totalFee: afSubNet != null ? gross - netForSeller : 0,
-            acquirerFee: 0,
-            platformFee: afSubNet != null ? gross - netForSeller : pf,
-            description: `${order.subscriptionLink.name} [TENANT:${subPlatformTag}] subOrder=${order.id}`,
-            domPaymentId: order.domPixPaymentId,
-            customerName: order.customerName,
-            customerEmail: order.customerEmail,
-            customerDocument: order.customerDocument,
-            customerPhone: order.customerPhone ?? undefined,
-            tracking: (order.tracking ?? undefined) as
-              Prisma.InputJsonValue | undefined,
-          },
-        });
-
-        // AREAFLIX: creditar a carteira do dono do link com o líquido
-        // (ativação PIX não passava por nenhum crédito de carteira)
-        if (afSubNet != null) {
-          const netDec = new Prisma.Decimal(afSubNet.toFixed(2));
-          try {
-            await this.prisma.$transaction((tx) =>
-              applyWalletEntry(tx, {
-                userId: order.userId,
-                action: 'SUBSCRIPTION_LINK_PIX',
-                source: 'SUBSCRIPTION_LINK',
-                balanceDelta: netDec,
-                transactionId: newTx.id,
-                description: `Assinatura areaflix ${order.subscriptionLink.name} subOrder=${order.id}`,
-              }),
-            );
-          } catch (err: unknown) {
-            this.logger.error(
-              `[DomWebhook] Falha ao creditar carteira areaflix (order ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-
-        // Comissão de afiliado (baseada no platformFee, independente da plataforma/tenant)
-        try {
-          await this.prisma.$transaction((p) =>
-            this.affiliateCommission.applyForTransaction(p, {
-              transactionId: newTx.id,
-              referredUserId: order.userId,
-              platformFee: newTx.platformFee,
-            }),
-          );
-        } catch (err: unknown) {
-          this.logger.error(
-            `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-    }
-
-    // Não atualizar webhookEventDbId aqui — o chamador (execute) fará isso
-    return true;
-  }
-
-  /** Plan 0023: a transaction that still carries a legacy link id; resolve the Offer, alert on a miss. */
-  private async reportLinkWithoutLegacyRow(linkId: string): Promise<void> {
-    const hit = await resolveOfferByLinkReference(this.prisma, linkId);
-    if (hit) {
-      this.logger.log(
-        `[DomWebhook] link ${linkId} resolvido na oferta ${hit.offerId} via ${hit.via}`,
-      );
-      return;
-    }
-    alertUnresolvedWebhook(this.logger, 'dom.payment-link', linkId);
   }
 }

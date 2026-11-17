@@ -82,12 +82,7 @@ export class DeleteClienteUseCase {
       where: { ownerUserId: cliente.userId, customerId: cliente.id },
     });
 
-    // 4. Linhas antigas de acesso de plano PIX seguram o cliente por FK até a tabela ser apagada
-    await this.prisma.customerPlanAccess.deleteMany({
-      where: { customerId: cliente.id },
-    });
-
-    // 5. Excluir o cliente
+    // 4. Excluir o cliente
     await this.prisma.customer.delete({
       where: { id: cliente.id },
     });

@@ -32,7 +32,6 @@ import { PagatgModule } from './modules/pagatg/pagatg.module';
 import { MasterModule } from './modules/master/master.module';
 import { AtlasModule } from './modules/atlas/atlas.module';
 import { ZeroGrauModule } from './modules/zero-grau/zero-grau.module';
-import { PixPlanModule } from './presentation/pix-plan.module';
 import { CheckoutModule } from './presentation/checkout.module';
 import { ClienteModule } from './presentation/cliente.module';
 import { ClienteDashboardModule } from './modules/cliente/cliente-dashboard.module';
@@ -66,7 +65,6 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     AuthModule,
     WebhookModule,
     TransactionsModule,
-    PixPlanModule,
     CheckoutModule,
     SubscriptionModule,
     ReportModule,

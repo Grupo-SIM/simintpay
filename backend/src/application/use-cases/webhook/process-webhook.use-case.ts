@@ -1,8 +1,5 @@
-import { MIGRATED_ORDER_STATUS } from '../../../modules/billing-core/legacy-order-migration';
 import { alertUnresolvedWebhook } from '../../../modules/billing-core/webhook-offer-resolution';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
-import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
-import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import {
   creditedSettlementAmount,
   bindLinkPayment,
@@ -14,17 +11,14 @@ import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
+import { Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
 import { WEBHOOK_EVENT_REPOSITORY } from '../../../core/repositories/webhook-event.repository.interface';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
-import { PixPlanService } from '../pix-plan/pix-plan.service';
-import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import { platformTaxaTagForTransaction } from '../../helpers/dom-fee-estimate.helper';
 import {
   getPlatformTaxaEffective,
@@ -39,10 +33,6 @@ import { AffiliateCommissionService } from '../../services/affiliate-commission.
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
 import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
-
-function documentType(raw: string | null | undefined): 'CPF' | 'CNPJ' {
-  return (raw ?? '').replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF';
-}
 
 type WebhookPayload = Record<string, unknown>;
 
@@ -81,8 +71,6 @@ export class ProcessWebhookUseCase {
     private readonly prisma: PrismaService,
     private readonly renovadaEvents: RenovadaEventsService,
     private readonly affiliateCommission: AffiliateCommissionService,
-    @Optional() private readonly pixPlanService?: PixPlanService,
-    @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly platformEvents?: PlatformEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
@@ -239,14 +227,6 @@ export class ProcessWebhookUseCase {
         : await this.transactions.findByDomPaymentId(domPaymentId);
 
       if (!trx) {
-        // Check if this is a subscription link PIX payment
-        const handled = await this.handleSubscriptionLinkPix(
-          domPaymentId,
-          parsed.data.status,
-          event.id,
-        );
-        if (handled) return;
-
         this.logger.log(
           `[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`,
         );
@@ -400,29 +380,6 @@ export class ProcessWebhookUseCase {
       await this.events.markProcessed(event.id);
       if (!applied) return;
 
-      // SSE: notificar checkout em tempo real (payment link, PIX plan, etc.)
-      if (nextStatus === TransactionStatus.COMPLETED) {
-        this.pixPlanEvents?.emit({ transactionId: t.id, status: 'COMPLETED' });
-      }
-
-      // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
-      if (nextStatus === TransactionStatus.COMPLETED && this.pixPlanService) {
-        try {
-          const customer = parsed.data.customer;
-          await this.pixPlanService.handlePixPlanWebhook(t.id, {
-            name: customer?.name ?? '',
-            email: customer?.email ?? '',
-            document: customer?.document ?? '',
-            document_type: documentType(customer?.document),
-            mobile_phone: customer?.mobile_phone,
-          });
-        } catch (pixPlanError: any) {
-          this.logger.error(
-            `Erro ao processar PIX-PLAN para tx ${t.id}: ${pixPlanError.message}`,
-          );
-        }
-      }
-
       // EMIT EVENT for Real-Time UI (Renovada)
       const eventTag = platformTaxaTagForTransaction(t);
       if (eventTag === 'ZERO-GRAU') {
@@ -458,148 +415,5 @@ export class ProcessWebhookUseCase {
       );
       throw e;
     }
-  }
-
-  private async handleSubscriptionLinkPix(
-    domPixPaymentId: string,
-    domStatus: string,
-    eventId: string,
-  ): Promise<boolean> {
-    const order = await this.prisma.subscriptionLinkOrder.findFirst({
-      where: { domPixPaymentId },
-      include: {
-        subscriptionLink: true,
-      },
-    });
-
-    // Pedido já migrado para a oferta: a Transaction/Charge liquida pelo caminho comum.
-    if (!order || order.status === MIGRATED_ORDER_STATUS) return false;
-    if (domStatus === 'paid' && order.financialSnapshot)
-      await settleFinancialSubscription(this.prisma, {
-        snapshot: order.financialSnapshot,
-        amount: order.amountCharged,
-        paymentId: domPixPaymentId,
-        userId: order.userId,
-        method: 'PIX',
-        name: order.subscriptionLink.name,
-        customerName: order.customerName,
-        customerEmail: order.customerEmail,
-        customerDocument: order.customerDocument,
-        tracking: order.tracking,
-      });
-
-    this.logger.log(
-      `[WEBHOOK] Found SubscriptionLinkOrder ${order.id} for domPixPaymentId ${domPixPaymentId}, status=${domStatus}`,
-    );
-
-    if (domStatus !== 'paid') {
-      // Update order status for other statuses (expired, failed, etc.)
-      const statusMap: Record<string, string> = {
-        expired: 'expired',
-        failed: 'failed',
-        refunded: 'refunded',
-      };
-      const newStatus = statusMap[domStatus];
-      if (newStatus && order.status === 'pending') {
-        await this.prisma.subscriptionLinkOrder.update({
-          where: { id: order.id },
-          data: { status: newStatus },
-        });
-      }
-      await this.events.markProcessed(eventId);
-      return true;
-    }
-
-    // Already processed
-    if (order.status === 'paid') {
-      await this.events.markProcessed(eventId);
-      return true;
-    }
-
-    // Mark order as paid
-    await this.prisma.subscriptionLinkOrder.update({
-      where: { id: order.id },
-      data: { status: 'paid' },
-    });
-
-    // Send access email
-    if (this.emailService) {
-      try {
-        if (order.subscriptionLink.emailBody?.trim()) {
-          await this.emailService.sendEbookAccessEmail({
-            to: order.customerEmail,
-            customerName: order.customerName,
-            title: order.subscriptionLink.name,
-            body: order.subscriptionLink.emailBody,
-            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
-          });
-        } else {
-          await this.emailService.sendSubscriptionAccess({
-            to: order.customerEmail,
-            customerName: order.customerName,
-            linkName: order.subscriptionLink.name,
-            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
-            orderId: order.id,
-          });
-        }
-        this.logger.log(
-          `[WEBHOOK] Access email sent to ${order.customerEmail} for order ${order.id}`,
-        );
-      } catch (err: unknown) {
-        this.logger.error(
-          `[WEBHOOK] Error sending email for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`,
-        );
-      }
-    }
-
-    const whAf = (order.subscriptionLink.webhookUrl ?? '').toLowerCase();
-    if (whAf.includes('areaflix') && order.domPixPaymentId) {
-      const exists = await this.prisma.transaction.findFirst({
-        where: { domPaymentId: order.domPixPaymentId },
-        select: { id: true },
-      });
-      if (!exists) {
-        const gross = Number(order.amountCharged);
-        const pf = Number(order.platformFeeAmount);
-        const areaflixTx = await this.prisma.transaction.create({
-          data: {
-            userId: order.userId,
-            amount: gross,
-            netAmount: gross - pf,
-            status: TransactionStatus.COMPLETED,
-            paymentMethod: PaymentMethod.PIX,
-            totalFee: 0,
-            acquirerFee: 0,
-            platformFee: pf,
-            ...transactionPlatformTagData('AREAFLIX'),
-            description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
-            domPaymentId: order.domPixPaymentId,
-            customerName: order.customerName,
-            customerEmail: order.customerEmail,
-            customerDocument: order.customerDocument,
-            customerPhone: order.customerPhone ?? undefined,
-            tracking: (order.tracking ?? undefined) as
-              Prisma.InputJsonValue | undefined,
-          },
-        });
-
-        try {
-          await this.prisma.$transaction((p) =>
-            this.affiliateCommission.applyForTransaction(p, {
-              transactionId: areaflixTx.id,
-              referredUserId: order.userId,
-              platformFee: areaflixTx.platformFee,
-            }),
-          );
-        } catch (err: unknown) {
-          this.logger.error(
-            `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-    }
-
-    await this.events.markProcessed(eventId);
-    return true;
   }
 }

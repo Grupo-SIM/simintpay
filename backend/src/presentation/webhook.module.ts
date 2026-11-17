@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { WebhookController } from './controllers/webhook.controller';
 import { FrendzWebhookController } from './controllers/frendz-webhook.controller';
 import { InternalReconcileController } from './controllers/internal-reconcile.controller';
@@ -21,7 +21,6 @@ import { EmailService } from '../infrastructure/email/email.service';
 import { StorageService } from '../infrastructure/storage/storage.service';
 
 import { RenovadaModule } from '../modules/renovada/renovada.module';
-import { PixPlanModule } from './pix-plan.module';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { VoucherModule } from './voucher.module';
 import { CheckoutModule } from './checkout.module';
@@ -31,7 +30,6 @@ import { CheckoutModule } from './checkout.module';
     RabbitMqModule,
     RenovadaModule,
     VoucherModule,
-    forwardRef(() => PixPlanModule),
     ApiDomModule,
     CheckoutModule,
   ],

@@ -136,7 +136,7 @@ import {
 } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
-import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
+import { calculateBoletoFees } from '../../modules/offer/offer-boleto-fees';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
@@ -273,9 +273,8 @@ function buildConsolidadoTransactionWhere(
   }
 
   if (input.paymentLink?.trim()) {
-    // `Transaction.offerId` is backfilled from `paymentLinkId` (same id): either column matches.
-    const link = input.paymentLink.trim();
-    and.push({ OR: [{ paymentLinkId: link }, { offerId: link }] });
+    // Offer.id is the id of the old link.
+    and.push({ offerId: input.paymentLink.trim() });
   }
 
   if (input.planName?.trim()) {
@@ -4565,9 +4564,6 @@ export class AdminController {
       await this.prisma.transactionStatusHistory.deleteMany({
         where: { transactionId: { in: txIds } },
       });
-      await this.prisma.pixPlanOrder.deleteMany({
-        where: { transactionId: { in: txIds } },
-      });
     }
 
     const deletedTx = await this.prisma.transaction.deleteMany({
@@ -6865,16 +6861,14 @@ export class AdminController {
     const refs = pendentes.map((p) => p.paymentRef!);
     const pagas = await this.prisma.transaction.findMany({
       where: {
-        OR: [{ paymentLinkId: { in: refs } }, { offerId: { in: refs } }],
+        offerId: { in: refs },
         status: 'COMPLETED',
       },
-      select: { paymentLinkId: true, offerId: true, createdAt: true },
+      select: { offerId: true, createdAt: true },
     });
     if (pagas.length === 0) return;
 
-    const pagoEm = new Map(
-      pagas.map((t) => [(t.offerId ?? t.paymentLinkId)!, t.createdAt]),
-    );
+    const pagoEm = new Map(pagas.map((t) => [t.offerId!, t.createdAt]));
     const quitadas = pendentes.filter((p) => pagoEm.has(p.paymentRef!));
     if (quitadas.length === 0) return;
 

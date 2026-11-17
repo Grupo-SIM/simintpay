@@ -4,7 +4,7 @@ import {
   makeOffer,
   makeOfferDb,
 } from '../../../modules/offer/offer-checkout.fixture';
-import { useEmptyCaches } from '../payment-link/charge-characterization.fixture';
+import { useEmptyCaches } from '../../../modules/offer/offer-charge.fixture';
 import { ProcessDomWebhookUseCase } from './process-dom-webhook.use-case';
 
 beforeAll(useEmptyCaches);

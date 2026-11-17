@@ -29,7 +29,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
         customerEmail: data.customerEmail ?? undefined,
         customerDocument: data.customerDocument ?? undefined,
         customerPhone: data.customerPhone ?? undefined,
-        paymentLinkId: data.paymentLinkId ?? undefined,
+        offerId: data.offerId ?? undefined,
       },
     });
   }

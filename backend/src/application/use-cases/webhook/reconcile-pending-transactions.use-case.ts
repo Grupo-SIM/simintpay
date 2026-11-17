@@ -2,7 +2,6 @@ import { whereTransactionPlatform } from '../../../modules/platform-core/transac
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BillingCycleService } from '../../../modules/billing-core/billing-cycle.service';
-import { openFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type {
@@ -607,7 +606,6 @@ export class ReconcilePendingTransactionsUseCase {
   }> {
     const prefix = '[Reconcile][sync]';
     const result = { checked: 0, completed: 0, unmatched: 0, imported: 0 };
-    result.imported += await this.openLegacySubscriptionPix();
     try {
       const settled = await this.execute({
         sinceHours: 72,
@@ -648,15 +646,10 @@ export class ReconcilePendingTransactionsUseCase {
         where: { OR: [{ domPaymentId: { in: ids } }, { id: { in: refs } }] },
         select: { id: true, domPaymentId: true },
       });
-      const legacyOrders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: { domPixPaymentId: { in: ids } },
-        select: { domPixPaymentId: true },
-      });
       const seen = new Set([
         ...known.flatMap(
           (t) => [t.id, t.domPaymentId].filter(Boolean) as string[],
         ),
-        ...legacyOrders.map((o) => o.domPixPaymentId as string),
       ]);
       for (const r of rows) {
         if (
@@ -858,74 +851,6 @@ export class ReconcilePendingTransactionsUseCase {
     );
     await this.execute({ transactionId: txId, direct: true, minAgeMinutes: 0 });
     return true;
-  }
-
-  /**
-   * Pedidos Pix do checkout legado de link de assinatura (`SubscriptionLinkOrder`) só viravam
-   * Transaction no pagamento: até lá ficavam fora da listagem e da reconciliação. Grava a
-   * Transaction PENDING dos pedidos pendentes das últimas 24h que ainda não a têm; o pagamento
-   * (webhook ou reconciliação) a promove pelo mesmo `domPaymentId`.
-   */
-  private async openLegacySubscriptionPix(): Promise<number> {
-    const prefix = '[Reconcile][sub-link]';
-    let opened = 0;
-    try {
-      const orders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: {
-          status: 'pending',
-          paymentMethod: 'PIX',
-          domPixPaymentId: { not: null },
-          financialSnapshot: { not: Prisma.AnyNull },
-          createdAt: {
-            gte: new Date(Date.now() - IMPORT_WINDOW_HOURS * 3_600_000),
-          },
-        },
-        include: { subscriptionLink: { select: { name: true } } },
-        take: 200,
-      });
-      if (orders.length === 0) return 0;
-      const existing = await this.prisma.transaction.findMany({
-        where: {
-          domPaymentId: { in: orders.map((o) => o.domPixPaymentId as string) },
-        },
-        select: { domPaymentId: true },
-      });
-      const has = new Set(existing.map((t) => t.domPaymentId));
-      for (const order of orders) {
-        const paymentId = order.domPixPaymentId as string;
-        if (has.has(paymentId)) continue;
-        try {
-          await openFinancialSubscription(this.prisma, {
-            snapshot: order.financialSnapshot,
-            amount: order.amountCharged,
-            paymentId,
-            userId: order.userId,
-            method: 'PIX',
-            name: order.subscriptionLink.name,
-            customerName: order.customerName,
-            customerEmail: order.customerEmail,
-            customerDocument: order.customerDocument,
-            tracking: order.tracking,
-            pixContent: order.pixContent,
-            pixExpire: order.pixExpire,
-            createdAt: order.createdAt,
-          });
-          opened++;
-          this.logger.warn(
-            `${prefix} opened: order=${order.id} domPaymentId=${paymentId}`,
-          );
-        } catch (err) {
-          this.logger.error(
-            `${prefix} failed: order=${order.id} domPaymentId=${paymentId} error=${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-    } catch (err) {
-      this.logger.error(
-        `${prefix} erro: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    return opened;
   }
 
   /** YYYY-MM-DD para o begin_date/end_date da listagem DOM. */

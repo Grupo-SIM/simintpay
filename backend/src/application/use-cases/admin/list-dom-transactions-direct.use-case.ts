@@ -166,7 +166,6 @@ export class ListDomTransactionsDirectUseCase {
               description: true,
               platformTag: true,
               netAmount: true,
-              paymentLinkId: true,
               offerId: true,
               user: { select: { platform: { select: { tag: true } } } },
             },
@@ -175,7 +174,7 @@ export class ListDomTransactionsDirectUseCase {
     const dbByCodExternal = new Map(dbTxs.map((t) => [t.id, t]));
     const dbByDomId = new Map(dbTxs.map((t) => [t.domPaymentId ?? '', t]));
 
-    // Resolve platformTag para payment link PIX via cod_external (pix-link-{linkId}-{ts}) e via Transaction.paymentLinkId
+    // Resolve platformTag para payment link PIX via cod_external (pix-link-{linkId}-{ts}) e via Transaction.offerId
     const payLinkIdsByCodExternal = new Map<string, string>();
     for (const ce of codExternals) {
       const linkId = extractPaymentLinkId(ce);
@@ -186,12 +185,7 @@ export class ListDomTransactionsDirectUseCase {
     const allPayLinkIds = [
       ...new Set([
         ...[...payLinkIdsByCodExternal.values()],
-        ...(dbTxs
-          .map(
-            (t) =>
-              ((t as any).offerId ?? (t as any).paymentLinkId) as string | null,
-          )
-          .filter(Boolean) as string[]),
+        ...(dbTxs.map((t) => t.offerId).filter(Boolean) as string[]),
       ]),
     ];
     if (allPayLinkIds.length > 0) {
@@ -267,9 +261,7 @@ export class ListDomTransactionsDirectUseCase {
         );
         if (payLinkTagByCe) tenantTag = payLinkTagByCe;
       }
-      const dbLinkId = dbRecord
-        ? ((dbRecord as any).offerId ?? (dbRecord as any).paymentLinkId)
-        : null;
+      const dbLinkId = dbRecord ? dbRecord.offerId : null;
       if (tenantTag === 'GLOBAL' && dbLinkId) {
         const payLinkTag = payLinkTagByPaymentLinkId.get(dbLinkId);
         if (payLinkTag) tenantTag = payLinkTag;
