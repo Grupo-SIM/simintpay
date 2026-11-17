@@ -153,6 +153,8 @@ export default function CadastroPage() {
     [],
   );
 
+  const documentIsCnpj = onlyDigits(form.cpf).length === 14;
+
   if (step === 'success') {
     return (
       <>
@@ -226,8 +228,9 @@ export default function CadastroPage() {
           const nextErrors: typeof errors = {};
           if (!form.razaoSocial.trim())
             nextErrors.razaoSocial = 'Informe a razão social';
-          if (!form.cnpj.trim()) nextErrors.cnpj = 'Informe o CNPJ';
-          else if (onlyDigits(form.cnpj).length !== 14)
+          const cnpjValue = documentIsCnpj ? maskCnpj(form.cpf) : form.cnpj;
+          if (!cnpjValue.trim()) nextErrors.cnpj = 'Informe o CNPJ';
+          else if (onlyDigits(cnpjValue).length !== 14)
             nextErrors.cnpj = 'CNPJ inválido';
           if (!form.faturamento)
             nextErrors.faturamento = 'Selecione o faturamento';
@@ -246,7 +249,7 @@ export default function CadastroPage() {
               email: form.email.trim().toLowerCase(),
               cpf: form.cpf.trim(),
               razaoSocial: form.razaoSocial.trim(),
-              cnpj: form.cnpj.trim(),
+              cnpj: cnpjValue.trim(),
               faturamento: form.faturamento,
               tempoOperacao: form.tempoOperacao,
               ...(form.modeloOperacao
@@ -369,17 +372,19 @@ export default function CadastroPage() {
               />
             </Field>
 
-            <Field label="CNPJ *" error={errors.cnpj}>
-              <input
-                className={`lp-input${errors.cnpj ? ' lp-input-error' : ''}`}
-                placeholder="12.345.678/0001-90"
-                value={form.cnpj}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, cnpj: maskCnpj(e.target.value) }))
-                }
-                inputMode="numeric"
-              />
-            </Field>
+            {!documentIsCnpj && (
+              <Field label="CNPJ *" error={errors.cnpj}>
+                <input
+                  className={`lp-input${errors.cnpj ? ' lp-input-error' : ''}`}
+                  placeholder="12.345.678/0001-90"
+                  value={form.cnpj}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, cnpj: maskCnpj(e.target.value) }))
+                  }
+                  inputMode="numeric"
+                />
+              </Field>
+            )}
 
             <Field label="Faturamento *" error={errors.faturamento}>
               <Dropdown
