@@ -4,17 +4,15 @@
  * Tela pós-compra de upsell/downsell do checkout de ofertas. O pedido principal já está pago:
  * cartão cobra a oferta à vista com um clique (re-tokenizando o cartão já digitado), PIX gera um
  * novo código. A cobrança filha é `POST /ofertas/public/:code/charge` com `parentChargeId`.
+ * Em `preview` (prévia do dashboard) nada é buscado nem cobrado: usa os dados do rascunho.
  */
 import { useEffect, useState } from 'react';
 import { SIM_API_URL } from '@/lib/api-config';
 import { cx } from '@/utils/cx';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import { browserCheckoutTracking } from '@/lib/payment-tracking';
-import {
-  PixDisplay,
-  usePixConfirmation,
-} from '@/components/simlink/PixPayment';
-import { discountLabel } from '@/components/simlink/LinkOffers';
+import { PixDisplay, usePixConfirmation } from './PixPayment';
+import { discountLabel } from './OrderBumpCard';
 import {
   CtaButton,
   DesktopHeader,
@@ -71,6 +69,7 @@ export function OfferFunnelScreen({
   customer,
   parentChargeId,
   card,
+  preview = false,
   onAccepted,
   onDeclined,
 }: {
@@ -81,6 +80,8 @@ export function OfferFunnelScreen({
   parentChargeId: string;
   /** Cartão digitado no pedido principal (só para crédito/débito). */
   card: TypedCard | null;
+  /** Prévia sem cobrança nem chamadas ao backend. */
+  preview?: boolean;
   onAccepted: (accepted: AcceptedFunnelOffer) => void;
   onDeclined: () => void;
 }) {
@@ -95,6 +96,7 @@ export function OfferFunnelScreen({
   const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
+    if (preview) return;
     let alive = true;
     Promise.all([
       fetch(api(bump.code)).then((r) => (r.ok ? r.json() : Promise.reject())),
@@ -111,7 +113,7 @@ export function OfferFunnelScreen({
     return () => {
       alive = false;
     };
-  }, [bump.code, method]);
+  }, [bump.code, method, preview]);
 
   // Sem a oferta (indisponível ou sem o meio do pedido), o funil segue sem ela.
   useEffect(() => {
@@ -119,7 +121,9 @@ export function OfferFunnelScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadFailed]);
 
-  const price = target ? funnelPrice(target.pricing, method) : 0;
+  const price = target
+    ? funnelPrice(target.pricing, method)
+    : bump.amountCents / 100;
   const accepted = { code: bump.code, name: bump.name, amount: price };
 
   usePixConfirmation(pix?.id ?? null, confirmed, () => {
@@ -127,11 +131,16 @@ export function OfferFunnelScreen({
     onAccepted(accepted);
   });
 
-  if (!target) return <CheckoutLoadingScreen message="Carregando a oferta…" />;
+  if (!target && !preview)
+    return <CheckoutLoadingScreen message="Carregando a oferta…" />;
 
   const isCard = method !== 'pix';
 
   async function accept() {
+    if (preview) {
+      onAccepted(accepted);
+      return;
+    }
     setError('');
     setLoading(true);
     try {

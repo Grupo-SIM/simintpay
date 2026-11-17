@@ -32,12 +32,9 @@ import {
   StatusPill,
   SummaryRow,
 } from '@/components/checkout/ui';
-import { OrderBumpCard } from '@/components/simlink/LinkOffers';
+import { OrderBumpCard } from './OrderBumpCard';
 import { cx } from '@/utils/cx';
-import {
-  PixDisplay,
-  usePixConfirmation,
-} from '@/components/simlink/PixPayment';
+import { PixDisplay, usePixConfirmation } from './PixPayment';
 import {
   maskCardMonth,
   maskCardNumber,

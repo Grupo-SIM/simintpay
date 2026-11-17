@@ -12,7 +12,7 @@ import {
   useCountdown,
 } from '@/components/checkout/ui';
 
-export const SIM_API = SIM_API_URL;
+const SIM_API = SIM_API_URL;
 
 const PIX_STEPS = [
   'Abra o app do seu banco',

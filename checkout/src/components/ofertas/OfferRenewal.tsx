@@ -23,10 +23,7 @@ import {
   Screen,
   SummaryRow,
 } from '@/components/checkout/ui';
-import {
-  PixDisplay,
-  usePixConfirmation,
-} from '@/components/simlink/PixPayment';
+import { PixDisplay, usePixConfirmation } from './PixPayment';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import type { PublicOffer } from '@/lib/offer-checkout-model';
 import {
