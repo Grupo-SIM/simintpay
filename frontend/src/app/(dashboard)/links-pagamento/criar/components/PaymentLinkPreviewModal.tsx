@@ -140,7 +140,7 @@ export function PaymentLinkPreviewModal({
         event.preventDefault();
         onCloseRef.current();
       }}
-      className="fixed inset-0 m-auto h-[94dvh] max-h-none w-[96vw] max-w-6xl overflow-hidden rounded-2xl border border-zinc-300 bg-white p-0 shadow-2xl backdrop:bg-black/60 dark:border-white/20 dark:bg-zinc-950"
+      className={`fixed inset-0 m-auto h-[94dvh] max-h-none w-[96vw] ${mobile ? 'max-w-[26rem]' : 'max-w-6xl'} overflow-hidden rounded-2xl transition-[max-width] duration-200 border border-zinc-300 bg-white p-0 shadow-2xl backdrop:bg-black/60 dark:border-white/20 dark:bg-zinc-950`}
     >
       <div className="flex h-14 items-center justify-between gap-4 border-b border-zinc-200 px-4 dark:border-white/10">
         <h2
@@ -189,9 +189,7 @@ export function PaymentLinkPreviewModal({
           </button>
         </div>
       </div>
-      <div
-        className={`relative h-[calc(100%-3.5rem)] ${mobile ? 'flex justify-center bg-zinc-200 dark:bg-black' : ''}`}
-      >
+      <div className="relative h-[calc(100%-3.5rem)]">
         {url && status !== 'error' && (
           <iframe
             key={attempt}
@@ -201,7 +199,7 @@ export function PaymentLinkPreviewModal({
             sandbox="allow-forms allow-scripts allow-same-origin"
             referrerPolicy="no-referrer"
             onError={() => setStatus('error')}
-            className={`h-full border-0 ${mobile ? 'w-[390px] max-w-full' : 'w-full'} ${status === 'ready' ? 'visible' : 'invisible'}`}
+            className={`h-full border-0 w-full ${status === 'ready' ? 'visible' : 'invisible'}`}
           />
         )}
         {preview && status === 'loading' && <PaymentLinkPreviewSkeleton />}
