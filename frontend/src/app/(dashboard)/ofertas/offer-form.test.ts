@@ -297,7 +297,6 @@ describe('offerPayload', () => {
       emailBody: '',
       redirectUrl: 'https://a.com/h',
       bumps: [{ offerId: 'o1', role: 'BUMP' }],
-      files: [],
     });
   });
 
@@ -314,7 +313,6 @@ describe('offerPayload', () => {
     const edited = {
       ...base,
       keep: {
-        files: [],
         metadata: { other: 1, boletoDueDays: 9, requiresBuyerAddress: true },
       },
     };
