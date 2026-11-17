@@ -5,21 +5,11 @@ import type { PrismaService } from '../../infrastructure/database/prisma/prisma.
  * Plan 0023, phase 3 (DOM webhooks): resolves what a gateway webhook refers to through
  * `ExternalRef` and `Offer.id` instead of the legacy `dom*` columns.
  *
- * Reading the legacy tables stays the default. `OFFER_WEBHOOK_RESOLUTION=true` turns the offer
- * resolution on; nothing here writes money, it only identifies the target and reports misses.
+ * Offer resolution is unconditional; nothing here writes money, it only identifies the target
+ * and reports misses.
  */
 export const DOM_ACQUIRER_CODE = 'DOM';
 export const UNRESOLVED_WEBHOOK_TAG = 'OFFER_WEBHOOK_UNRESOLVED';
-
-export function offerWebhookResolutionEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return ['1', 'true', 'on'].includes(
-    String(env.OFFER_WEBHOOK_RESOLUTION ?? '')
-      .trim()
-      .toLowerCase(),
-  );
-}
 
 export type WebhookOfferResolution = {
   via: 'offer-id' | 'external-ref' | 'billing-contract';

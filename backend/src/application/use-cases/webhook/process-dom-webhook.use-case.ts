@@ -2,7 +2,6 @@ import { MIGRATED_ORDER_STATUS } from '../../../modules/billing-core/legacy-orde
 import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   alertUnresolvedWebhook,
-  offerWebhookResolutionEnabled,
   resolveOfferByLinkReference,
 } from '../../../modules/billing-core/webhook-offer-resolution';
 import { quoteCardOwnerShare } from '../../../modules/financial-policy/platform-fee-schedule';
@@ -1878,16 +1877,14 @@ export class ProcessDomWebhookUseCase {
     return true;
   }
 
-  /** Plan 0023: the legacy link row is gone; behind the flag try the Offer, always alert on a miss. */
+  /** Plan 0023: the legacy link row is gone; try the Offer, alert on a miss. */
   private async reportLinkWithoutLegacyRow(linkId: string): Promise<void> {
-    if (offerWebhookResolutionEnabled()) {
-      const hit = await resolveOfferByLinkReference(this.prisma, linkId);
-      if (hit) {
-        this.logger.log(
-          `[DomWebhook] link ${linkId} resolvido na oferta ${hit.offerId} via ${hit.via}`,
-        );
-        return;
-      }
+    const hit = await resolveOfferByLinkReference(this.prisma, linkId);
+    if (hit) {
+      this.logger.log(
+        `[DomWebhook] link ${linkId} resolvido na oferta ${hit.offerId} via ${hit.via}`,
+      );
+      return;
     }
     alertUnresolvedWebhook(this.logger, 'dom.payment-link', linkId);
   }

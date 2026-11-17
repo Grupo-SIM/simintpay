@@ -1,7 +1,6 @@
 import { getPlatformWebhookToken } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   alertUnresolvedWebhook,
-  offerWebhookResolutionEnabled,
   resolveOfferBySubscriptionReference,
 } from '../../../modules/billing-core/webhook-offer-resolution';
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
@@ -30,22 +29,20 @@ export class SubscriptionWebhookService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Plan 0023: behind the flag, offer-side resolution; always alerts when nothing matches. */
+  /** Plan 0023: offer-side resolution; alerts when nothing matches. */
   private async reportUnresolvedSubscription(
     handler: string,
     subscriberId: string,
   ): Promise<void> {
-    if (offerWebhookResolutionEnabled()) {
-      const hit = await resolveOfferBySubscriptionReference(
-        this.prisma,
-        subscriberId,
+    const hit = await resolveOfferBySubscriptionReference(
+      this.prisma,
+      subscriberId,
+    );
+    if (hit) {
+      this.logger.log(
+        `[${handler}] ${subscriberId} resolvido na oferta ${hit.offerId ?? '-'} via ${hit.via}`,
       );
-      if (hit) {
-        this.logger.log(
-          `[${handler}] ${subscriberId} resolvido na oferta ${hit.offerId ?? '-'} via ${hit.via}`,
-        );
-        return;
-      }
+      return;
     }
     alertUnresolvedWebhook(
       this.logger,
@@ -94,8 +91,7 @@ export class SubscriptionWebhookService {
     if (!data) return;
 
     const transactions = data.transactions as
-      | Array<Record<string, unknown>>
-      | undefined;
+      Array<Record<string, unknown>> | undefined;
     const tx = transactions?.[0];
     if (!tx) {
       this.logger.warn(
@@ -636,8 +632,7 @@ export class SubscriptionWebhookService {
         status: 'paid',
         amountCharged: amount.toNumber(),
         tracking: (linkOrder.tracking ?? undefined) as
-          | Prisma.InputJsonValue
-          | undefined,
+          Prisma.InputJsonValue | undefined,
         ...(financialQuote
           ? {
               financialSnapshot:
@@ -741,8 +736,7 @@ export class SubscriptionWebhookService {
             customerDocument: linkOrder.customerDocument ?? undefined,
             customerPhone: linkOrder.customerPhone ?? undefined,
             tracking: (linkOrder.tracking ?? undefined) as
-              | Prisma.InputJsonValue
-              | undefined,
+              Prisma.InputJsonValue | undefined,
           },
         });
       }
@@ -917,8 +911,7 @@ export class SubscriptionWebhookService {
         customerDocument: subscription.customer?.document ?? undefined,
         customerPhone: subscription.customer?.phone ?? undefined,
         tracking: (subscription.tracking ?? undefined) as
-          | Prisma.InputJsonValue
-          | undefined,
+          Prisma.InputJsonValue | undefined,
       },
     });
 
