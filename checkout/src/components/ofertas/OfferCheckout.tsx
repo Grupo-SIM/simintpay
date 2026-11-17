@@ -765,12 +765,15 @@ export default function OfferCheckout({
                 offer={{
                   id: bump.code,
                   tipo: 'ORDER_BUMP',
-                  chamada: null,
+                  chamada: bump.headline ?? null,
                   titulo: bump.name,
                   descricao: bump.description,
                   imagemUrl: bump.imageUrl ?? null,
                   valor: bump.amountCents / 100,
-                  valorOriginal: null,
+                  valorOriginal:
+                    bump.originalAmountCents != null
+                      ? bump.originalAmountCents / 100
+                      : null,
                 }}
                 checked={selectedBumps.includes(bump.code)}
                 disabled={loading || pricingLoading || Boolean(pix || boleto)}

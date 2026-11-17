@@ -41,6 +41,12 @@ export type PublicBump = {
   amountCents: number;
   /** Imagem da oferta no storage (rota pública do backend); ausente quando não há. */
   imageUrl?: string | null;
+  /** Chamada em destaque definida no funil (substitui o título padrão da tela). */
+  headline?: string | null;
+  /** Preço "de" riscado em centavos; só vem quando maior que `amountCents`. */
+  originalAmountCents?: number | null;
+  /** Prazo da condição em segundos (upsell/downsell); ausente = sem timer. */
+  countdownSeconds?: number | null;
 };
 
 /** Order bumps oferecidos no checkout (avulsos; upsell/downsell são pós-compra). */

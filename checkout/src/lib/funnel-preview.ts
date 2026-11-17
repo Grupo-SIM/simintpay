@@ -5,6 +5,10 @@ export type FunnelPreviewDraft = {
     name: string;
     description: string | null;
     amountCents: number;
+    imageUrl: string | null;
+    headline: string | null;
+    originalAmountCents: number | null;
+    countdownSeconds: number | null;
   }[];
 };
 
@@ -39,7 +43,17 @@ export function isFunnelPreviewMessage(
     draft.offers.every((value: unknown) => {
       if (!value || typeof value !== 'object') return false;
       const offer = value as Record<string, unknown>;
-      const keys = ['id', 'role', 'name', 'description', 'amountCents'];
+      const keys = [
+        'id',
+        'role',
+        'name',
+        'description',
+        'amountCents',
+        'imageUrl',
+        'headline',
+        'originalAmountCents',
+        'countdownSeconds',
+      ];
       if (
         Object.keys(offer).length !== keys.length ||
         !keys.every((key) => Object.hasOwn(offer, key)) ||
@@ -57,7 +71,27 @@ export function isFunnelPreviewMessage(
         ) ||
         !Number.isSafeInteger(offer.amountCents) ||
         Number(offer.amountCents) < 0 ||
-        Number(offer.amountCents) > 1e11
+        Number(offer.amountCents) > 1e11 ||
+        !(
+          offer.imageUrl === null ||
+          (typeof offer.imageUrl === 'string' && offer.imageUrl.length <= 2000)
+        ) ||
+        !(
+          offer.headline === null ||
+          (typeof offer.headline === 'string' && offer.headline.length <= 500)
+        ) ||
+        !(
+          offer.originalAmountCents === null ||
+          (Number.isSafeInteger(offer.originalAmountCents) &&
+            Number(offer.originalAmountCents) > 0 &&
+            Number(offer.originalAmountCents) <= 1e11)
+        ) ||
+        !(
+          offer.countdownSeconds === null ||
+          (Number.isSafeInteger(offer.countdownSeconds) &&
+            Number(offer.countdownSeconds) > 0 &&
+            Number(offer.countdownSeconds) <= 86400)
+        )
       )
         return false;
       ids.add(offer.id);

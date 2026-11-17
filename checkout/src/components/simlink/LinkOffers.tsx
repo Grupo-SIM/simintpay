@@ -35,7 +35,10 @@ export type LinkOffers = {
 };
 
 /** "−67%" quando há preço original maior que o atual; senão null. */
-function discountLabel(price: number, original: number | null): string | null {
+export function discountLabel(
+  price: number,
+  original: number | null,
+): string | null {
   if (original == null || !(original > price)) return null;
   return `−${Math.round((1 - price / original) * 100)}%`;
 }

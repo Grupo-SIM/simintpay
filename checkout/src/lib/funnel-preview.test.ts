@@ -14,6 +14,10 @@ const draft: FunnelPreviewDraft = {
       name: 'Oferta',
       description: null,
       amountCents: 1000,
+      imageUrl: null,
+      headline: null,
+      originalAmountCents: null,
+      countdownSeconds: null,
     },
     {
       id: 'down-1',
@@ -21,6 +25,10 @@ const draft: FunnelPreviewDraft = {
       name: 'Alternativa',
       description: 'Descrição',
       amountCents: 500,
+      imageUrl: null,
+      headline: null,
+      originalAmountCents: null,
+      countdownSeconds: null,
     },
     {
       id: 'up-2',
@@ -28,6 +36,10 @@ const draft: FunnelPreviewDraft = {
       name: 'Outra oferta',
       description: '',
       amountCents: 2000,
+      imageUrl: null,
+      headline: null,
+      originalAmountCents: null,
+      countdownSeconds: null,
     },
   ],
 };
@@ -47,6 +59,9 @@ describe('funnel preview public boundary', () => {
       { offers: [{ ...draft.offers[0], token: 'secret' }] },
       { offers: [{ ...draft.offers[0], amountCents: -1 }] },
       { offers: [{ ...draft.offers[0], amountCents: 1.5 }] },
+      { offers: [{ ...draft.offers[0], countdownSeconds: 0 }] },
+      { offers: [{ ...draft.offers[0], originalAmountCents: -5 }] },
+      { offers: [{ ...draft.offers[0], headline: 5 }] },
       { offers: [{ ...draft.offers[0], role: 'ORDER_BUMP' }] },
       { offers: [draft.offers[0], draft.offers[0]] },
     ])
