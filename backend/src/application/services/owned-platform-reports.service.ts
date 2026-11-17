@@ -336,9 +336,17 @@ export class OwnedPlatformReportsService {
             pendingCount: bigint;
             failed: Prisma.Decimal;
             failedCount: bigint;
+            maquinetaCount: bigint;
+            maquinetaGross: Prisma.Decimal;
+            maquinetaFees: Prisma.Decimal;
+            maquinetaNet: Prisma.Decimal;
           }[]
         >(Prisma.sql`
           SELECT count(*) FILTER (WHERE status = 'COMPLETED') AS count,
+          count(*) FILTER (WHERE status = 'COMPLETED' AND (strpos(lower(coalesce(description, '')), '[origem:maquineta]') > 0 OR strpos(lower(coalesce(description, '')), 'terminal:') > 0 OR strpos(lower(coalesce(description, '')), 'maquineta') > 0)) AS "maquinetaCount",
+          coalesce(sum(amount) FILTER (WHERE status = 'COMPLETED' AND (strpos(lower(coalesce(description, '')), '[origem:maquineta]') > 0 OR strpos(lower(coalesce(description, '')), 'terminal:') > 0 OR strpos(lower(coalesce(description, '')), 'maquineta') > 0)), 0) AS "maquinetaGross",
+          coalesce(sum("totalFee") FILTER (WHERE status = 'COMPLETED' AND (strpos(lower(coalesce(description, '')), '[origem:maquineta]') > 0 OR strpos(lower(coalesce(description, '')), 'terminal:') > 0 OR strpos(lower(coalesce(description, '')), 'maquineta') > 0)), 0) AS "maquinetaFees",
+          coalesce(sum("netAmount") FILTER (WHERE status = 'COMPLETED' AND (strpos(lower(coalesce(description, '')), '[origem:maquineta]') > 0 OR strpos(lower(coalesce(description, '')), 'terminal:') > 0 OR strpos(lower(coalesce(description, '')), 'maquineta') > 0)), 0) AS "maquinetaNet",
           count(DISTINCT "customerKey") FILTER (WHERE status = 'COMPLETED') AS customers,
           coalesce(sum(interest) FILTER (WHERE status = 'COMPLETED'), 0) AS interest,
           count(*) FILTER (WHERE status = 'COMPLETED' AND interest IS NULL) AS "unknownInterest",
@@ -390,6 +398,10 @@ export class OwnedPlatformReportsService {
           grossCents: cents(row.gross),
           feesCents: cents(row.fees),
           netCents: cents(row.net),
+          maquinetaCount: Number(row.maquinetaCount),
+          maquinetaGrossCents: cents(row.maquinetaGross),
+          maquinetaFeesCents: cents(row.maquinetaFees),
+          maquinetaNetCents: cents(row.maquinetaNet),
           refundsCents: cents(row.refunds),
           refundsCount: Number(row.refundCount),
           customersCount: customers,

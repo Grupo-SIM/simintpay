@@ -28,6 +28,10 @@ export type ReportSummary = {
     grossCents: number;
     feesCents: number;
     netCents: number;
+    maquinetaCount?: number;
+    maquinetaGrossCents?: number;
+    maquinetaFeesCents?: number;
+    maquinetaNetCents?: number;
     refundsCents: number;
     refundsCount: number;
     withdrawalsCents: number;
