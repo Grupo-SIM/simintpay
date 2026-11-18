@@ -389,6 +389,20 @@ Branch `feat/simintpay-canonical-finance` do `back-ebook` (HEAD `fc0883b`). O ca
 - [ ] Remover `API_MACHINE_URL`, `API_MACHINE_INTERNAL_TOKEN`, `API_MACHINE_INTERNAL_URL` e `INTERNAL_SERVICE_TOKEN` das chamadas financeiras do back-ebook (o token de recebimento de `settlements/receipts` e das rotas internas do back-ebook continua enquanto o sentido inverso existir).
 - [ ] Mover este plano para `plans/done/`.
 
+### Fila de continuação (2026-11-18)
+
+Executar em ordem quando o dono pedir para continuar; cada item só avança com o anterior resolvido. Itens marcados (autorização) escrevem em produção e só rodam com autorização explícita.
+
+1. [x] **Taxa.** Decisão do dono: a taxa efetiva do vendedor é só a da plataforma (alvo ativo da plataforma EBOOK, lido de `finance/fees`, nunca assumido); `TAXA_SERVICO` deixa de ser cobrada no EBOOK. Implementado no SimIntPay (`getEbookTaxaServico` com corte `EBOOK_TAXA_SERVICO_ENDS_AT`: vendas criadas antes do corte mantêm a dedução já aplicada ao crédito, para o saldo reconstruído seguir igual ao saldo real). Pendente de conferência do dono: o horário do corte deve ser igual ou posterior ao do deploy.
+2. [ ] **Back-ebook e admin-ebook seguem a taxa única.** `sellerFeesFromCanonical` passa a usar `fixedBrl = serviceFeeCents / 100` (0 após o corte); a tela de taxas do admin-ebook mostra só o percentual quando a taxa fixa é 0 e não usa mais os padrões `?? 15` / `?? 4`.
+3. [ ] **Pré-requisitos do provisionamento.** Decidir a conta purgada e inativa de `anakarolinamarinslima@gmail.com` (`provision` falha em conta inativa) e confirmar que os documentos `384…48` (`contato@simintermediacoes.com`) e `545…16` (`saut.pdc@gmail.com`), já existentes sob outro e-mail, pertencem aos mesmos titulares (o `PUT` vincula o vendedor EBOOK à conta que detém o documento).
+4. [ ] **Provisionar (autorização).** `bun run provision:merchants -- --apply` no back-ebook; repetir o dry-run até `errors=0`. Os 3 vendedores sem conta no SimIntPay definem a senha por "esqueci minha senha".
+5. [ ] **Fallback de vendedor não provisionado.** Hoje `mapPlatformConfigFallback` mostra `(1 - liquidityRate) × 100` (atalho `LIQUIDEZ`, 6,99%). Trocar pela taxa efetiva real da plataforma (o `finance/config` do EBOOK deve expor a taxa alvo ativa em vez da constante `fatorLiquidez`).
+6. [ ] **Remover a flag e o legado no back-ebook.** Branch `refactor/remove-canonical-flag` (worktree criada, sem edições): retirar `EBOOK_CANONICAL_FINANCE`, os ramos `/internal/ebook/finance/*` e as variáveis financeiras `API_MACHINE_*` (mantêm-se `API_MACHINE_URL`/`API_MACHINE_INTERNAL_TOKEN` enquanto `POST /checkout/ebook-url` e os recibos de liquidação existirem). Produção já roda com a flag ligada.
+7. [ ] **Migration (autorização).** `prisma migrate deploy` da `20261114120000_pending_entry_delivery` no back-ebook.
+8. [ ] **Verificações finais.** `GET /payments/summary` com `accountExists: true` e taxa igual à da plataforma, saque de teste, venda PIX (entrada pendente criada e concluída), comissão de afiliado, consumo legado zero.
+9. [ ] **Fase E e arquivamento.** Remover `internal-ebook-finance.controller.ts` e `legacy-ebook-finance.service.ts` no SimIntPay e mover este plano para `plans/done/`.
+
 ## 5. Dúvidas em aberto
 
 - Semântica do valor de saque exposta ao vendedor (líquido, como no legado, ou bruto), ver 3.5.

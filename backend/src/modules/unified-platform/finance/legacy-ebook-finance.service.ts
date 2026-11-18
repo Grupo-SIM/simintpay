@@ -22,12 +22,7 @@ import {
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 type TxStatus =
-  | 'PENDING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'REFUNDED'
-  | 'EXPIRED'
-  | 'DRAFT';
+  'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
 @Injectable()
 export class InternalEbookFinanceService {
@@ -80,11 +75,7 @@ export class InternalEbookFinanceService {
         pixFeePercent: Number(
           ((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2),
         ),
-        transactionFeeBrl: getPlatformTaxaEffective(
-          'EBOOK',
-          'TAXA_SERVICO',
-          PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-        ),
+        transactionFeeBrl: getEbookTaxaServico(),
         accountExists: false,
       };
     }
@@ -95,7 +86,12 @@ export class InternalEbookFinanceService {
         status: 'COMPLETED',
         ...whereTransactionPlatform('EBOOK'),
       },
-      select: { netAmount: true, amount: true, description: true },
+      select: {
+        netAmount: true,
+        amount: true,
+        description: true,
+        createdAt: true,
+      },
     });
 
     const wdCompleted = await this.prisma.withdrawRequest.aggregate({
@@ -112,13 +108,16 @@ export class InternalEbookFinanceService {
     });
 
     // Taxa fixa por venda = TAXA_SERVICO cadastrada (a mesma de /taxa → transactionFeeBrl)
-    const taxaServicoSummary = getEbookTaxaServico();
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
       const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(
         tx.description ?? '',
       );
-      return sum + net - (isAffiliateCommission ? 0 : taxaServicoSummary);
+      return (
+        sum +
+        net -
+        (isAffiliateCommission ? 0 : getEbookTaxaServico(tx.createdAt))
+      );
     }, 0);
     const totalCompletedWithdraw = Number(
       wdCompleted._sum.grossAmount ?? wdCompleted._sum.amount ?? 0,
@@ -137,11 +136,7 @@ export class InternalEbookFinanceService {
       pixFeePercent: Number(
         ((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2),
       ),
-      transactionFeeBrl: getPlatformTaxaEffective(
-        'EBOOK',
-        'TAXA_SERVICO',
-        PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-      ),
+      transactionFeeBrl: getEbookTaxaServico(),
       accountExists: userIds.length > 0,
     };
   }
@@ -292,7 +287,9 @@ export class InternalEbookFinanceService {
           t.description ?? '',
         );
         const netBase = Number(t.netAmount ?? t.amount);
-        const taxaServico = isAffiliateCommission ? 0 : getEbookTaxaServico();
+        const taxaServico = isAffiliateCommission
+          ? 0
+          : getEbookTaxaServico(t.createdAt);
 
         return {
           id: t.id,
@@ -432,11 +429,7 @@ export class InternalEbookFinanceService {
     return {
       liquidez: EbookSimConfig.saque.fatorLiquidez,
       mdrPix: EbookSimConfig.mdr.pix,
-      transactionFeeBrl: getPlatformTaxaEffective(
-        'EBOOK',
-        'TAXA_SERVICO',
-        PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-      ),
+      transactionFeeBrl: getEbookTaxaServico(),
       taxaFixaTransacao: taxaFixaSummary,
       taxaCashback: taxaCashbackSummary,
       affiliateCommissionRate: Number(

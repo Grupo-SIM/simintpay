@@ -26,6 +26,7 @@ import {
   getPlatformTaxaEffective,
   domCashbackReais,
 } from '../platform-taxas/platform-taxas.store';
+import { getEbookTaxaServico } from '../ebooksim/ebooksim.config';
 import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import {
   isPlatformScopedBalance,
@@ -219,20 +220,17 @@ export class PlatformMerchantsService {
         search: all(query.description),
       },
     );
-    const serviceFeeCents = this.finance.cents(
-      getPlatformTaxaEffective(
-        context.tag,
-        'TAXA_SERVICO',
-        PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-      ),
-    );
+    const serviceFeeCentsAt = (at: Date) =>
+      this.finance.cents(this.serviceFee(context.tag, at));
     return {
       ...result,
       data: result.data.map((row) => {
         const commission = /\[AFFILIATE_COMMISSION\]/i.test(
           row.description ?? '',
         );
-        const feeCents = commission ? 0 : serviceFeeCents;
+        const feeCents = commission
+          ? 0
+          : serviceFeeCentsAt(new Date(row.createdAt));
         return {
           ...row,
           transactionFeeCents: feeCents,
@@ -241,6 +239,17 @@ export class PlatformMerchantsService {
       }),
     };
   }
+  /** Per-sale service fee (R$): EBOOK no longer charges it for sales created after its cutoff. */
+  private serviceFee(tag: string, at: Date) {
+    return tag === 'EBOOK'
+      ? getEbookTaxaServico(at)
+      : getPlatformTaxaEffective(
+          tag,
+          'TAXA_SERVICO',
+          PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+        );
+  }
+
   /** Fees the seller really pays: withdrawal policy, per-transaction fees and the per-modality schedule. */
   async fees(context: PlatformContext, externalMerchantId: string) {
     await this.resolve(context, externalMerchantId);
@@ -250,11 +259,7 @@ export class PlatformMerchantsService {
       withdrawal: this.finance.withdrawalPolicy(context.tag),
       transaction: {
         serviceFeeCents: this.finance.cents(
-          getPlatformTaxaEffective(
-            context.tag,
-            'TAXA_SERVICO',
-            PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-          ),
+          this.serviceFee(context.tag, new Date()),
         ),
         fixedFeeCents: this.finance.cents(
           getPlatformTaxaEffective(

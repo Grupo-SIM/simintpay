@@ -2,6 +2,7 @@ import { allocateNet, snapshotFrom } from '../coproduction/coproduction';
 import { platformBalanceRules } from './platform-balance.adapter';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { getEbookTaxaServico } from '../ebooksim/ebooksim.config';
 import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -44,15 +45,18 @@ export class PlatformAttributedBalance {
     merchantUserId?: string,
   ) {
     const accountUserId = merchantUserId ?? context.ownerUserId;
-    const saleFee = merchantUserId
-      ? new Prisma.Decimal(
-          getPlatformTaxaEffective(
-            context.tag,
-            'TAXA_SERVICO',
-            PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-          ),
-        )
-      : new Prisma.Decimal(0);
+    const saleFeeAt = (createdAt: Date) =>
+      merchantUserId
+        ? new Prisma.Decimal(
+            context.tag === 'EBOOK'
+              ? getEbookTaxaServico(createdAt)
+              : getPlatformTaxaEffective(
+                  context.tag,
+                  'TAXA_SERVICO',
+                  PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+                ),
+          )
+        : new Prisma.Decimal(0);
     const rules = platformBalanceRules(context.tag);
     const platform = await p.platform.findUnique({
       where: { id: context.id },
@@ -81,6 +85,7 @@ export class PlatformAttributedBalance {
         where: { userId: accountUserId, status: 'COMPLETED' },
         select: {
           platformTag: true,
+          createdAt: true,
           netAmount: true,
           financialSnapshot: true,
           description: true,
@@ -162,7 +167,7 @@ export class PlatformAttributedBalance {
         !!merchantUserId &&
         /\[AFFILIATE_COMMISSION\]/i.test(row.description ?? '');
       if (recordOnly) continue;
-      earned = earned.plus(ownerAmount ?? 0).minus(saleFee);
+      earned = earned.plus(ownerAmount ?? 0).minus(saleFeeAt(row.createdAt));
       identifiedTransactions++;
     }
     // Settlement allocations (OWNER/AFFILIATE/COPRODUCER) and credited canonical commissions (EBOOK_COMMISSION) already net of fee and reversals: the sum of

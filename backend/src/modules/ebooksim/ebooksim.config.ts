@@ -10,10 +10,15 @@ import { cartaoMdrProxy } from '../platform-taxas/cartao-mdr-proxy';
 const TAG = 'EBOOK';
 
 /**
- * Taxa fixa por venda do EbookSim (R$), cadastrada pelo admin — a mesma exibida em
- * admin.ebooksim.com/taxa (transactionFeeBrl). Líquido do vendedor = netAmount (% LIQUIDEZ) − esta taxa.
+ * A taxa de serviço por venda deixou de existir no EbookSim: a taxa efetiva é só a da plataforma (já embutida no
+ * netAmount). Vendas criadas antes deste instante tiveram a taxa deduzida do crédito, então ela segue valendo para
+ * elas, para o saldo reconstruído continuar igual ao crédito real. Ajuste ao horário real do deploy se divergir.
  */
-export function getEbookTaxaServico(): number {
+export const EBOOK_TAXA_SERVICO_ENDS_AT = new Date('2026-11-19T03:00:00.000Z');
+
+/** Taxa fixa por venda (R$) aplicável a uma venda criada em `createdAt`: 0 a partir do corte. */
+export function getEbookTaxaServico(createdAt: Date = new Date()): number {
+  if (createdAt >= EBOOK_TAXA_SERVICO_ENDS_AT) return 0;
   return getPlatformTaxaEffective(
     TAG,
     'TAXA_SERVICO',

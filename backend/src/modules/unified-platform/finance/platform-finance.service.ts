@@ -2,7 +2,10 @@ import {
   mirrorPlanOffer,
   type PlanMirror,
 } from '../../offer/mirror-plan-offer';
-import { EbookSimConfig } from '../../ebooksim/ebooksim.config';
+import {
+  EbookSimConfig,
+  getEbookTaxaServico,
+} from '../../ebooksim/ebooksim.config';
 import { PLATFORM_TAXA_DEFAULTS } from '../../platform-taxas/platform-taxas.keys';
 import { merchantWithdrawalDelivery } from '../../platform-core/platform-merchant-delivery';
 import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
@@ -651,13 +654,7 @@ export class PlatformFinanceService {
       unit: 'cents',
       liquidityRate: EbookSimConfig.saque.fatorLiquidez,
       pixMdrRate: EbookSimConfig.mdr.pix,
-      transactionFeeCents: this.cents(
-        getPlatformTaxaEffective(
-          'EBOOK',
-          'TAXA_SERVICO',
-          PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
-        ),
-      ),
+      transactionFeeCents: this.cents(getEbookTaxaServico()),
       fixedTransactionFeeCents: this.cents(
         getPlatformTaxaEffective(
           'EBOOK',

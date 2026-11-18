@@ -450,12 +450,12 @@ export class ProcessDomWebhookUseCase {
             ? new Prisma.Decimal(existing.netAmount.toString())
             : amountDec;
       } else if (transactionPlatformTag(existing) === 'EBOOK') {
-        // EBOOK: líquido = netAmount (% LIQUIDEZ) − TAXA_SERVICO, as taxas cadastradas exibidas em /taxa.
+        // EBOOK: líquido = netAmount; TAXA_SERVICO só vale para vendas anteriores ao corte (getEbookTaxaServico).
         const netAmountDec =
           existing.netAmount != null
             ? new Prisma.Decimal(existing.netAmount.toString())
             : amountDec;
-        delta = netAmountDec.sub(getEbookTaxaServico());
+        delta = netAmountDec.sub(getEbookTaxaServico(existing.createdAt));
       } else {
         const feeTag = 'GLOBAL';
         delta = (
@@ -1169,7 +1169,9 @@ export class ProcessDomWebhookUseCase {
         },
       });
       if (completed.count === 0) return false;
-      const walletDeltaPending = netDec.sub(getEbookTaxaServico());
+      const walletDeltaPending = netDec.sub(
+        getEbookTaxaServico(pendingTx.createdAt),
+      );
       await applyWalletEntry(p, {
         userId: pendingTx.userId,
         action: 'EBOOK_PENDING_COMPLETED',
@@ -1357,7 +1359,11 @@ export class ProcessDomWebhookUseCase {
         });
 
         // Atualizar saldo da wallet do usuário ebook
-        const walletDeltaEbook = netDec.sub(getEbookTaxaServico());
+        const walletDeltaEbook = netDec.sub(
+          getEbookTaxaServico(
+            data.created_at ? new Date(data.created_at) : new Date(),
+          ),
+        );
         const ebookWallet = await p.wallet.findUnique({
           where: { userId: ebookUserId },
         });
