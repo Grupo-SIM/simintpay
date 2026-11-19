@@ -12,6 +12,10 @@ import {
   loadChargePolicy,
   quoteFinancialCharge,
 } from '../../financial-policy/financial-charge';
+import {
+  estimatedCost,
+  listAcquirerFees,
+} from '../../financial-policy/acquirer-fees';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { postDomCheckout } from './dom-checkout.acquirer';
 import { PlatformPaymentExecution } from './platform-payment-execution';
@@ -185,6 +189,42 @@ export class LegacyPlatformPaymentCore {
     return match ? match[1].trim() : null;
   }
 
+  /**
+   * Delivery allocations are additive-only (`domFeeAmount` is 0), but the acquirer cost is still a platform cost that must be
+   * booked on every payment: resolve the DOM schedule and return the realized cost plus the frozen snapshot.
+   */
+  private async deliveryAcquirerCost(
+    method: 'PIX' | 'CREDIT_CARD',
+    installments: number,
+    originalCents: number,
+    chargeCents: number,
+  ) {
+    const fee = (
+      await listAcquirerFees(
+        this.prisma,
+        method,
+        'ONLINE',
+        installments,
+        this.tag,
+      )
+    ).find((row) => row.acquirer === 'DOM');
+    if (!fee) return null;
+    const realizedCents = estimatedCost(fee, originalCents, chargeCents);
+    return {
+      acquirerFee: realizedCents / 100,
+      acquirerCost: {
+        acquirer: 'DOM',
+        fixedCents: fee.fixedCents,
+        ratePpm: fee.ratePpm,
+        interestPpm: fee.interestPpm,
+        base: fee.base,
+        source: fee.source,
+        createdAt: fee.createdAt.toISOString(),
+        realizedCents,
+      },
+    };
+  }
+
   async createPaymentPix(userId: string, body: CheckoutPixDto): Promise<any> {
     try {
       this.logger.log(
@@ -242,6 +282,14 @@ export class LegacyPlatformPaymentCore {
       const totalFees = financialQuote.totalFeeAmount;
       const domFee = financialQuote.domFeeAmount;
       const platformFeeCalc = parseFloat((totalFees - domFee).toFixed(2));
+      const cost = this.deliveryAllocation
+        ? await this.deliveryAcquirerCost(
+            'PIX',
+            1,
+            Math.round(body.price * 100),
+            Math.round(price * 100),
+          )
+        : null;
 
       await this.prisma.wallet.upsert({
         where: { userId },
@@ -266,7 +314,12 @@ export class LegacyPlatformPaymentCore {
         },
         ...(financialQuote
           ? {
-              financialSnapshot: financialQuote.financialSnapshot,
+              financialSnapshot: cost
+                ? {
+                    ...financialQuote.financialSnapshot,
+                    acquirerCost: cost.acquirerCost,
+                  }
+                : financialQuote.financialSnapshot,
               settlementBasis: 'FINAL_NET' as const,
             }
           : {}),
@@ -274,7 +327,7 @@ export class LegacyPlatformPaymentCore {
         status: TransactionStatus.DRAFT,
         netAmount: amountWithoutAllFee,
         totalFee: totalFees,
-        acquirerFee: domFee,
+        acquirerFee: cost?.acquirerFee ?? domFee,
         platformFee: platformFeeCalc,
         paymentMethod: PaymentMethod.PIX,
         description: internalDescription,
@@ -416,6 +469,14 @@ export class LegacyPlatformPaymentCore {
       const totalFeesFinal = financialQuote.totalFeeAmount;
       const domFee = financialQuote.domFeeAmount;
       const platformFeeCC = parseFloat((totalFeesFinal - domFee).toFixed(2));
+      const cost = this.deliveryAllocation
+        ? await this.deliveryAcquirerCost(
+            'CREDIT_CARD',
+            body.installments ?? 1,
+            Math.round(body.price * 100),
+            Math.round(price * 100),
+          )
+        : null;
 
       await this.prisma.wallet.upsert({
         where: { userId },
@@ -440,7 +501,12 @@ export class LegacyPlatformPaymentCore {
         },
         ...(financialQuote
           ? {
-              financialSnapshot: financialQuote.financialSnapshot,
+              financialSnapshot: cost
+                ? {
+                    ...financialQuote.financialSnapshot,
+                    acquirerCost: cost.acquirerCost,
+                  }
+                : financialQuote.financialSnapshot,
               settlementBasis: 'FINAL_NET' as const,
             }
           : {}),
@@ -448,7 +514,7 @@ export class LegacyPlatformPaymentCore {
         status: TransactionStatus.DRAFT,
         netAmount: amountWithoutAllFee,
         totalFee: totalFeesFinal,
-        acquirerFee: domFee,
+        acquirerFee: cost?.acquirerFee ?? domFee,
         platformFee: platformFeeCC,
         paymentMethod: PaymentMethod.CREDIT_CARD,
         description: internalDescription,
