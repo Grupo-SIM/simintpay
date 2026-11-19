@@ -1,6 +1,5 @@
 import { Prisma } from '@prisma/client';
 import { initializePlatformRegistryCache } from '../../module.registry';
-import { InternalEbookFinanceService } from './legacy-ebook-finance.service';
 import { calculateSellerNetValue } from '../../../application/helpers/transaction-fee.helper';
 import { beforeAll, afterEach, expect, mock, test } from 'bun:test';
 import { PlatformSubscriptionCapabilitiesService } from '../../platform-core/platform-subscription-capabilities.service';
@@ -188,33 +187,12 @@ for (const kind of ['pending', 'commission'] as const)
         findMany: async () => [{ tag: 'EBOOK', ownerUserId: 'owner' }],
       },
     } as any);
-    const old = fixture(),
-      current = fixture();
-    const legacy = new InternalEbookFinanceService(
-      old.prisma,
-      {} as any,
-      old.finance,
-    );
+    const current = fixture();
     const amount = 12.34;
     const net =
       kind === 'pending'
         ? calculateSellerNetValue(amount, 1, 'EBOOK', 'pix')
         : amount;
-    const before =
-      kind === 'pending'
-        ? await legacy.createPendingTransaction({
-            orderNumber: 'order',
-            amount,
-            buyerName: 'Buyer',
-            buyerEmail: 'buyer@example.com',
-            buyerDocument: '123.456.789-01',
-          })
-        : await legacy.creditCommission({
-            referenceId: 'order',
-            cpf: '12345678901',
-            amount,
-            description: 'Comissão de afiliado',
-          });
     const after = await current.finance.importEntry(
       { id: 'platform', tag: 'EBOOK', ownerUserId: 'owner', acquirer: 'DOM' },
       {
@@ -233,26 +211,21 @@ for (const kind of ['pending', 'commission'] as const)
           : {}),
       },
     );
-    expect(after).toEqual(before);
-    const a = old.prisma.transaction.create.mock.calls[0][0].data,
-      b = current.prisma.transaction.create.mock.calls[0][0].data;
-    // PostgreSQL columns are Decimal(12,2); compare persisted precision.
-    for (const key of ['amount', 'netAmount'])
-      expect(new Prisma.Decimal(a[key]).toFixed(2)).toEqual(
-        new Prisma.Decimal(b[key]).toFixed(2),
-      );
-    for (const key of [
-      'userId',
-      'status',
-      'paymentMethod',
-      'description',
-      'domPaymentId',
-      'installments',
-    ])
-      expect(a[key]).toEqual(b[key]);
-    if (kind === 'pending')
-      for (const key of ['customerName', 'customerEmail', 'customerDocument'])
-        expect(a[key]).toEqual(b[key]);
-    expect(old.prisma.balanceLog.create).not.toHaveBeenCalled();
+    expect(after).toMatchObject({ success: true, created: true });
+    const b = current.prisma.transaction.create.mock.calls[0][0].data;
+    expect(new Prisma.Decimal(b.amount).toFixed(2)).toEqual('12.34');
+    expect(new Prisma.Decimal(b.netAmount).toFixed(2)).toEqual(
+      new Prisma.Decimal(Math.round(net * 100) / 100).toFixed(2),
+    );
+    expect(b.userId).toEqual('owner');
+    expect(b.status).toEqual(kind === 'pending' ? 'PENDING' : 'COMPLETED');
+    expect(b.domPaymentId).toEqual(
+      kind === 'pending' ? 'EBOOK_PENDING_order' : 'EBOOK_AFFCOMM_order',
+    );
+    if (kind === 'pending') {
+      expect(b.customerName).toEqual('Buyer');
+      expect(b.customerEmail).toEqual('buyer@example.com');
+      expect(b.customerDocument).toEqual('12345678901');
+    }
     expect(current.prisma.balanceLog.create).not.toHaveBeenCalled();
   });

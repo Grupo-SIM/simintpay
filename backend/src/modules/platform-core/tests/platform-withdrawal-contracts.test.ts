@@ -9,8 +9,6 @@ import { InternalBosqueFinanceService } from '../../unified-platform/finance/leg
 import { InternalBosqueFinanceController } from '../../../presentation/controllers/internal-bosque-finance.controller';
 import { InternalRenovadaFinanceService } from '../../unified-platform/finance/legacy-renovada-finance.service';
 import { InternalRenovadaFinanceController } from '../../../presentation/controllers/internal-renovada-finance.controller';
-import { InternalEbookFinanceService } from '../../unified-platform/finance/legacy-ebook-finance.service';
-import { InternalEbookFinanceController } from '../../../presentation/controllers/internal-ebook-finance.controller';
 import { InternalPagatgFinanceService } from '../../unified-platform/finance/legacy-pagatg-finance.service';
 import { InternalPagatgFinanceController } from '../../../presentation/controllers/internal-pagatg-finance.controller';
 import { InternalAreaflixFinanceService } from '../../unified-platform/finance/legacy-areaflix-finance.service';
@@ -29,7 +27,6 @@ const definitions = [
     InternalRenovadaFinanceController,
     true,
   ],
-  ['EBOOK', InternalEbookFinanceService, InternalEbookFinanceController, false],
   [
     'PAGATG',
     InternalPagatgFinanceService,

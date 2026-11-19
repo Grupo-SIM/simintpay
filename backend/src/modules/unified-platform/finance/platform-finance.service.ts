@@ -18,7 +18,10 @@ import {
 } from '../../wallet-ledger/wallet-ledger';
 import { parseYmdSp } from '../../platform-core/platform-administration.helpers';
 import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
-import { quotePaidAmount } from '../../financial-policy/platform-fee-schedule';
+import {
+  platformFeeSchedule,
+  quotePaidAmount,
+} from '../../financial-policy/platform-fee-schedule';
 import { PlatformLedger } from './platform-ledger';
 import { fundEbookCommission } from '../../platform-core/ebook-commission-funding';
 import {
@@ -642,7 +645,7 @@ export class PlatformFinanceService {
     };
   }
 
-  config(context: FinancePlatformContext) {
+  async config(context: FinancePlatformContext) {
     if (context.tag === 'BOSQUE' || context.tag === 'RENOVADA')
       return { unit: 'cents', withdrawal: this.withdrawalPolicy(context.tag) };
     if (context.tag !== 'EBOOK')
@@ -650,9 +653,34 @@ export class PlatformFinanceService {
         code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
         capability: 'finance.config',
       });
+    let effectiveTargetFeePpm: number | null = null;
+    let pixProcessingRatePpm: number | null = null;
+    if (
+      this.prisma?.financialPolicyRevision &&
+      this.prisma?.platform &&
+      this.prisma?.acquirerCatalogue &&
+      this.prisma?.acquirerFeeSchedule
+    ) {
+      const schedule = await platformFeeSchedule(this.prisma, context.tag);
+      effectiveTargetFeePpm = schedule.effectiveTargetFeePpm;
+      const credit1x = schedule.credit.find((c) => c.installments === 1);
+      pixProcessingRatePpm = schedule.pix.available
+        ? schedule.pix.processingRatePpm
+        : schedule.debit.available
+          ? schedule.debit.processingRatePpm
+          : credit1x?.available
+            ? credit1x.processingRatePpm
+            : schedule.effectiveTargetFeePpm;
+    }
+    const liquidityRate =
+      pixProcessingRatePpm !== null
+        ? Number((1 - pixProcessingRatePpm / 1_000_000).toFixed(6))
+        : EbookSimConfig.saque.fatorLiquidez;
     return {
       unit: 'cents',
-      liquidityRate: EbookSimConfig.saque.fatorLiquidez,
+      liquidityRate,
+      effectiveTargetFeePpm,
+      pixProcessingRatePpm,
       pixMdrRate: EbookSimConfig.mdr.pix,
       transactionFeeCents: this.cents(getEbookTaxaServico()),
       fixedTransactionFeeCents: this.cents(

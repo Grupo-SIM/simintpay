@@ -879,69 +879,6 @@
   },
   {
     "method": "GET",
-    "path": "/internal/ebook/finance/summary",
-    "canonical": "GET /platforms/:tag/finance/summary",
-    "evidence": [
-      "src/modules/platform-core/tests/platform-finance-read-contracts.test.ts"
-    ],
-    "compatibility": "Consultas e projeções corporativas preservadas; canônico estrito e valores em centavos."
-  },
-  {
-    "method": "GET",
-    "path": "/internal/ebook/finance/transactions",
-    "canonical": "GET /platforms/:tag/finance/transactions",
-    "evidence": [
-      "src/modules/platform-core/tests/platform-finance-read-contracts.test.ts"
-    ],
-    "compatibility": "Consultas e projeções corporativas preservadas; canônico estrito e valores em centavos."
-  },
-  {
-    "method": "GET",
-    "path": "/internal/ebook/finance/withdrawals",
-    "canonical": "GET /platforms/:tag/finance/withdrawals",
-    "evidence": [
-      "src/modules/platform-core/tests/platform-finance-read-contracts.test.ts"
-    ],
-    "compatibility": "Consultas e projeções corporativas preservadas; canônico estrito e valores em centavos."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/ebook/finance/pending-transaction",
-    "canonical": "POST /platforms/:tag/finance/entries",
-    "evidence": [
-      "src/modules/unified-platform/finance/platform-import-equivalence.test.ts"
-    ],
-    "compatibility": "Mesmo escritor; idempotência e precisão persistida; Ebook sem crédito à carteira."
-  },
-  {
-    "method": "GET",
-    "path": "/internal/ebook/finance/config",
-    "canonical": "GET /platforms/:tag/finance/config",
-    "evidence": [
-      "src/modules/platform-core/tests/platform-finance-read-contracts.test.ts"
-    ],
-    "compatibility": "Consultas e projeções corporativas preservadas; canônico estrito e valores em centavos."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/ebook/finance/credit-commission",
-    "canonical": "POST /platforms/:tag/finance/entries",
-    "evidence": [
-      "src/modules/unified-platform/finance/platform-import-equivalence.test.ts"
-    ],
-    "compatibility": "Mesmo escritor; idempotência e precisão persistida; Ebook sem crédito à carteira."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/ebook/finance/withdraw",
-    "canonical": "POST /platforms/:tag/finance/withdrawals",
-    "evidence": [
-      "src/modules/platform-core/tests/platform-withdrawal-contracts.test.ts"
-    ],
-    "compatibility": "Taxas corporativas; reserva canônica obrigatória, exceções legadas documentadas."
-  },
-  {
-    "method": "GET",
     "path": "/internal/pagatg/finance/summary",
     "canonical": "GET /platforms/:tag/finance/summary",
     "evidence": [

@@ -4,11 +4,9 @@ import { InternalPagatgFinanceService } from '../modules/unified-platform/financ
 import { InternalAreaflixFinanceService } from '../modules/unified-platform/finance/legacy-areaflix-finance.service';
 import { InternalRenovadaFinanceService } from '../modules/unified-platform/finance/legacy-renovada-finance.service';
 import { InternalBosqueFinanceService } from '../modules/unified-platform/finance/legacy-bosque-finance.service';
-import { InternalEbookFinanceService } from '../modules/unified-platform/finance/legacy-ebook-finance.service';
 import { InternalAtlasFinanceService } from '../modules/unified-platform/finance/legacy-atlas-finance.service';
 import { Module } from '@nestjs/common';
 import { CheckoutController } from './controllers/checkout.controller';
-import { InternalEbookFinanceController } from './controllers/internal-ebook-finance.controller';
 import { InternalPagatgFinanceController } from './controllers/internal-pagatg-finance.controller';
 import { InternalRenovadaFinanceController } from './controllers/internal-renovada-finance.controller';
 import { InternalBosqueFinanceController } from './controllers/internal-bosque-finance.controller';
@@ -22,14 +20,30 @@ import { CheckoutEventsService } from '../application/services/checkout-events.s
   imports: [ApiDomModule, VoucherModule],
   controllers: [
     CheckoutController,
-    InternalEbookFinanceController,
     InternalPagatgFinanceController,
     InternalRenovadaFinanceController,
     InternalBosqueFinanceController,
     InternalAtlasFinanceController,
     InternalAreaflixFinanceController,
   ],
-  providers: [LegacyInternalAuthGuard, CheckoutEventsService, PlatformFinanceService, InternalAtlasFinanceService, InternalEbookFinanceService, InternalBosqueFinanceService, InternalRenovadaFinanceService, InternalAreaflixFinanceService, InternalPagatgFinanceService],
-  exports: [CheckoutEventsService, PlatformFinanceService, InternalAtlasFinanceService, InternalEbookFinanceService, InternalBosqueFinanceService, InternalRenovadaFinanceService, InternalAreaflixFinanceService, InternalPagatgFinanceService],
+  providers: [
+    LegacyInternalAuthGuard,
+    CheckoutEventsService,
+    PlatformFinanceService,
+    InternalAtlasFinanceService,
+    InternalBosqueFinanceService,
+    InternalRenovadaFinanceService,
+    InternalAreaflixFinanceService,
+    InternalPagatgFinanceService,
+  ],
+  exports: [
+    CheckoutEventsService,
+    PlatformFinanceService,
+    InternalAtlasFinanceService,
+    InternalBosqueFinanceService,
+    InternalRenovadaFinanceService,
+    InternalAreaflixFinanceService,
+    InternalPagatgFinanceService,
+  ],
 })
 export class CheckoutModule {}

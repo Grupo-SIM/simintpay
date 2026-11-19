@@ -1,6 +1,6 @@
 # Inventário dos contratos legados de plataformas
 
-Registro de caracterização dos controllers existentes antes da unificação. Cada entrada registra contrato declarado, não execução de serviços externos. Paths sem prefixo global (`main.ts` não define prefixo). A coluna de operação equivalente conserva a família identificada na caracterização original. Mapeamento final dos 120 contratos ativos, rotas canônicas concretas e evidências comportamentais: [legacy-platform-equivalence.md](legacy-platform-equivalence.md). Oito proxies administrativos BetAI foram retirados por orientação explícita; inventário histórico original permanece com 144 entradas.
+Registro de caracterização dos controllers existentes antes da unificação. Cada entrada registra contrato declarado, não execução de serviços externos. Paths sem prefixo global (`main.ts` não define prefixo). A coluna de operação equivalente conserva a família identificada na caracterização original. Mapeamento final dos 113 contratos ativos, rotas canônicas concretas e evidências comportamentais: [legacy-platform-equivalence.md](legacy-platform-equivalence.md). Oito proxies administrativos BetAI, aliases de comunidades/usuários SaaS (plano 0023) e os sete aliases `/internal/ebook/finance/*` (plano 0026) foram retirados; inventário histórico original permanece com 144 entradas.
 
 ## Convenções preservadas
 
@@ -1014,7 +1014,7 @@ Exceções no handler: `new UnauthorizedException('Invalid webhook secret')`; `n
 - Integrações de comerciantes correspondem a `/platforms/:tag/merchants/:externalMerchantId/...`. Implementação legada injeta ZeroGrauPaymentService e usa DOM_TOKEN de ZERO-GRAU para status; remover esse acoplamento no serviço compartilhado sem alterar contrato do alias.
 - Alias deve chamar diretamente operação compartilhada e traduzir contrato. Sem redirect, loopback HTTP, cálculo financeiro duplicado ou acesso canônico anônimo.
 - Manutenção que substitui/zera/recalcula carteira compartilhada deve bloquear; histórico sem plataforma identificada não recebe plataforma arbitrária.
-- Inventário histórico cobre 136 declarações de rotas corporativas/internas; 120 permanecem registradas e 16 aliases (BetAI, comunidades e usuários SaaS, plano 0023) foram removidos. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
+- Inventário histórico cobre 136 declarações de rotas corporativas/internas; 113 permanecem registradas e 23 aliases (BetAI, comunidades e usuários SaaS, plano 0023; `/internal/ebook/finance/*`, plano 0026) foram removidos. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
 
 ## Delegação implementada na continuação: BetAI
 

@@ -50,7 +50,7 @@ for (const tag of ['BOSQUE', 'RENOVADA']) {
         ],
       },
     } as any);
-    expect(make([]).config(ctx(tag))).toEqual({
+    expect(await make([]).config(ctx(tag))).toEqual({
       unit: 'cents',
       withdrawal: { minimumCents: 5000, fixedFeeCents: 350, percentFee: 0 },
     });

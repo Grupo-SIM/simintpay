@@ -1403,7 +1403,9 @@ const isRetired = (path: string) =>
   path === '/admin/plataformas/:tag/usuarios' ||
   path === '/admin/plataformas/:tag/usuarios/:userId/toggle' ||
   // Exposed every resolved fee key; platforms now return their own withdrawal fees.
-  path === '/admin/plataformas/minhas-taxas';
+  path === '/admin/plataformas/minhas-taxas' ||
+  // Ebook migrated to canonical per-merchant finance routes (plan 0026).
+  path.startsWith('/internal/ebook/finance/');
 export const RETIRED_LEGACY_PLATFORM_CONTRACTS =
   ORIGINAL_LEGACY_PLATFORM_CONTRACTS.filter((contract) =>
     isRetired(contract.path),

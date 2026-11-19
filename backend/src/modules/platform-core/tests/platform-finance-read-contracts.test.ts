@@ -9,8 +9,6 @@ import { InternalBosqueFinanceService } from '../../unified-platform/finance/leg
 import { InternalBosqueFinanceController } from '../../../presentation/controllers/internal-bosque-finance.controller';
 import { InternalRenovadaFinanceService } from '../../unified-platform/finance/legacy-renovada-finance.service';
 import { InternalRenovadaFinanceController } from '../../../presentation/controllers/internal-renovada-finance.controller';
-import { InternalEbookFinanceService } from '../../unified-platform/finance/legacy-ebook-finance.service';
-import { InternalEbookFinanceController } from '../../../presentation/controllers/internal-ebook-finance.controller';
 import { InternalPagatgFinanceService } from '../../unified-platform/finance/legacy-pagatg-finance.service';
 import { InternalPagatgFinanceController } from '../../../presentation/controllers/internal-pagatg-finance.controller';
 import { InternalAreaflixFinanceService } from '../../unified-platform/finance/legacy-areaflix-finance.service';
@@ -23,7 +21,6 @@ const definitions = [
     InternalRenovadaFinanceService,
     InternalRenovadaFinanceController,
   ],
-  ['EBOOK', InternalEbookFinanceService, InternalEbookFinanceController],
   ['PAGATG', InternalPagatgFinanceService, InternalPagatgFinanceController],
   [
     'AREAFLIX',
@@ -302,34 +299,78 @@ test('Atlas health and withdrawal status preserve nonfinancial contract and not-
     'Saque não encontrado',
   );
 });
-test('Ebook configuration preserves decimal liquidity and legacy percentage commission', () => {
-  const f = fixture(
-    'EBOOK',
-    InternalEbookFinanceService,
-    InternalEbookFinanceController,
-  );
-  const legacy = f.controller.getConfig();
-  expect(legacy).toMatchObject({
-    transactionFeeBrl: 4,
-    taxaFixaTransacao: 1,
-    taxaCashback: 0,
+test('Ebook configuration exposes active target fee and decimal liquidity in cents', async () => {
+  await initializePlatformTaxasCache({
+    platformTaxaOverride: {
+      findMany: async () => [
+        { tag: 'EBOOK', key: 'TAXA_FIXA_TRANSACAO', value: 1 },
+        { tag: 'EBOOK', key: 'SAQUE_MIN', value: 100 },
+        { tag: 'EBOOK', key: 'TAXA_SAQUE_EXTRA', value: 3 },
+      ],
+    },
+  } as any);
+  const prisma = {
+    financialPolicyRevision: {
+      findMany: async () => [
+        {
+          tag: 'GLOBAL',
+          id: 'rev',
+          version: 1,
+          schemaVersion: 1,
+          document: {
+            schemaVersion: 1,
+            targetFeePpm: 149900,
+            lanes: {},
+          },
+        },
+      ],
+    },
+    platform: {
+      findUnique: async () => ({
+        targetFeePpm: null,
+        absorbCustomerInterest: false,
+        customerInterestRates: null,
+      }),
+    },
+    acquirerCatalogue: {
+      findMany: async () => [{ code: 'DOM', name: 'DOM', active: true }],
+    },
+    acquirerFeeSchedule: {
+      findMany: async () => [
+        {
+          acquirer: 'DOM',
+          method: 'PIX',
+          channel: 'ONLINE',
+          installments: 1,
+          fixedCents: 100,
+          ratePpm: 9800,
+          interestPpm: 0,
+          base: 'BUYER_TOTAL',
+          createdAt: new Date(),
+        },
+      ],
+    },
+  } as any;
+  const finance = new PlatformFinanceService(prisma);
+  const cfg = await finance.config({
+    id: 'p',
+    tag: 'EBOOK',
+    ownerUserId: 'owner',
+    acquirer: 'DOM',
   });
-  expect(
-    f.finance.config({
-      id: 'p',
-      tag: 'EBOOK',
-      ownerUserId: 'owner',
-      acquirer: 'DOM',
-    }),
-  ).toEqual({
+  expect(cfg).toMatchObject({
     unit: 'cents',
-    liquidityRate: legacy.liquidez,
-    pixMdrRate: legacy.mdrPix,
-    transactionFeeCents: 400,
+    effectiveTargetFeePpm: 149900,
+    pixProcessingRatePpm: 149900,
+    liquidityRate: 0.8501,
+    transactionFeeCents: 0,
     fixedTransactionFeeCents: 100,
     cashbackAmountCents: 0,
-    affiliateCommissionRate: legacy.affiliateCommissionRate / 100,
-    withdrawal: expect.objectContaining({ percentFee: 0 }),
+    withdrawal: expect.objectContaining({
+      minimumCents: 10000,
+      fixedFeeCents: 300,
+      percentFee: 0,
+    }),
   });
 });
 test('Bosque inspection and read-only reconciliation preserve wallet and ledger decomposition', async () => {
