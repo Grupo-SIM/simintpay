@@ -52,7 +52,11 @@ export function TargetFeeSection({
     <div className="space-y-3">
       <div className="max-w-md">
         <CustomSelect
-          label={global ? 'Taxa alvo padrão' : 'Taxa alvo da plataforma'}
+          label={
+            global
+              ? 'Taxa alvo do vendedor padrão'
+              : 'Taxa alvo do vendedor da plataforma'
+          }
           value={mode}
           onChange={(next) => change(next as Mode)}
           options={[
@@ -75,7 +79,7 @@ export function TargetFeeSection({
       {mode === 'custom' && value !== null && (
         <div className="max-w-xs">
           <FinancialNumberField
-            label="Taxa cobrada do vendedor (%)"
+            label="Taxa alvo do vendedor, sem juros nem taxas do comprador (%)"
             name="target-fee"
             rate
             value={value}
@@ -90,7 +94,7 @@ export function TargetFeeSection({
       )}
       {!effective && (
         <p className="text-sm text-zinc-500">
-          Sem taxa alvo: valem as taxas SimIntPay manuais.
+          Sem taxa alvo do vendedor: valem as taxas SimIntPay manuais.
         </p>
       )}
     </div>
