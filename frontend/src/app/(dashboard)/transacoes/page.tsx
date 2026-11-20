@@ -630,9 +630,9 @@ function TransacoesContent() {
         render: (row: Transacao) =>
           row.plataforma ? (
             <span
-              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase whitespace-nowrap ${getPlatformBadgeClass(row.plataforma)}`}
+              className={`inline-flex max-w-[140px] items-center rounded-2xl px-2.5 py-0.5 text-xs font-semibold leading-tight break-words ${getPlatformBadgeClass(row.plataforma)}`}
             >
-              {getPlatformLabel(row.plataforma)}
+              {platformName(row.plataforma)}
             </span>
           ) : (
             <span className="text-xs text-zinc-400">-</span>
@@ -675,7 +675,7 @@ function TransacoesContent() {
         ),
       },
     ],
-    [],
+    [platformName],
   );
 
   const valorLiquidoColumn = useMemo(
