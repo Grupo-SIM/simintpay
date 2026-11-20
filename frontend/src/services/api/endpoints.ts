@@ -58,7 +58,6 @@ export const endpoints = {
     dashboardRevalida: '/admin/plataformas/revalida/dashboard',
     dashboardCliente: '/admin/plataformas/cliente/dashboard',
     consolidado: '/admin/relatorios/consolidado',
-    consolidadoTransacoes: '/admin/relatorios/consolidado/transacoes',
     taxaSaque: '/admin/relatorios/taxa-saque',
     lucroSaque: '/admin/relatorios/lucro-saque',
     totalRepasse: '/admin/relatorios/total-repasse',

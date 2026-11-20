@@ -7,7 +7,6 @@ import { ReportError } from './ReportError';
 import { ReportSkeleton } from './ReportSkeleton';
 import { ReportSummaryCards } from './ReportSummaryCards';
 import { AtlasExtraCards } from './AtlasExtraCards';
-import { OwnedReportTransactions } from './OwnedReportTransactions';
 import { OwnedReportSeries } from './OwnedReportSeries';
 import { OwnedReportProfitChart } from './OwnedReportProfitChart';
 import type { ReportSummary } from './report-types';
@@ -64,11 +63,6 @@ export function OwnedReportContent({
             <OwnedReportSeries filters={filters} kind="metodos" />
             <OwnedReportSeries filters={filters} kind="status" />
           </div>
-          <OwnedReportTransactions
-            key={JSON.stringify(filters)}
-            filters={filters}
-            product={product}
-          />
         </>
       )}
     </div>

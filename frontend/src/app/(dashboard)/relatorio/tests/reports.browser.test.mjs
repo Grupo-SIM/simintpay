@@ -232,13 +232,7 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
     ).toBe(1);
 
     expect(calls.some((c) => c.path.includes('/admin/'))).toBe(false);
-    await page.getByRole('cell', { name: 'R$ 40,67', exact: true }).waitFor();
-    expect(
-      await page.getByRole('cell', { name: 'R$ 41,00', exact: true }).count(),
-    ).toBe(1);
-    expect(
-      await page.getByRole('cell', { name: 'R$ 0,33', exact: true }).count(),
-    ).toBe(1);
+    expect(await page.getByText('Venda consolidada').count()).toBe(0);
     expect(
       await page.getByRole('cell', { name: 'Aprovada', exact: true }).count(),
     ).toBe(1);
@@ -247,7 +241,7 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
     ).toBe(1);
     expect(
       await page.getByRole('cell', { name: 'PIX', exact: true }).count(),
-    ).toBe(2);
+    ).toBe(1);
     expect(
       calls
         .filter((c) => /\/(mensal|metodos|status|transacoes)$/.test(c.path))
@@ -571,18 +565,13 @@ test('admin unified report retains balances, paginated balances and database-onl
       });
     });
     await page.goto(`http://127.0.0.1:${server.port}`);
-    await page.getByText('Venda consolidada', { exact: true }).waitFor();
-    expect(
-      await page.getByRole('cell', { name: 'R$ 987,65', exact: true }).count(),
-    ).toBe(1);
-    expect(
-      calls.some(
-        (url) =>
-          url.startsWith('/api/admin/relatorios/consolidado/transacoes?') &&
-          url.includes('dataInicio=') &&
-          url.includes('dataFim='),
-      ),
-    ).toBe(true);
+    await page
+      .getByRole('heading', { name: 'Visão Geral', exact: true })
+      .waitFor();
+    expect(await page.getByText('Venda consolidada').count()).toBe(0);
+    expect(calls.some((url) => url.includes('/consolidado/transacoes'))).toBe(
+      false,
+    );
     expect(
       calls.some((url) => url.startsWith('/api/coproducao/recebimentos')),
     ).toBe(false);

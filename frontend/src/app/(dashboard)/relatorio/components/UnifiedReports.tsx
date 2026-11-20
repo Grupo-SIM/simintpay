@@ -15,7 +15,6 @@ import { ReportPlatformSelect } from './ReportPlatformSelect';
 import { AtlasExtraCards } from './AtlasExtraCards';
 import { OwnedReportContent } from './OwnedReportContent';
 import { OwnedReportSeries } from './OwnedReportSeries';
-import { OwnedReportTransactions } from './OwnedReportTransactions';
 import { ReportSkeleton } from './ReportSkeleton';
 import type { ReportPlatform } from './report-types';
 import type { DateRange } from '../types';
@@ -23,13 +22,6 @@ import type { DateRange } from '../types';
 const AdminOverview = dynamic(() => import('./AdminReportOverview'), {
   loading: () => <ReportSkeleton />,
 });
-const AdminTransactions = dynamic(
-  () =>
-    import('./AdminReportTransactions').then(
-      (module) => module.AdminReportTransactions,
-    ),
-  { loading: () => <ReportSkeleton /> },
-);
 const currentPeriod = (): DateRange => {
   const now = new Date();
   return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: now };
@@ -135,18 +127,11 @@ export function UnifiedReports() {
                   <OwnedReportSeries filters={filters} kind="metodos" />
                   <OwnedReportSeries filters={filters} kind="status" />
                 </div>
-                <OwnedReportTransactions filters={filters} product />
               </div>
             </div>
           ) : (
             <div className="space-y-6">
               <AdminOverview range={range} method={method} />
-              <AdminTransactions
-                key={`${filters.startDate}:${filters.endDate}:${method}`}
-                startDate={filters.startDate}
-                endDate={filters.endDate}
-                method={method}
-              />
             </div>
           )
         ) : (
