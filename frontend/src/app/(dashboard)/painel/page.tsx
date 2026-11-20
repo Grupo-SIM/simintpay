@@ -397,7 +397,6 @@ const salesChartConfig = {
 const adminFinanceChartConfig = {
   valorBruto: { label: 'Receita total', color: '#22c55e' },
   taxaSimInt: { label: 'Taxa Sim Int Pay', color: '#f43f5e' },
-  taxaServico: { label: 'Taxa de transação - Sim Int Pay', color: '#14b8a6' },
   taxaAdquirente: { label: 'Taxa adquirente', color: '#fb923c' },
   taxaSaque: { label: 'Taxa de saque adquirente', color: '#f97316' },
   lucroSaque: { label: 'Lucro de saque', color: '#e11d48' },
@@ -409,7 +408,6 @@ type AdminFinanceChartPoint = {
   valorBruto: number;
   valorLiquido: number;
   lucroSimpay: number;
-  taxaServico: number;
   taxaAdquirente: number;
   taxaSaque: number;
   lucroSaque: number;
@@ -419,7 +417,6 @@ type AdminFinanceChartPoint = {
 const ADMIN_FINANCE_KEYS = [
   'valorBruto',
   'taxaSimInt',
-  'taxaServico',
   'taxaAdquirente',
   'taxaSaque',
   'lucroSaque',
@@ -837,7 +834,6 @@ export default function PainelPage() {
   >({
     valorBruto: true,
     taxaSimInt: true,
-    taxaServico: true,
     taxaAdquirente: true,
     taxaSaque: true,
     lucroSaque: true,
@@ -974,7 +970,6 @@ export default function PainelPage() {
               valorBruto: masterChartPointValue(row.valorBruto),
               valorLiquido: masterChartPointValue(row.valorLiquido),
               lucroSimpay: masterChartPointValue(row.lucroSimpay),
-              taxaServico: masterChartPointValue(row.taxaServico ?? 0),
               taxaAdquirente: masterChartPointValue(row.taxaAdquirente),
               taxaSaque: masterChartPointValue(
                 row.taxaSaqueDom ?? row.taxaSaque,
