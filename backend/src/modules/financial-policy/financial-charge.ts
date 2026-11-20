@@ -141,17 +141,15 @@ export function quoteFinancialCharge(
     context.feesByLane?.[`${method}/${channel}/${installments}`] ?? [];
   const scheduled = context.feesByLane
     ? {
-        fees: fees.map(
-          ({ createdAt, ...fee }): ScheduledFee => ({
-            ...fee,
-            createdAt: createdAt.toISOString(),
-          }),
-        ),
+        fees: fees.map(({ createdAt, ...fee }): ScheduledFee => ({
+          ...fee,
+          createdAt: createdAt.toISOString(),
+        })),
         routedAcquirer: context.acquirer,
       }
     : undefined;
   // The global target (policy document) is the default; platform charges only, never frozen-snapshot requotes.
-  const targetFeePpm =
+  let targetFeePpm =
     context.targetFeePpm === undefined
       ? null
       : resolveTargetFee(
@@ -167,6 +165,9 @@ export function quoteFinancialCharge(
         installments,
       ) ?? (targetFeePpm !== null ? routeKey : undefined))
     : routeKey;
+  // A lane may opt out of the target so its manual SimIntPay additional is honored.
+  if (key && context.policy.document.lanes[key]?.targetFeeOff)
+    targetFeePpm = null;
   if (targetFeePpm === null && (!key || !context.policy.document.lanes[key])) {
     if (context.platformFeeMode)
       throw new BadRequestException(

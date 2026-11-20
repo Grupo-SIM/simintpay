@@ -548,6 +548,7 @@ export function FinancialPolicyDraft({
             defaultLane()
           }
           credit={editingGroup.method === 'CREDIT_CARD'}
+          targetActive={targetActive}
           onClose={() => setEditing(null)}
           onSave={(lane, all) => {
             setLanes((previous) => ({

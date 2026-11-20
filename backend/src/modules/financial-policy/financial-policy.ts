@@ -26,6 +26,8 @@ export type ScheduledFee = {
 export type Lane = {
   total?: Addition;
   active: boolean;
+  /** Ignore the target fee on this lane: the manual SimIntPay additional applies instead. */
+  targetFeeOff?: boolean;
   contract: Contract;
   sim: Addition & { interestPpm: number };
 };
@@ -596,7 +598,12 @@ export function validatePolicy(value: unknown): asserts value is Policy {
       !record(lane.sim)
     )
       throw new Error('Taxas administrativas incompletas');
-    exact(lane, ['active', 'contract', 'sim', 'total']);
+    exact(lane, ['active', 'contract', 'sim', 'total', 'targetFeeOff']);
+    if (
+      lane.targetFeeOff !== undefined &&
+      typeof lane.targetFeeOff !== 'boolean'
+    )
+      throw new Error('Taxas administrativas incompletas');
     if (lane.total !== undefined) {
       if (!record(lane.total)) throw new Error('Custo total inválido');
       exact(lane.total, ['fixedCents', 'ratePpm']);

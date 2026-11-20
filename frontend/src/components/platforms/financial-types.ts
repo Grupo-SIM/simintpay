@@ -3,6 +3,8 @@ export type OwnerRule = Addition & { passInterestPpm: number };
 export type Lane = {
   total?: Addition;
   active: boolean;
+  /** Ignore the target fee on this lane so the manual SimIntPay additional applies. */
+  targetFeeOff?: boolean;
   contract: Addition & {
     cashbackCents: number;
     interestPpm: number;

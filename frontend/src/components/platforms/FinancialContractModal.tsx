@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { FormSwitch } from '@/components/ui/FormSwitch';
 import { Modal } from '@/components/ui/Modal';
 import { FinancialNumberField } from './FinancialNumberField';
 import type { Lane } from './financial-types';
@@ -9,11 +10,14 @@ import type { Lane } from './financial-types';
 export function FinancialContractModal({
   lane,
   credit,
+  targetActive = false,
   onSave,
   onClose,
 }: {
   lane: Lane;
   credit: boolean;
+  /** A target fee is in effect for this platform, so the lane may opt out of it. */
+  targetActive?: boolean;
   onSave: (lane: Lane, all?: boolean) => void;
   onClose: () => void;
 }) {
@@ -90,6 +94,27 @@ export function FinancialContractModal({
           atualizado periodicamente. Aqui você define apenas o adicional
           SimIntPay, somado ao custo da adquirente.
         </p>
+        {(targetActive || draft.targetFeeOff) && (
+          <div className="flex items-center justify-between gap-3 rounded border p-3">
+            <div>
+              <p className="font-semibold">Desabilitar taxa alvo</p>
+              <p className="text-xs text-zinc-500">
+                Neste meio de pagamento, ignora a taxa alvo e respeita o
+                adicional SimIntPay definido abaixo.
+              </p>
+            </div>
+            <FormSwitch
+              aria-label="Desabilitar taxa alvo neste meio de pagamento"
+              checked={!!draft.targetFeeOff}
+              onChange={(off) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  targetFeeOff: off || undefined,
+                }))
+              }
+            />
+          </div>
+        )}
         <details open className="group rounded border p-3">
           <summary className="cursor-pointer font-semibold">
             Adicional SimIntPay{' '}
