@@ -18,7 +18,7 @@ export function NewChargeForm({
   onClose,
   onSuccess,
 }: {
-  client: ChargeClient;
+  client?: ChargeClient;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -30,24 +30,42 @@ export function NewChargeForm({
   const [review, setReview] = useState(false);
   const { toast } = useToast();
   const cache = useQueryClient();
+  const [scope, setScope] = useState<'all' | 'one'>('all');
+  const [selectedId, setSelectedId] = useState('');
   // Platform balances may include external funds: resolve the actual Simintpay balance.
-  const balance = useQuery({
-    queryKey: ['cobrancas', 'clientes', client.id],
+  const clients = useQuery({
+    queryKey: ['cobrancas', 'clientes', client?.id ?? 'all'],
     queryFn: async () => {
-      const result = await chargesApi().get<{ data: ChargeClient[] }>(
-        endpoints.admin.cobrancas.clientes,
-        { query: { search: client.email, pageSize: 100, page: 1 } },
-      );
-      const found = result.data.find((item) => item.id === client.id);
-      if (!found) throw new Error('Conta indisponível para cobrança.');
-      return found.saldoDisponivel;
+      const found: ChargeClient[] = [];
+      for (let page = 1; ; page++) {
+        const result = await chargesApi().get<{
+          data: ChargeClient[];
+          totalPages: number;
+        }>(endpoints.admin.cobrancas.clientes, {
+          query: { search: client?.email, pageSize: 100, page },
+        });
+        found.push(...result.data);
+        if (!client && page < result.totalPages) continue;
+        break;
+      }
+      if (!client) return found;
+      const own = found.find((item) => item.id === client.id);
+      if (!own) throw new Error('Conta indisponível para cobrança.');
+      return [own];
     },
   });
+  const targets: ChargeClient[] = !clients.data
+    ? []
+    : client || scope === 'all'
+      ? clients.data
+      : clients.data.filter((item) => item.id === selectedId);
+  const single = targets.length === 1 ? targets[0] : null;
+  const balance = { data: single?.saldoDisponivel ?? 0 };
   const amount = Number(value.replace(/\./g, '').replace(',', '.'));
   const mutation = useMutation({
     mutationFn: async () => {
       const payload = {
-        itens: [{ userId: client.id, amount }],
+        itens: targets.map((target) => ({ userId: target.id, amount })),
         descricao: description.trim() || undefined,
         ...(mode === 'pagar' ? { dueDate } : {}),
       };
@@ -55,15 +73,23 @@ export function NewChargeForm({
         const result = await chargesApi().post<{
           resultados: { ok: boolean; erro?: string; saldoDepois?: number }[];
         }>(endpoints.admin.cobrancas.debitar, payload);
-        const item = result.resultados[0];
-        if (!item?.ok) throw new Error(item?.erro || 'Débito não aplicado.');
-        return item.saldoDepois;
+        const failed = result.resultados.filter((item) => !item.ok);
+        if (failed.length > 0)
+          throw new Error(
+            failed.length === 1 && targets.length === 1
+              ? failed[0]?.erro || 'Débito não aplicado.'
+              : `${failed.length} de ${targets.length} débitos não aplicados.`,
+          );
+        return single ? result.resultados[0]?.saldoDepois : undefined;
       }
       const result = await chargesApi().post<{ criadas: number }>(
         endpoints.admin.cobrancas.gerar,
         payload,
       );
-      if (result.criadas !== 1) throw new Error('Cobrança não criada.');
+      if (result.criadas !== targets.length)
+        throw new Error(
+          `${result.criadas} de ${targets.length} cobranças criadas.`,
+        );
       return undefined;
     },
     onSuccess: (saldo) => {
@@ -90,7 +116,8 @@ export function NewChargeForm({
     Number.isFinite(amount) &&
     amount > 0 &&
     (mode !== 'pagar' || Boolean(dueDate)) &&
-    balance.isSuccess;
+    targets.length > 0 &&
+    clients.isSuccess;
   return (
     <Modal
       open
@@ -109,19 +136,57 @@ export function NewChargeForm({
           }
         }}
       >
+        {!client && (
+          <Dropdown
+            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+            variant="navbar"
+            label="Destinatário"
+            value={scope}
+            onChange={(value) => {
+              setScope(value as 'all' | 'one');
+              setReview(false);
+            }}
+            options={[
+              { value: 'all', label: 'Todos os clientes' },
+              { value: 'one', label: 'Cliente específico' },
+            ]}
+            portal
+          />
+        )}
+        {!client && scope === 'one' && (
+          <Dropdown
+            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+            variant="navbar"
+            label="Cliente"
+            placeholder="Selecione um cliente"
+            value={selectedId}
+            searchable
+            searchPlaceholder="Buscar por nome ou e-mail"
+            onChange={(value) => {
+              setSelectedId(value);
+              setReview(false);
+            }}
+            options={(clients.data ?? []).map((item) => ({
+              value: item.id,
+              label: `${item.name} — ${item.email}`,
+            }))}
+            portal
+          />
+        )}
         <p className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
-          {client.name} ·{' '}
-          {balance.isPending
-            ? 'Carregando saldo…'
-            : balance.isError
-              ? balance.error.message
-              : `Saldo disponível: ${money(balance.data)}`}
+          {clients.isPending
+            ? 'Carregando clientes…'
+            : clients.isError
+              ? clients.error.message
+              : single
+                ? `${single.name} · Saldo disponível: ${money(single.saldoDisponivel)}`
+                : `${targets.length} clientes selecionados${valid ? ` · Total: ${money(amount * targets.length)}` : ''}`}
         </p>
-        {balance.isError && (
+        {clients.isError && (
           <button
             type="button"
             className="cursor-pointer rounded border px-3 py-2"
-            onClick={() => void balance.refetch()}
+            onClick={() => void clients.refetch()}
           >
             Tentar novamente
           </button>
@@ -175,14 +240,20 @@ export function NewChargeForm({
             onChange={setDueDate}
           />
         )}
-        {mode === 'debitar' && valid && (
+        {mode === 'debitar' && valid && single && (
           <p
-            className={`rounded-lg border p-3 text-sm ${balance.data! - amount < 0 ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300'}`}
+            className={`rounded-lg border p-3 text-sm ${balance.data - amount < 0 ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300'}`}
           >
-            Saldo após débito: {money(balance.data! - amount)}.{' '}
-            {balance.data! - amount < 0 && 'Conta ficará com saldo negativo.'}{' '}
+            Saldo após débito: {money(balance.data - amount)}.{' '}
+            {balance.data - amount < 0 && 'Conta ficará com saldo negativo.'}{' '}
             {review &&
               'Débito imediato, sem desfazer automático. Confira antes de confirmar.'}
+          </p>
+        )}
+        {mode === 'debitar' && valid && !single && review && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            Débito imediato em {targets.length} contas, sem desfazer automático.
+            Contas podem ficar com saldo negativo.
           </p>
         )}
         <div className="flex justify-end gap-2">

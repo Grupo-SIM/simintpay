@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from 'next-themes';
 import { ActionButton } from '@/app/(dashboard)/relatorio/components/ActionButton';
 import { ChargeDateField } from './ChargeDateField';
+import { ChargeInput } from './ChargeInput';
 import { Check, Copy, ExternalLink, X } from 'lucide-react';
 import { ConfirmActionButton } from '@/components/ui/ConfirmActionButton';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -14,6 +15,7 @@ import type { ChargeClient } from './types';
 
 type Charge = {
   id: string;
+  nome?: string;
   email: string;
   amount: number;
   description: string | null;
@@ -29,20 +31,30 @@ type History = { data: Charge[]; totalPages: number };
 const actionClass =
   'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-zinc-200 bg-white/70 px-3 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10';
 
-export function ChargeHistory({ client }: { client: ChargeClient }) {
+export function ChargeHistory({ client }: { client?: ChargeClient }) {
   const { resolvedTheme } = useTheme();
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const { toast } = useToast();
   const cache = useQueryClient();
   const history = useQuery({
-    queryKey: ['cobrancas', 'historico', client.id, page, status, start, end],
+    queryKey: [
+      'cobrancas',
+      'historico',
+      client?.id ?? 'all',
+      search,
+      page,
+      status,
+      start,
+      end,
+    ],
     queryFn: () =>
       chargesApi().get<History>(endpoints.admin.cobrancas.historico, {
         query: {
-          search: client.email,
+          search: client ? client.email : search || undefined,
           page,
           pageSize: 20,
           status: status || undefined,
@@ -66,11 +78,26 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
       }),
   });
   const rows = (history.data?.data ?? []).filter(
-    (charge) => charge.email.toLowerCase() === client.email.toLowerCase(),
+    (charge) =>
+      !client || charge.email.toLowerCase() === client.email.toLowerCase(),
   );
+  const columns = client ? 5 : 6;
   return (
     <div className="space-y-4">
       <div className="grid items-end gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-white/10 dark:bg-white/[0.03] sm:grid-cols-3">
+        {!client && (
+          <div className="sm:col-span-3">
+            <ChargeInput
+              label="Cliente"
+              placeholder="Buscar por nome ou e-mail"
+              value={search}
+              onValueChange={(value) => {
+                setSearch(value);
+                setPage(1);
+              }}
+            />
+          </div>
+        )}
         <Dropdown
           label="Status"
           theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
@@ -108,7 +135,7 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
         />
       </div>
       <div
-        className="custom-scrollbar max-h-[38vh] overflow-auto rounded-xl border border-zinc-200 dark:border-white/10"
+        className={`custom-scrollbar ${client ? 'max-h-[38vh]' : 'max-h-[55vh]'} overflow-auto rounded-xl border border-zinc-200 dark:border-white/10`}
         aria-label="Histórico de cobranças"
         tabIndex={0}
       >
@@ -116,6 +143,7 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
           <thead className="sticky top-0 bg-zinc-50 text-xs font-semibold text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
               {[
+                ...(client ? [] : ['Cliente']),
                 'Data / vencimento',
                 'Descrição',
                 'Valor',
@@ -132,7 +160,7 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
             {history.isPending ? (
               Array.from({ length: 5 }, (_, index) => (
                 <tr key={index}>
-                  {Array.from({ length: 5 }, (_, cell) => (
+                  {Array.from({ length: columns }, (_, cell) => (
                     <td key={cell} className="p-3">
                       <div className="h-8 animate-pulse rounded bg-zinc-200 dark:bg-white/10" />
                     </td>
@@ -141,7 +169,7 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
               ))
             ) : history.isError ? (
               <tr>
-                <td colSpan={5} className="p-6 text-center">
+                <td colSpan={columns} className="p-6 text-center">
                   <p>Não foi possível carregar cobranças.</p>
                   <button
                     type="button"
@@ -155,7 +183,7 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
             ) : rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={columns}
                   className="px-4 py-14 text-center text-sm text-zinc-500 dark:text-zinc-400"
                 >
                   Nenhuma cobrança encontrada.
@@ -183,6 +211,14 @@ export function ChargeHistory({ client }: { client: ChargeClient }) {
                     key={charge.id}
                     className="border-t border-zinc-200 dark:border-white/10"
                   >
+                    {!client && (
+                      <td className="p-3">
+                        <div className="font-medium">{charge.nome ?? '-'}</div>
+                        <div className="text-xs text-zinc-500">
+                          {charge.email}
+                        </div>
+                      </td>
+                    )}
                     <td className="whitespace-nowrap p-3 text-xs">
                       {new Date(charge.createdAt).toLocaleString('pt-BR')}
                       {charge.dueDate && (

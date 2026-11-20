@@ -49,6 +49,7 @@ const MANAGE_ITEMS = [
 
 const ADMIN_ITEMS = [
   { href: '/admin/contas', icon: UsersRound, label: 'Contas' },
+  { href: '/admin/cobrancas', icon: Receipt, label: 'Cobranças' },
   { href: '/admin/taxas', icon: Percent, label: 'Taxas' },
   { href: '/admin/saques', icon: Landmark, label: 'Saques' },
 ];

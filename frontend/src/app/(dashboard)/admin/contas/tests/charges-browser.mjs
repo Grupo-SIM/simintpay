@@ -123,11 +123,10 @@ test(
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     try {
-      await page.goto(`${app}/admin/cobrancas`, {
+      await page.goto(`${app}/admin/contas?tab=usuarios`, {
         waitUntil: 'domcontentloaded',
         timeout: 120000,
       });
-      await page.waitForURL('**/admin/contas?tab=usuarios');
       await page
         .getByRole('button', { name: 'Cobranças', exact: true })
         .click();
