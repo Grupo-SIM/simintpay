@@ -148,7 +148,7 @@ export class UpdateOfferDto {
 
   @ApiPropertyOptional({
     description:
-      'Admin: novo titular financeiro (deve ser o dono da plataforma, quando houver uma)',
+      'Admin: novo titular financeiro (deve ser o dono da plataforma, quando houver uma). Demais contas só podem informar o próprio titular',
   })
   @IsOptional()
   @IsString()
@@ -157,7 +157,7 @@ export class UpdateOfferDto {
   @ApiPropertyOptional({
     nullable: true,
     description:
-      'Admin: nova plataforma; null remove a plataforma (venda pessoal do titular)',
+      'Nova plataforma (do próprio titular, ou qualquer uma para admin); null remove a plataforma (venda pessoal do titular)',
   })
   @IsOptional()
   @IsString()

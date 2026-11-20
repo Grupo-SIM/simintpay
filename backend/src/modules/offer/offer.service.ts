@@ -364,22 +364,23 @@ export class OfferService {
   }
 
   /**
-   * Admin-only reassignment of the financial owner and/or platform (e.g. a link created under the wrong
-   * platform). Returns the new destination, or null when nothing changes. Past charges keep the owner they
-   * were created with; only future sales and cycles follow the offer.
+   * Reassignment of the platform (any account) and of the financial owner (admin only). A non-admin keeps the
+   * offer under their own account: they may only move it to a platform they own or back to their personal
+   * sales, because `resolveFinancialOwner` requires the platform owner to equal the requested owner.
+   * Returns the new destination, or null when nothing changes. Past charges keep the owner they were
+   * created with; only future sales and cycles follow the offer.
    */
   private async resolveReassignment(
     actor: OfferActor,
     existing: Offer,
     dto: UpdateOfferDto,
   ): Promise<Pick<Offer, 'ownerUserId' | 'platformTag'> | null> {
-    if (actor.role !== 'ADMIN') {
+    const isAdmin = actor.role === 'ADMIN';
+    if (!isAdmin)
       assertOwnershipPreserved(
-        { userId: existing.ownerUserId, platformTag: existing.platformTag },
-        dto as { ownerUserId?: string; platformTag?: string },
+        { userId: existing.ownerUserId },
+        { ownerUserId: dto.ownerUserId },
       );
-      return null;
-    }
     if (dto.ownerUserId === undefined && dto.platformTag === undefined)
       return null;
     const target =
@@ -388,7 +389,7 @@ export class OfferService {
       this.users,
       actor.id,
       {
-        ownerUserId: dto.ownerUserId,
+        ownerUserId: isAdmin ? dto.ownerUserId : existing.ownerUserId,
         platforms: target ? [target] : undefined,
       },
     );
