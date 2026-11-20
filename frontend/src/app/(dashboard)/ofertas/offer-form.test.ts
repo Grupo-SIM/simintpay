@@ -128,24 +128,20 @@ describe('unsafeUrlReason', () => {
 });
 
 describe('bumps', () => {
-  test('funil: limites 5/1/1, downsell exige upsell, duplicado', () => {
+  test('funil: sem limite de quantidade, downsell exige upsell, duplicado', () => {
     let bumps: FormBump[] = [];
     for (let i = 0; i < 5; i++) {
       const r = addBump(bumps, `b${i}`, 'BUMP');
       if ('error' in r) throw new Error(r.error);
       bumps = r.bumps;
     }
-    expect(addBump(bumps, 'b5', 'BUMP')).toEqual({
-      error: 'Use no máximo 5 order bumps.',
-    });
+    expect('error' in addBump(bumps, 'b5', 'BUMP')).toBe(false);
     expect(addBump([], 'd', 'DOWNSELL')).toEqual({
       error: 'O downsell exige um upsell configurado.',
     });
     const up = addBump([], 'u', 'UPSELL');
     if ('error' in up) throw new Error(up.error);
-    expect(addBump(up.bumps, 'u2', 'UPSELL')).toEqual({
-      error: 'Use no máximo um upsell.',
-    });
+    expect('error' in addBump(up.bumps, 'u2', 'UPSELL')).toBe(false);
     const down = addBump(up.bumps, 'd', 'DOWNSELL');
     if ('error' in down) throw new Error(down.error);
     expect(addBump(down.bumps, 'd2', 'DOWNSELL')).toEqual({

@@ -73,20 +73,20 @@ describe('checkFulfillment funnel write rules', () => {
     ).resolves.toBeDefined();
   });
 
-  test('rejects extra upsell/downsell and downsell without upsell', async () => {
+  test('accepts several upsells/downsells but rejects downsell without upsell', async () => {
     await expect(
       check([
         { offerId: 'up', role: 'UPSELL' },
         { offerId: 'b1', role: 'UPSELL' },
       ]),
-    ).rejects.toThrow('Máximo de 1 upsell');
+    ).resolves.toBeDefined();
     await expect(
       check([
         { offerId: 'up', role: 'UPSELL' },
         { offerId: 'dn', role: 'DOWNSELL' },
         { offerId: 'b1', role: 'DOWNSELL' },
       ]),
-    ).rejects.toThrow('Máximo de 1 downsell');
+    ).resolves.toBeDefined();
     await expect(check([{ offerId: 'dn', role: 'DOWNSELL' }])).rejects.toThrow(
       'Downsell exige',
     );
@@ -101,13 +101,12 @@ describe('checkFulfillment funnel write rules', () => {
     ).rejects.toThrow('countdownSeconds');
   });
 
-  test('rejects more than 5 order bumps', async () => {
+  test('accepts more than 5 order bumps', async () => {
     const six = Array.from({ length: 6 }, (_, i) => ({
       offerId: `x${i}`,
       role: 'BUMP',
     }));
-    await expect(check(six)).rejects.toThrow('Máximo de 5');
-    await expect(check(six.slice(0, 5))).resolves.toBeDefined();
+    await expect(check(six)).resolves.toBeDefined();
   });
 });
 

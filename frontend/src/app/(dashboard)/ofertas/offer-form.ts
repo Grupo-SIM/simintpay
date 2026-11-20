@@ -22,15 +22,9 @@ export type FormBump = {
   isActive?: boolean;
 };
 
-export const MAX_ORDER_BUMPS = 5;
 export const MAX_HEADLINE = 120;
 export const MIN_COUNTDOWN_SECONDS = 30;
 export const MAX_COUNTDOWN_SECONDS = 3600;
-export const bumpRoleLimits: Record<BumpRole, number> = {
-  BUMP: MAX_ORDER_BUMPS,
-  UPSELL: 1,
-  DOWNSELL: 1,
-};
 
 export const BUMP_ROLES: BumpRole[] = ['BUMP', 'UPSELL', 'DOWNSELL'];
 export const bumpRoleLabels: Record<BumpRole, string> = {
@@ -282,11 +276,6 @@ export function bumpsProblem(
     bumps.filter((bump) => bump.role === role).length;
   if (new Set(bumps.map((b) => b.offerId)).size !== bumps.length)
     return 'Oferta repetida em bumps.';
-  for (const role of BUMP_ROLES)
-    if (count(role) > bumpRoleLimits[role])
-      return role === 'BUMP'
-        ? `Use no máximo ${MAX_ORDER_BUMPS} order bumps.`
-        : `Use no máximo um ${bumpRoleLabels[role].toLowerCase()}.`;
   if (count('DOWNSELL') > 0 && count('UPSELL') === 0)
     return 'O downsell exige um upsell configurado.';
   for (const bump of bumps) {

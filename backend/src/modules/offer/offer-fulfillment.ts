@@ -31,7 +31,6 @@ export type FulfillmentFile = {
   fileUrl: string;
 };
 
-export const MAX_ORDER_BUMPS = 5;
 export const MAX_BUMP_HEADLINE = 120;
 export const MIN_COUNTDOWN_SECONDS = 30;
 export const MAX_COUNTDOWN_SECONDS = 3600;
@@ -205,17 +204,13 @@ function parseBumpExtras(
 }
 
 /**
- * Limites do funil, checados só na escrita (a leitura nunca pode falhar: dados já gravados
+ * Regras do funil, checadas só na escrita (a leitura nunca pode falhar: dados já gravados
  * continuam valendo). Devolve as mensagens de problema.
  */
 export function fulfillmentFunnelIssues(bumps: FulfillmentBump[]): string[] {
   const count = (r: FulfillmentRole) =>
     bumps.filter((b) => b.role === r).length;
   const issues: string[] = [];
-  if (count('BUMP') > MAX_ORDER_BUMPS)
-    issues.push(`Máximo de ${MAX_ORDER_BUMPS} order bumps`);
-  if (count('UPSELL') > 1) issues.push('Máximo de 1 upsell');
-  if (count('DOWNSELL') > 1) issues.push('Máximo de 1 downsell');
   if (count('DOWNSELL') > 0 && count('UPSELL') === 0)
     issues.push('Downsell exige um upsell configurado');
   return issues;

@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  MAX_ORDER_BUMPS,
   fulfillmentFunnelIssues,
   OfferFulfillmentError,
   isPrivateAddress,
@@ -160,12 +159,12 @@ describe('parseOfferFulfillment: extras do funil', () => {
     ).toMatch('Cronômetro');
   });
 
-  test('limites do funil só valem na escrita (leitura não perde dados)', () => {
+  test('funil sem limite de quantidade; downsell exige upsell', () => {
     const many = Array.from({ length: 7 }, (_, i) => ({
       offerId: `b${i}`,
       role: 'BUMP' as const,
     }));
-    expect(fulfillmentFunnelIssues(many).join()).toMatch('Máximo de 5');
+    expect(fulfillmentFunnelIssues(many)).toEqual([]);
     expect(readOfferFulfillment({ bumps: many }).bumps).toHaveLength(7);
     const two = [
       { offerId: 'u1', role: 'UPSELL' as const },
@@ -173,13 +172,9 @@ describe('parseOfferFulfillment: extras do funil', () => {
       { offerId: 'd1', role: 'DOWNSELL' as const },
       { offerId: 'd2', role: 'DOWNSELL' as const },
     ];
-    expect(fulfillmentFunnelIssues(two)).toEqual([
-      'Máximo de 1 upsell',
-      'Máximo de 1 downsell',
-    ]);
+    expect(fulfillmentFunnelIssues(two)).toEqual([]);
     expect(
       fulfillmentFunnelIssues([{ offerId: 'd', role: 'DOWNSELL' }]),
     ).toEqual(['Downsell exige um upsell configurado']);
-    expect(fulfillmentFunnelIssues(many.slice(0, MAX_ORDER_BUMPS))).toEqual([]);
   });
 });

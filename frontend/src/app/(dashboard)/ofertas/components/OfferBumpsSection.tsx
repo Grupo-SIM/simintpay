@@ -31,7 +31,6 @@ import {
   bumpCandidates,
   bumpEntryProblem,
   bumpRoleLabels,
-  bumpRoleLimits,
   digitsOnly,
   moveBump,
   patchBump,
@@ -171,8 +170,6 @@ export function OfferBumpsSection({
   };
   const patch = (offerId: string, fields: Parameters<typeof patchBump>[2]) =>
     onChange(patchBump(bumps, offerId, fields));
-  const countOf = (role: BumpRole) =>
-    bumps.filter((bump) => bump.role === role).length;
 
   const hasUpsell = bumps.some((bump) => bump.role === 'UPSELL');
   const hasBump = bumps.some((bump) => bump.role === 'BUMP');
@@ -249,8 +246,6 @@ export function OfferBumpsSection({
               const problem = bumpEntryProblem(bump, offer?.amountCents);
               const errorFor = (needle: RegExp) =>
                 problem && needle.test(problem) ? problem : undefined;
-              const roleFull = (role: BumpRole) =>
-                role !== bump.role && countOf(role) >= bumpRoleLimits[role];
               return (
                 <li
                   key={bump.offerId}
@@ -302,9 +297,7 @@ export function OfferBumpsSection({
                         }
                         options={BUMP_ROLES.map((role) => ({
                           value: role,
-                          label: roleFull(role)
-                            ? `${bumpRoleLabels[role]} (limite atingido)`
-                            : bumpRoleLabels[role],
+                          label: bumpRoleLabels[role],
                         }))}
                       />
                     </div>
