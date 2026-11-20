@@ -72,8 +72,8 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
           value={reportMoney(s.interestCents ?? 0)}
           icon={CreditCard}
           tooltip="Juros de parcelamento cobrados do comprador nas vendas do período."
-          valueClassName="text-amber-600 dark:text-amber-400"
-          iconClassName="text-amber-600 dark:text-amber-400"
+          valueClassName="text-rose-600 dark:text-rose-400"
+          iconClassName="text-rose-600 dark:text-rose-400"
         />
         <MetricCard
           label="Taxa de saque"
@@ -84,8 +84,8 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
           }
           icon={ArrowDownToLine}
           tooltip="Total de taxa cobrada nos saques do período."
-          valueClassName="text-orange-600 dark:text-orange-400"
-          iconClassName="text-orange-600 dark:text-orange-400"
+          valueClassName="text-rose-600 dark:text-rose-400"
+          iconClassName="text-rose-600 dark:text-rose-400"
         />
       </ReportMetricSection>
       <ReportMovementSections
