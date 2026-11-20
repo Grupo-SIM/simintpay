@@ -224,9 +224,17 @@ export default function AdminReportOverview({
       enabled: !platformScoped,
       staleTime: 60_000,
       queryFn: async () => {
-        return api.get<{ total: number }>(endpoints.admin.saques.list, {
-          query: { status: 'PENDING', pageSize: '1' },
+        const res = await api.get<{
+          total: number;
+          data?: Array<{ valorBruto?: number; valor?: number }>;
+        }>(endpoints.admin.saques.list, {
+          query: { status: 'PENDING', page: 1, pageSize: 200 },
         });
+        const valor = (res.data ?? []).reduce(
+          (sum, s) => sum + Number(s.valorBruto ?? s.valor ?? 0),
+          0,
+        );
+        return { total: res.total ?? 0, valor };
       },
     });
 
@@ -577,8 +585,9 @@ export default function AdminReportOverview({
                   value={
                     isLoadingSaquesPendentes
                       ? 'Carregando...'
-                      : `${saquesPendentesData?.total ?? 0} pendentes`
+                      : formatBRL(saquesPendentesData?.valor ?? 0)
                   }
+                  detail={`${saquesPendentesData?.total ?? 0} ${saquesPendentesData?.total === 1 ? 'saque' : 'saques'}`}
                   valueClassName="text-orange-600 dark:text-orange-400"
                   icon={Clock}
                   iconClassName="text-orange-600 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400"
