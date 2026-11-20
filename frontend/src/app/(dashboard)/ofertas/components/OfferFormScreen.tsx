@@ -94,7 +94,9 @@ function FormBody({
     ((codes: string[]) => Promise<Record<string, unknown>>) | null
   >(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [platform, setPlatform] = useState<string | null>(null);
+  const [platform, setPlatform] = useState<string | null>(
+    offer?.platformTag ?? null,
+  );
   const [amountError, setAmountError] = useState<string | null>(null);
   const patch = (changes: Partial<OfferForm>) =>
     setForm((current) => ({ ...current, ...changes }));
@@ -103,8 +105,15 @@ function FormBody({
 
   const recurring = isRecurring(form);
   const hasCredit = form.methods.includes('CREDIT_CARD');
+  // Só o admin reatribui plataforma/titular de uma oferta existente; sem mexer, o destino é preservado.
+  const canReassign = Boolean(id && user?.isAdmin);
+  const reassigned =
+    canReassign &&
+    (Boolean(platformCatalog.financialOwner) ||
+      (platform ?? '').toLowerCase() !==
+        (offer?.platformTag ?? '').toLowerCase());
   const platformReady =
-    Boolean(id) ||
+    (Boolean(id) && !reassigned) ||
     (!platformCatalog.isLoading &&
       !platformCatalog.isError &&
       platformCatalog.isDestinationValid(platform));
@@ -157,7 +166,7 @@ function FormBody({
 
   function handleSave() {
     if (save.isPending) return;
-    if (!id && !platformReady) {
+    if (!platformReady) {
       fail('Selecione um titular ou uma plataforma válida para continuar.');
       return;
     }
@@ -177,6 +186,14 @@ function FormBody({
       ),
       ...(!id && !platform && platformCatalog.user?.isAdmin
         ? { ownerUserId: platformCatalog.financialOwner?.id }
+        : {}),
+      ...(reassigned
+        ? platform
+          ? { platformTag: platform }
+          : {
+              platformTag: null,
+              ownerUserId: platformCatalog.financialOwner?.id,
+            }
         : {}),
     });
   }
@@ -330,7 +347,7 @@ function FormBody({
         </div>
         <div className="mt-5">
           {id ? (
-            offer?.platformTag ? (
+            offer?.platformTag && !canReassign ? (
               <p className="text-sm" data-testid="offer-platform">
                 Plataforma {offer.platformTag.toUpperCase()}
               </p>
@@ -378,7 +395,7 @@ function FormBody({
             </>
           )}
         </div>
-        {!id && (
+        {(!id || canReassign) && (
           <div className="mt-5">
             <ProductPlatformSection
               embedded
