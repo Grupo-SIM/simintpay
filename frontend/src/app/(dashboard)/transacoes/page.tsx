@@ -411,8 +411,15 @@ function TransacoesContent() {
       platformNames.get(tag.trim().toUpperCase()) ?? getPlatformLabel(tag),
     [platformNames],
   );
+  const [pendingPlatformChange, setPendingPlatformChange] = useState<{
+    id: string;
+    from: string;
+    to: string;
+  } | null>(null);
+  const [isAssigningPlatform, setIsAssigningPlatform] = useState(false);
   const assignPlatform = useCallback(
     async (id: string, tag: string) => {
+      setIsAssigningPlatform(true);
       try {
         await api.patch(`/transacoes/${encodeURIComponent(id)}/plataforma`, {
           platformTag: tag || null,
@@ -423,6 +430,9 @@ function TransacoesContent() {
           type: 'error',
           title: 'Não foi possível associar a plataforma',
         });
+      } finally {
+        setIsAssigningPlatform(false);
+        setPendingPlatformChange(null);
       }
     },
     [api, queryClient, toast],
@@ -750,7 +760,14 @@ function TransacoesContent() {
               <div onClick={(e) => e.stopPropagation()}>
                 <Dropdown
                   value={row.plataforma ?? ''}
-                  onChange={(v) => void assignPlatform(row.id, v)}
+                  onChange={(v) => {
+                    if (v === (row.plataforma ?? '')) return;
+                    setPendingPlatformChange({
+                      id: row.id,
+                      from: row.plataforma ?? '',
+                      to: v,
+                    });
+                  }}
                   theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                   variant="navbar"
                   searchable
@@ -1213,6 +1230,55 @@ function TransacoesContent() {
         minWidth="min-w-[1300px]"
       />
 
+      <Modal
+        open={pendingPlatformChange !== null}
+        title="Alterar plataforma da transação"
+        onClose={() => {
+          if (!isAssigningPlatform) setPendingPlatformChange(null);
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              disabled={isAssigningPlatform}
+              className="px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-900 dark:text-white/60 dark:hover:text-white"
+              onClick={() => setPendingPlatformChange(null)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={isAssigningPlatform}
+              className="rounded-full bg-linear-to-r from-emerald-500 to-teal-500 px-6 py-2 text-sm font-semibold text-white shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              onClick={() =>
+                pendingPlatformChange &&
+                void assignPlatform(
+                  pendingPlatformChange.id,
+                  pendingPlatformChange.to,
+                )
+              }
+            >
+              {isAssigningPlatform ? 'Alterando...' : 'Confirmar alteração'}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 dark:text-white/60">
+          Mover esta transação de{' '}
+          <strong>
+            {pendingPlatformChange?.from
+              ? platformName(pendingPlatformChange.from)
+              : 'Sem plataforma'}
+          </strong>{' '}
+          para{' '}
+          <strong>
+            {pendingPlatformChange?.to
+              ? platformName(pendingPlatformChange.to)
+              : 'Sem plataforma'}
+          </strong>
+          ? Isso altera a quem a transação é atribuída nos relatórios.
+        </p>
+      </Modal>
       <Modal
         open={isExportOpen && !showMaquinetasTabs}
         title="Exportar Transações"
