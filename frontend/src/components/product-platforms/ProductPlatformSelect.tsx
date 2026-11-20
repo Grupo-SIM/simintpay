@@ -1,15 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Check } from 'lucide-react';
 import { PlatformOwnerSelect } from '@/components/platforms/PlatformOwnerSelect';
-import {
-  Command,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/Command';
-import { CustomSelect } from '@/components/ui/CustomSelect';
+import { PlatformSelect } from './PlatformSelect';
 import { cn } from '@/lib/utils';
 import type { useProductPlatforms } from '@/hooks/use-product-platforms';
 
@@ -56,100 +49,6 @@ function DestinationToggle({
       </button>
       Usar proprietário em vez de plataforma
     </label>
-  );
-}
-
-function PlatformSearchSelect({
-  options,
-  value,
-  onChange,
-  disabled,
-  required,
-}: {
-  options: { value: string; label: string; disabled?: boolean }[];
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-  required?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const term = search.trim().toLowerCase();
-  const filtered = options.filter(
-    (option) => option.value && option.label.toLowerCase().includes(term),
-  );
-  const selected = options.find((option) => option.value === value);
-  return (
-    <CustomSelect
-      label="Plataforma"
-      required={required}
-      search={{
-        open,
-        onOpenChange: setOpen,
-        disabled,
-        placeholder: 'Selecione uma plataforma',
-        selection: selected ? (
-          <span className="block truncate font-medium leading-tight">
-            {selected.label}
-          </span>
-        ) : undefined,
-        content: (
-          <Command shouldFilter={false}>
-            <CommandInput
-              name="product-platform-search"
-              aria-label="Pesquisar plataformas"
-              placeholder="Buscar plataforma..."
-              value={search}
-              onValueChange={setSearch}
-              maxLength={100}
-            />
-            <CommandList className="scrollbar-themed">
-              {!required && value && (
-                <CommandItem
-                  value="__none__"
-                  className="cursor-pointer gap-2"
-                  onSelect={() => {
-                    onChange('');
-                    setOpen(false);
-                  }}
-                >
-                  <Check className="h-4 w-4 shrink-0 opacity-0" />
-                  <span className="truncate text-zinc-500">
-                    Venda pessoal (sem plataforma)
-                  </span>
-                </CommandItem>
-              )}
-              {filtered.length ? (
-                filtered.map((option) => (
-                  <CommandItem
-                    key={option.value}
-                    value={option.value}
-                    disabled={option.disabled}
-                    className="cursor-pointer gap-2"
-                    onSelect={() => {
-                      onChange(option.value);
-                      setOpen(false);
-                    }}
-                  >
-                    <Check
-                      className={cn(
-                        'h-4 w-4 shrink-0',
-                        value === option.value ? 'opacity-100' : 'opacity-0',
-                      )}
-                    />
-                    <span className="truncate font-medium">{option.label}</span>
-                  </CommandItem>
-                ))
-              ) : (
-                <p className="p-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Nenhuma plataforma encontrada.
-                </p>
-              )}
-            </CommandList>
-          </Command>
-        ),
-      }}
-    />
   );
 }
 
@@ -206,12 +105,15 @@ export function ProductPlatformSelect({
           onChange={(account) => onOwnerChange?.(account)}
         />
       ) : (
-        <PlatformSearchSelect
-          options={catalog.options}
+        <PlatformSelect
           value={value ?? ''}
           onChange={onChange}
           disabled={disabled}
           required={isAdmin}
+          emptyLabel={
+            !isAdmin && value ? 'Venda pessoal (sem plataforma)' : undefined
+          }
+          isDisabled={(platform) => !platform.isActive}
         />
       )}
       {disabled && (

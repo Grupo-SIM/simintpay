@@ -106,6 +106,18 @@ test('admin manages platforms and selects product financial owners', async () =>
       }
       if (path === '/api/platforms')
         return route.fulfill({ json: { data: [atlas, areaflix, other] } });
+      if (path === '/api/relatorios/plataformas')
+        return route.fulfill({
+          json: {
+            data: [atlas, areaflix, other].map((row) => ({
+              ...row,
+              id: row.tag,
+            })),
+            total: 3,
+            page: 1,
+            pageSize: 10,
+          },
+        });
       if (path === '/api/admin/relatorios/saldos-plataformas') {
         const page = Number(
           new URL(route.request().url()).searchParams.get('page'),
@@ -260,7 +272,7 @@ test('admin manages platforms and selects product financial owners', async () =>
         );
       }
     }
-    await page.locator('button[aria-haspopup="listbox"]').click();
+    await page.getByRole('combobox', { name: 'Plataforma' }).click();
     expect(await page.getByText(/Usuário:/).count()).toBe(0);
     for (const [width, height] of [
       [1440, 900],
@@ -271,13 +283,13 @@ test('admin manages platforms and selects product financial owners', async () =>
     }
     const otherOption = page.getByRole('option', { name: /^Outra loja$/ });
     if (!(await otherOption.isVisible())) {
-      await page.locator('button[aria-haspopup="listbox"]').click();
+      await page.getByRole('combobox', { name: 'Plataforma' }).click();
     }
     await otherOption.click();
-    await page.waitForFunction(
-      () =>
-        document.querySelector('button[aria-haspopup="listbox"]')
-          ?.textContent === 'Outra loja▾',
+    await page.waitForFunction(() =>
+      document
+        .querySelector('button[role="combobox"]')
+        ?.textContent?.includes('Outra loja'),
     );
     await page.getByRole('button', { name: 'Salvar destino' }).click();
     expect(

@@ -3,7 +3,6 @@ export { OwnedReportProfitChart } from './OwnedReportProfitChart';
 export { OwnedReportSeries } from './OwnedReportSeries';
 export { ReportError } from './ReportError';
 export { ReportPagination } from './ReportPagination';
-export { ReportPlatformSelect } from './ReportPlatformSelect';
 export { ReportSkeleton } from './ReportSkeleton';
 export { ReportSummaryCards } from './ReportSummaryCards';
 export { ReportFilterFields } from './ReportFilterFields';

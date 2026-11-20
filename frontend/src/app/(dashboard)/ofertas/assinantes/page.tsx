@@ -26,7 +26,7 @@ import { PlatformBadges } from '@/components/ui/PlatformBadges';
 import { useToast } from '@/components/ui/Toast';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useDebouncedInput } from '@/hooks/use-debounced-input';
-import { useProductPlatforms } from '@/hooks/use-product-platforms';
+import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 import { endpoints } from '@/services/api/endpoints';
 import { ActionButton } from '@/app/(dashboard)/relatorio/components/ActionButton';
 import { fmtBRL, useClienteApi } from '../../cliente/_shared';
@@ -63,7 +63,6 @@ export default function OfferSubscribersPage() {
   const { toast } = useToast();
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
-  const platformCatalog = useProductPlatforms();
   const theme = resolvedTheme === 'dark' ? 'dark' : 'light';
   const [filters, setFilters] = useState<SubscriberFilters>(
     emptySubscriberFilters,
@@ -303,19 +302,10 @@ export default function OfferSubscribersPage() {
             })
           }
         />
-        <Dropdown
-          label="Plataforma"
-          portal
-          theme={theme}
-          value={filters.platform || ALL}
-          options={withAll(
-            'Todas',
-            platformCatalog.options.map(({ value, label }) => ({
-              value,
-              label,
-            })),
-          )}
-          onChange={(value) => change({ platform: value === ALL ? '' : value })}
+        <PlatformSelect
+          value={filters.platform}
+          emptyLabel="Todas"
+          onChange={(platform) => change({ platform })}
         />
         <ActionButton
           className="cursor-pointer self-end"

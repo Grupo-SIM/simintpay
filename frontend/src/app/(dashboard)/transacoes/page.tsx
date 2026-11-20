@@ -1,6 +1,6 @@
 'use client';
 
-import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
+import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 
 import { useMemo, useState, useEffect, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
@@ -36,10 +36,8 @@ import {
   createApiClient,
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
-import { endpoints } from '@/services/api/endpoints';
 import type { Transacao } from '@/features/transacoes/types/transacoes.types';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { isMasterAdminClient } from '@/lib/is-master-admin-client';
 import {
   formatDocument,
   getPlatformBadgeClass,
@@ -163,23 +161,6 @@ const PLATFORM_DISPLAY: Record<string, string> = {
   frendz: 'Frendz',
 };
 
-/**
- * Tags canônicas (tenant_tag) de todas as plataformas fixas.
- * O dropdown do admin não pode depender só das linhas da página atual da tabela —
- * plataforma sem transação na página sumia do filtro.
- */
-const ADMIN_PLATFORM_TAGS = [
-  'ATLAS',
-  'AREAFLIX',
-  'BOSQUE',
-  'EBOOK',
-  'FRENDZ',
-  'PAGATG',
-  'RENOVADA',
-  'REVALIDA',
-  'ZERO_GRAU',
-];
-
 function getPlatformLabel(plataforma: string): string {
   return PLATFORM_DISPLAY[plataforma.toLowerCase()] ?? plataforma;
 }
@@ -196,7 +177,6 @@ function TransacoesContent() {
   const isAdmin = user?.isAdmin ?? false;
   const showLegacyFilters = false;
   // Master (adminljl@simpay.com.br / módulo "master"): filtro lista TODAS as plataformas.
-  const isMaster = isMasterAdminClient(user);
   const tenantSlug = (user?.tenantModule?.slug ?? '').toLowerCase();
   const userEmail = (user?.email ?? '').toLowerCase();
   const userName = (user?.name ?? '').toLowerCase();
@@ -382,23 +362,6 @@ function TransacoesContent() {
     [],
   );
 
-  const { data: platformDiscoveryData } = useQuery({
-    queryKey: ['transacoes-platform-discovery', isAdmin],
-    enabled: !isAdmin, // admin vê tudo via DOM, não precisa de discovery
-    staleTime: 5 * 60_000,
-    queryFn: () => listTransacoes(api, { page: 1, pageSize: 200 }),
-  });
-
-  // Master: lista canônica de TODAS as plataformas (mesma fonte da tela de Taxas),
-  // para o filtro do master não depender só das tags fixas / linhas da página atual.
-  const { data: platformsListData } = useQuery({
-    queryKey: ['transacoes-plataformas-list', isMaster],
-    enabled: isMaster,
-    staleTime: 5 * 60_000,
-    queryFn: () =>
-      api.get<{ data: { tag: string }[] }>(endpoints.admin.plataformas.list),
-  });
-
   const platformNames = useMemo(
     () =>
       new Map(
@@ -437,42 +400,6 @@ function TransacoesContent() {
     },
     [api, queryClient, toast],
   );
-
-  const uniquePlatforms = useMemo(() => {
-    const seen = new Set<string>();
-    // Admin: sempre oferece todas as plataformas fixas, não só as da página atual
-    if (isAdmin) {
-      for (const t of ADMIN_PLATFORM_TAGS) seen.add(t);
-      // Master: adiciona a lista canônica completa (/admin/plataformas) — todas as opções.
-      if (isMaster) {
-        for (const p of platformsListData?.data ?? []) {
-          const tag = p.tag?.trim().toUpperCase();
-          if (
-            tag &&
-            tag !== 'GLOBAL' &&
-            tag !== 'E-BOOKS-LP' &&
-            !tag.startsWith('CLIENT:')
-          ) {
-            seen.add(tag);
-          }
-        }
-      }
-    }
-    const rows = isAdmin
-      ? (data?.data ?? [])
-      : (platformDiscoveryData?.data ?? []);
-    for (const row of rows) {
-      const p = row.plataforma?.trim().toUpperCase();
-      if (p) seen.add(p);
-    }
-    return [...seen].sort();
-  }, [
-    isAdmin,
-    isMaster,
-    data?.data,
-    platformDiscoveryData?.data,
-    platformsListData?.data,
-  ]);
 
   // Admin sempre vê o filtro; usuário comum só se tem transações em 2+ plataformas
   const showPlataformaFilter = false;
@@ -1027,24 +954,14 @@ function TransacoesContent() {
           className={`grid gap-3 ${showPlataformaFilter ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}
         >
           {showPlataformaFilter && (
-            <PlatformFilterSelect
+            <PlatformSelect
               label="Plataforma:"
               value={plataforma}
+              emptyLabel="Todas"
               onChange={(v) => {
                 setPlataforma(v);
                 updateUrl({ plataforma: v || undefined });
               }}
-              theme={fieldTheme}
-              variant="navbar"
-              searchable
-              searchPlaceholder="Buscar plataforma..."
-              options={[
-                { value: '', label: 'Todas' },
-                ...uniquePlatforms.map((p) => ({
-                  value: p,
-                  label: getPlatformLabel(p),
-                })),
-              ]}
             />
           )}
           <DateRangePickerField

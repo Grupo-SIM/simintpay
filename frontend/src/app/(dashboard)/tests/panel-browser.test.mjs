@@ -108,6 +108,20 @@ test('panel controls, platform search, accounts and transactions', async () => {
         },
       });
     if (path === '/platforms') return respond({ data: platforms });
+    if (path === '/relatorios/plataformas') {
+      const term = (url.searchParams.get('search') ?? '').toLowerCase();
+      const page = Number(url.searchParams.get('page') ?? 1);
+      const size = Number(url.searchParams.get('pageSize') ?? 10);
+      const rows = platforms
+        .filter((row) => `${row.name} ${row.tag}`.toLowerCase().includes(term))
+        .map((row) => ({ ...row, id: row.tag }));
+      return respond({
+        data: rows.slice((page - 1) * size, page * size),
+        total: rows.length,
+        page,
+        pageSize: size,
+      });
+    }
     if (path === '/admin/relatorios/saldos-plataformas')
       return respond({
         data: [{ owner: { id: 'owner', name: 'Maria' } }],
@@ -193,22 +207,20 @@ test('panel controls, platform search, accounts and transactions', async () => {
     const go = (path) => page.goto(`http://127.0.0.1:${server.port}${path}`);
     await go('/search');
     await page
-      .getByRole('button', { name: 'Plataforma', exact: true })
+      .getByRole('combobox', { name: 'Plataforma', exact: true })
       .waitFor();
     await page.waitForFunction(
       () => !document.querySelector('button')?.disabled,
     );
-    await page.getByRole('button', { name: 'Plataforma', exact: true }).click();
     await page
-      .getByPlaceholder('Buscar plataforma ou proprietário...')
-      .fill('Loja 29');
+      .getByRole('combobox', { name: 'Plataforma', exact: true })
+      .click();
+    await page.getByPlaceholder('Buscar plataforma...').fill('Loja 29');
     await page.getByRole('option', { name: /Loja 29/ }).waitFor();
     await page.waitForFunction(
       () => document.querySelectorAll('[role="option"]').length === 1,
     );
-    await page
-      .getByPlaceholder('Buscar plataforma ou proprietário...')
-      .press('ArrowDown');
+    await page.getByPlaceholder('Buscar plataforma...').press('ArrowDown');
     await page.keyboard.press('Enter');
     expect(await page.locator('output').textContent()).toBe('LOJA-29');
 
@@ -232,10 +244,10 @@ test('panel controls, platform search, accounts and transactions', async () => {
     expect(await page.getByText('Itens criados', { exact: true }).count()).toBe(
       0,
     );
-    await page.getByRole('button', { name: 'Plataforma', exact: true }).click();
     await page
-      .getByPlaceholder('Buscar plataforma ou proprietário...')
-      .fill('Loja 29');
+      .getByRole('combobox', { name: 'Plataforma', exact: true })
+      .click();
+    await page.getByPlaceholder('Buscar plataforma...').fill('Loja 29');
     await page.getByRole('option', { name: /Loja 29/ }).click();
     await page.waitForFunction(() =>
       document.body.textContent.includes('Loja 29'),

@@ -2,6 +2,7 @@
 
 import { FilterX } from 'lucide-react';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 import { Input } from '@/components/ui/Input';
 import { useDebouncedInput } from '@/hooks/use-debounced-input';
 import { ActionButton } from '@/app/(dashboard)/relatorio/components/ActionButton';
@@ -29,14 +30,12 @@ const withAll = (
 export function OfferFiltersBar({
   filters,
   theme,
-  platforms,
   isAdmin = false,
   onChange,
 }: {
   filters: OfferFilters;
   isAdmin?: boolean;
   theme: 'light' | 'dark';
-  platforms: { value: string; label: string }[];
   onChange: (next: OfferFilters) => void;
 }) {
   // Qualquer filtro volta para a primeira página.
@@ -90,15 +89,10 @@ export function OfferFiltersBar({
           })
         }
       />
-      <Dropdown
-        label="Plataforma"
-        portal
-        theme={theme}
-        value={filters.platformTag || ALL}
-        options={withAll('Todas', platforms)}
-        onChange={(value) =>
-          change({ platformTag: value === ALL ? '' : value })
-        }
+      <PlatformSelect
+        value={filters.platformTag}
+        emptyLabel="Todas"
+        onChange={(platformTag) => change({ platformTag })}
       />
       <Dropdown
         label="Meio de pagamento"

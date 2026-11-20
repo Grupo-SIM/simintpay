@@ -17,7 +17,6 @@ import { useToast } from '@/components/ui/Toast';
 import { CoproductionButton } from '@/components/coproduction';
 import { ActionButton } from '@/app/(dashboard)/relatorio/components/ActionButton';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { endpoints } from '@/services/api/endpoints';
 import {
   checkoutUrlOferta,
@@ -82,7 +81,6 @@ export function OfferListing({
   const { toast } = useToast();
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
-  const platformCatalog = useProductPlatforms();
   const apiQuery = filtersToApiQuery(
     user?.isAdmin ? filters : { ...filters, ownerSearch: '' },
   );
@@ -298,10 +296,6 @@ export function OfferListing({
         filters={filters}
         isAdmin={Boolean(user?.isAdmin)}
         theme={theme}
-        platforms={platformCatalog.options.map(({ value, label }) => ({
-          value,
-          label,
-        }))}
         onChange={onFiltersChange}
       />
       {!query.isPending && query.isError ? (

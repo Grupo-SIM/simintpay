@@ -35,7 +35,7 @@ import { PortalTooltip } from '@/components/ui/PortalTooltip';
 import { cn, getPlatformBadgeClass, formatDocument } from '@/lib/utils';
 
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
-import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
+import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { AccountPlatformsButton } from '../components';
 import type { Lead } from '@/features/admin/types/admin.types';
@@ -896,16 +896,9 @@ export default function UsuariosTab({
               {/* Seletor de plataforma específica */}
               {exportScope === 'plataforma' && (
                 <div className="flex flex-col gap-1.5">
-                  <PlatformFilterSelect
-                    hideOwner
-                    theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
-                    label="Plataforma"
+                  <PlatformSelect
                     value={exportPlatform}
                     onChange={(value) => setExportPlatform(value.toLowerCase())}
-                    placeholder="Selecione uma plataforma"
-                    options={Object.entries(PLATFORM_LABELS).map(
-                      ([value, label]) => ({ value, label }),
-                    )}
                   />
                 </div>
               )}
@@ -1248,23 +1241,13 @@ export default function UsuariosTab({
             />
           </div>
 
-          <PlatformFilterSelect
-            hideOwner
-            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
-            placeholder="Plataforma"
+          <PlatformSelect
             value={platform}
+            emptyLabel="Todas as plataformas"
             onChange={(value) => {
               setPlatform(value.toLowerCase());
               setPage(1);
             }}
-            options={[
-              { value: '', label: 'Todas as plataformas' },
-              ...Object.entries(PLATFORM_LABELS).map(([value, label]) => ({
-                value,
-                label,
-              })),
-            ]}
-            className="h-9 min-w-[220px] rounded-xl text-sm"
           />
 
           <Dropdown

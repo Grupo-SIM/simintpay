@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { CoproductionReceipts } from '@/components/coproduction/CoproductionReceipts';
 import { ReportsLayout } from './ReportsLayout';
 import { ReportFilterFields } from './ReportFilterFields';
-import { ReportPlatformSelect } from './ReportPlatformSelect';
+import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 import { AtlasExtraCards } from './AtlasExtraCards';
 import { OwnedReportContent } from './OwnedReportContent';
 import { OwnedReportSeries } from './OwnedReportSeries';
@@ -63,13 +63,16 @@ export function UnifiedReports() {
           method={method}
           onMethodChange={setMethod}
           platform={
-            <ReportPlatformSelect
+            <PlatformSelect
+              multiple
               value={platform}
+              emptyLabel={
+                admin ? 'Todas as plataformas' : 'Todas as minhas plataformas'
+              }
               onChange={(value) => {
                 setAccessLost(false);
                 setPlatform(value);
               }}
-              allowAll
             />
           }
         >

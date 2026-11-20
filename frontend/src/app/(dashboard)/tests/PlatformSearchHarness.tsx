@@ -1,16 +1,11 @@
 import { useState } from 'react';
-import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
+import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 
 export function PlatformSearchHarness() {
   const [platform, setPlatform] = useState('');
   return (
     <>
-      <PlatformFilterSelect
-        label="Plataforma"
-        options={[{ value: '', label: 'Todas' }]}
-        value={platform}
-        onChange={setPlatform}
-      />
+      <PlatformSelect value={platform} onChange={setPlatform} />
       <output>{platform}</output>
     </>
   );
