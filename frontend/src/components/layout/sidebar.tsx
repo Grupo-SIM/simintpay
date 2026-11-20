@@ -419,14 +419,16 @@ export function Sidebar() {
           />
         )}
 
-        <NavLink
-          open={open}
-          pathname={pathname}
-          labelStyle={labelStyle}
-          href="/plataformas"
-          icon={Package}
-          label="Plataformas"
-        />
+        {!user?.isAdmin && (
+          <NavLink
+            open={open}
+            pathname={pathname}
+            labelStyle={labelStyle}
+            href="/plataformas"
+            icon={Package}
+            label="Plataformas"
+          />
+        )}
         <NavLink
           open={open}
           pathname={pathname}
