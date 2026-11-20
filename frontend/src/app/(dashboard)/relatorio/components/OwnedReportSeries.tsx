@@ -23,6 +23,30 @@ export function OwnedReportSeries({
         signal,
       }),
   });
+  const grouping = admin && kind !== 'mensal' ? kind : null;
+  const internal = useReportQuery({
+    queryKey: ['series-internal', grouping, filters],
+    enabled: grouping !== null,
+    queryFn: ({ signal }) =>
+      api.get<{
+        grupos: {
+          chave: string;
+          taxaAdquirente: number;
+          lucroLiquido: number;
+        }[];
+      }>('/admin/relatorios/mensal', {
+        query: {
+          dataInicio: filters.startDate,
+          dataFim: filters.endDate,
+          metodoPagamento: filters.paymentMethod,
+          agrupar: grouping === 'metodos' ? 'metodo' : 'status',
+        },
+        signal,
+      }),
+  });
+  const internalByKey = new Map(
+    (internal.data?.grupos ?? []).map((g) => [g.chave, g]),
+  );
   if (query.isPending) return <ReportSkeleton />;
   if (query.isError) return <ReportError retry={() => void query.refetch()} />;
   const title =
@@ -53,6 +77,8 @@ export function OwnedReportSeries({
           gross: row.grossCents / 100,
           net: row.netCents / 100,
           fees: row.feesCents == null ? null : row.feesCents / 100,
+          acquirerFees: internalByKey.get(row.key)?.taxaAdquirente,
+          profit: internalByKey.get(row.key)?.lucroLiquido,
           interest: row.interestCents == null ? null : row.interestCents / 100,
         }))}
     />

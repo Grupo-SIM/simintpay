@@ -33,7 +33,7 @@ export function ReportResultsTable({
   loading = false,
   controls,
 }: Props) {
-  const internal = admin && monthly;
+  const internal = admin;
   const columns = [
     { label },
     { label: 'Vendas', numeric: true },

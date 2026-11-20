@@ -4091,7 +4091,10 @@ export class AdminController {
     @Query('dataInicio') dataInicioMes?: string,
     @Query('dataFim') dataFimMes?: string,
     @Query('metodoPagamento') metodoPagamento?: string,
+    @Query('agrupar') agrupar?: string,
   ) {
+    if (agrupar && !['metodo', 'status'].includes(agrupar))
+      throw new BadRequestException('Agrupamento inválido');
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const agora = dayjs().tz(TZ);
 
@@ -4143,11 +4146,43 @@ export class AdminController {
         installments: true,
         acquirerFee: true,
         financialSnapshot: true,
+        paymentMethod: true,
+        status: true,
       },
       orderBy: { createdAt: 'asc' },
     });
 
     const txRows = txRowsBase;
+
+    if (agrupar) {
+      const grupos = new Map<
+        string,
+        { taxaAdquirente: number; lucroLiquido: number }
+      >();
+      for (const tx of txRows) {
+        if (!transacaoEntraNoLucroSimpayConsolidado(tx.amount, tx.description))
+          continue;
+        const chave = agrupar === 'metodo' ? tx.paymentMethod : tx.status;
+        const prev = grupos.get(chave) ?? {
+          taxaAdquirente: 0,
+          lucroLiquido: 0,
+        };
+        grupos.set(chave, {
+          taxaAdquirente:
+            prev.taxaAdquirente +
+            (realizedAcquirerCost(tx) ?? Number(tx.acquirerFee ?? 0)),
+          lucroLiquido:
+            prev.lucroLiquido + lucroSimpayUmaTransacaoConsolidado(tx),
+        });
+      }
+      return {
+        grupos: [...grupos].map(([chave, v]) => ({
+          chave,
+          taxaAdquirente: Number(v.taxaAdquirente.toFixed(2)),
+          lucroLiquido: Number(v.lucroLiquido.toFixed(2)),
+        })),
+      };
+    }
 
     type MesRow = {
       mes: string;
