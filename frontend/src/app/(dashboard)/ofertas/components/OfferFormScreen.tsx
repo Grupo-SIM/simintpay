@@ -105,18 +105,27 @@ function FormBody({
 
   const recurring = isRecurring(form);
   const hasCredit = form.methods.includes('CREDIT_CARD');
-  // Só o admin reatribui plataforma/titular de uma oferta existente; sem mexer, o destino é preservado.
-  const canReassign = Boolean(id && user?.isAdmin);
+  // Admin reatribui plataforma/titular; dono de plataforma troca a plataforma ou volta para a própria conta.
+  // Sem mexer no seletor, o destino é preservado.
+  const isAdmin = Boolean(user?.isAdmin);
+  const canReassign = Boolean(
+    id &&
+    (isAdmin ||
+      offer?.platformTag ||
+      platformCatalog.selectableTags.length > 0),
+  );
   const reassigned =
     canReassign &&
     (Boolean(platformCatalog.financialOwner) ||
       (platform ?? '').toLowerCase() !==
         (offer?.platformTag ?? '').toLowerCase());
+  // Fora do admin, "sem plataforma" é a própria conta do titular e dispensa escolha de proprietário.
+  const personalDestination = Boolean(id && !isAdmin && !platform);
   const platformReady =
     (Boolean(id) && !reassigned) ||
     (!platformCatalog.isLoading &&
       !platformCatalog.isError &&
-      platformCatalog.isDestinationValid(platform));
+      (personalDestination || platformCatalog.isDestinationValid(platform)));
 
   const save = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
@@ -192,7 +201,9 @@ function FormBody({
           ? { platformTag: platform }
           : {
               platformTag: null,
-              ownerUserId: platformCatalog.financialOwner?.id,
+              ...(isAdmin
+                ? { ownerUserId: platformCatalog.financialOwner?.id }
+                : {}),
             }
         : {}),
     });
