@@ -50,7 +50,7 @@ export class OfferPreviewBumpDto {
   isActive?: boolean;
 }
 
-/** Campos editáveis de uma oferta. Titular, código e plataforma nunca mudam na edição. */
+/** Campos editáveis de uma oferta. O código nunca muda; titular e plataforma só são reatribuídos por admin. */
 export class UpdateOfferDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -145,12 +145,31 @@ export class UpdateOfferDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Admin: novo titular financeiro (deve ser o dono da plataforma, quando houver uma)',
+  })
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Admin: nova plataforma; null remove a plataforma (venda pessoal do titular)',
+  })
+  @IsOptional()
+  @IsString()
+  platformTag?: string | null;
 }
 
 export class CreateOfferDto extends OmitType(UpdateOfferDto, [
   'name',
   'amountCents',
   'isActive',
+  'ownerUserId',
+  'platformTag',
 ] as const) {
   @ApiProperty()
   @IsString()

@@ -281,11 +281,12 @@ export class OfferService {
     dto: UpdateOfferDto,
   ): Promise<Offer> {
     const existing = await this.owned(actor, id);
-    // Titular, plataforma e código não mudam na edição.
-    assertOwnershipPreserved(
-      { userId: existing.ownerUserId, platformTag: existing.platformTag },
-      dto as { ownerUserId?: string; platformTag?: string },
-    );
+    // Só o admin reatribui titular/plataforma (o código nunca muda); os demais não podem.
+    const destination = await this.resolveReassignment(actor, existing, dto);
+    const ownerUserId = destination?.ownerUserId ?? existing.ownerUserId;
+    const platformTag = destination
+      ? destination.platformTag
+      : existing.platformTag;
     const renewalMode = dto.renewalMode ?? existing.renewalMode;
     const input: OfferInput = {
       amountCents: dto.amountCents ?? existing.amountCents,
@@ -320,17 +321,18 @@ export class OfferService {
             ),
           }
         : (existing.metadata as Record<string, unknown> | null),
-      acquirer: getModuleAcquirer(existing.platformTag),
+      acquirer: getModuleAcquirer(platformTag),
     };
-    if (dto.amountCents !== undefined) {
+    if (dto.amountCents !== undefined && !destination) {
       const owner = await this.users.findById(existing.ownerUserId);
       assertClientCanCreate(owner);
     }
-    const normalized = await this.normalize(input, existing.platformTag);
+    const normalized = await this.normalize(input, platformTag);
     return this.prisma.offer.update({
       where: { id },
       data: {
         ...this.persistable(normalized),
+        ...(destination ? { ownerUserId, platformTag } : {}),
         name: dto.name,
         description: dto.description,
         isActive: dto.isActive,
@@ -354,11 +356,48 @@ export class OfferService {
               : {}),
             ...dto.fulfillment,
           },
-          existing.ownerUserId,
+          ownerUserId,
           existing.id,
         ),
       },
     });
+  }
+
+  /**
+   * Admin-only reassignment of the financial owner and/or platform (e.g. a link created under the wrong
+   * platform). Returns the new destination, or null when nothing changes. Past charges keep the owner they
+   * were created with; only future sales and cycles follow the offer.
+   */
+  private async resolveReassignment(
+    actor: OfferActor,
+    existing: Offer,
+    dto: UpdateOfferDto,
+  ): Promise<Pick<Offer, 'ownerUserId' | 'platformTag'> | null> {
+    if (actor.role !== 'ADMIN') {
+      assertOwnershipPreserved(
+        { userId: existing.ownerUserId, platformTag: existing.platformTag },
+        dto as { ownerUserId?: string; platformTag?: string },
+      );
+      return null;
+    }
+    if (dto.ownerUserId === undefined && dto.platformTag === undefined)
+      return null;
+    const target =
+      dto.platformTag === undefined ? existing.platformTag : dto.platformTag;
+    const { owner, platformTag } = await resolveFinancialOwner(
+      this.users,
+      actor.id,
+      {
+        ownerUserId: dto.ownerUserId,
+        platforms: target ? [target] : undefined,
+      },
+    );
+    assertClientCanCreate(owner);
+    const next = { ownerUserId: String(owner.id), platformTag };
+    const unchanged =
+      next.ownerUserId === existing.ownerUserId &&
+      (next.platformTag ?? null) === (existing.platformTag ?? null);
+    return unchanged ? null : next;
   }
 
   async list(actor: OfferActor, query: ListOffersQueryDto = {}) {
