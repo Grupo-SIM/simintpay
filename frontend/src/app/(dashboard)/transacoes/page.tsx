@@ -401,9 +401,6 @@ function TransacoesContent() {
     [api, queryClient, toast],
   );
 
-  // Admin sempre vê o filtro; usuário comum só se tem transações em 2+ plataformas
-  const showPlataformaFilter = false;
-
   const filteredRows = data?.data ?? [];
 
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -950,20 +947,16 @@ function TransacoesContent() {
       </div>
 
       <div className="relative z-30 rounded-3xl border border-white/40 bg-white/70 p-4 shadow-[0_16px_44px_-24px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
-        <div
-          className={`grid gap-3 ${showPlataformaFilter ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}
-        >
-          {showPlataformaFilter && (
-            <PlatformSelect
-              label="Plataforma:"
-              value={plataforma}
-              emptyLabel="Todas"
-              onChange={(v) => {
-                setPlataforma(v);
-                updateUrl({ plataforma: v || undefined });
-              }}
-            />
-          )}
+        <div className="grid gap-3 md:grid-cols-4">
+          <PlatformSelect
+            label="Plataforma:"
+            value={plataforma}
+            emptyLabel="Todas"
+            onChange={(v) => {
+              setPlataforma(v);
+              updateUrl({ plataforma: v || undefined });
+            }}
+          />
           <DateRangePickerField
             key={`${searchParams.get('dataInicio')}:${searchParams.get('dataFim')}`}
             label="Data inicial e final:"
