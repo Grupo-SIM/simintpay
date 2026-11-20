@@ -14,32 +14,38 @@ const fraction = (cents: number, ppm: number) =>
 
 export const MAX_TARGET_FEE_PPM = 1_000_000;
 
+/** Platform override that turns the target off, ignoring the global one. 0 is a real 0% target. */
+export const TARGET_FEE_OFF = -1;
+
 /**
- * A target fee is a share of the purchase total, in millionths. Platform overrides may also be 0 ("off,
- * ignore the global target"); `null` means "inherit the global target".
+ * A target fee is a share of the purchase total, in millionths; 0 is valid. Platform overrides may also be
+ * `TARGET_FEE_OFF` ("off, ignore the global target"); `null` means "inherit the global target" (and "off" globally).
  */
 export function validateTargetFeePpm(
   value: unknown,
-  allowZero = false,
+  platform = false,
 ): number | null {
   if (value === null) return null;
   if (
     typeof value !== 'number' ||
     !Number.isSafeInteger(value) ||
-    value < (allowZero ? 0 : 1) ||
-    value >= MAX_TARGET_FEE_PPM
-  )
+    (platform && value === TARGET_FEE_OFF)
+  ) {
+    if (platform && value === TARGET_FEE_OFF) return value;
+    throw new Error('Taxa alvo inválida');
+  }
+  if (value < 0 || value >= MAX_TARGET_FEE_PPM)
     throw new Error('Taxa alvo inválida');
   return value;
 }
 
-/** Platform override wins (0 turns the target off); otherwise the global target applies. */
+/** Platform override wins (`TARGET_FEE_OFF` turns the target off); otherwise the global target applies. */
 export function resolveTargetFee(
   globalPpm: number | null | undefined,
   platformPpm: number | null | undefined,
 ): number | null {
   const ppm = platformPpm ?? globalPpm ?? null;
-  return ppm ? ppm : null;
+  return ppm === null || ppm === TARGET_FEE_OFF ? null : ppm;
 }
 
 /**
@@ -47,7 +53,8 @@ export function resolveTargetFee(
  * `targetFeePpm` of the original amount: the most expensive active acquirer's processing cost (MDR + fixed) plus a
  * SimIntPay addition that completes the target. Interest is unchanged: acquirer/SimIntPay interest and the
  * buyer's pass-through follow the normal calculation, and additive fees are applied by the caller, outside it.
- * When the most expensive acquirer already costs more than the target the addition is zero (`targetUnreachable`).
+ * When the most expensive acquirer costs more than the target the addition is negative: SimIntPay absorbs the
+ * difference so the seller still pays exactly the target.
  */
 export function calculateTargetFinancials(
   policy: ResolvedPolicy,
@@ -99,7 +106,7 @@ export function calculateTargetFinancials(
     buyerTotalAsInput,
   );
   const targetCents = round(fraction(originalCents, targetFeePpm));
-  const addition = Math.max(0, targetCents - base.processingCostCents);
+  const addition = targetCents - base.processingCostCents;
   base.contractedCostCents += addition;
   base.processingCostCents += addition;
   base.netCents -= addition;
@@ -112,6 +119,5 @@ export function calculateTargetFinancials(
   return {
     ...base,
     targetFeePpm,
-    targetUnreachable: base.processingCostCents - addition > targetCents,
   };
 }

@@ -66,7 +66,6 @@ export type FinancialResult = {
   installments: number;
   targetFeePpm?: number;
   /** The most expensive acquirer already costs more than the target. */
-  targetUnreachable?: boolean;
   originalCents: number;
   buyerAdditionCents: number;
   buyerInterestCents: number;

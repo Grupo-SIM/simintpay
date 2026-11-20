@@ -48,7 +48,7 @@ export function FinancialPolicyDraft({
   const [feeMode, setFeeMode] = useState<FeeMode | null>(
     configuration.feeMode ?? null,
   );
-  // Admin-only. GLOBAL: the default target (null = off). Platform: override (null inherits, 0 = off).
+  // Admin-only. GLOBAL: the default target (null = off). Platform: override (null inherits, -1 = off).
   const isGlobal = tag === 'GLOBAL';
   const [targetFeePpm, setTargetFeePpm] = useState<number | null>(
     configuration.targetFeePpm ?? null,
@@ -56,7 +56,7 @@ export function FinancialPolicyDraft({
   const effectiveTarget = isGlobal
     ? targetFeePpm
     : (targetFeePpm ?? configuration.globalTargetFeePpm ?? null);
-  const targetActive = !!effectiveTarget;
+  const targetActive = effectiveTarget !== null && effectiveTarget >= 0;
   const [disabledLanes, setDisabledLanes] = useState<string[]>(
     configuration.disabledLanes ?? [],
   );

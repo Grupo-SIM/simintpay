@@ -92,7 +92,7 @@ export async function loadFinancialPolicy(
   resolved.document.interestOnly = true;
   // The global target is the default of every platform; platform overrides live on `Platform.targetFeePpm`.
   const globalTarget = (global?.document as Policy | undefined)?.targetFeePpm;
-  if (globalTarget) resolved.document.targetFeePpm = globalTarget;
+  if (globalTarget != null) resolved.document.targetFeePpm = globalTarget;
   else delete resolved.document.targetFeePpm;
   normalizeCurrentAdditions(resolved.document);
   // Materialize current defaults so frozen snapshots preserve their exact owner rule.
@@ -319,7 +319,7 @@ export async function saveFinancialPolicy(
   if (input.targetFeePpm !== undefined) {
     if (!admin)
       throw new ForbiddenException('Taxa alvo exclusiva do administrador');
-    // GLOBAL stores the default target in its document; platforms store an override (0 = off, null = inherit).
+    // GLOBAL stores the default target in its document; platforms store an override (TARGET_FEE_OFF = off, null = inherit).
     if (tag !== 'GLOBAL' && hasNoPlatformRow(tag))
       throw new BadRequestException('Taxa alvo inválida');
     try {
@@ -377,7 +377,7 @@ export async function saveFinancialPolicy(
         if (input.lanes !== undefined)
           document.lanes = input.lanes as Policy['lanes'];
         if (tag === 'GLOBAL' && input.targetFeePpm !== undefined) {
-          if (input.targetFeePpm)
+          if (input.targetFeePpm !== null)
             document.targetFeePpm = input.targetFeePpm as number;
           else delete document.targetFeePpm;
         }

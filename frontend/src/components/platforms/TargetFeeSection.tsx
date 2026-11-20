@@ -5,10 +5,12 @@ import { formatPpm } from './financial-types';
 type Mode = 'inherit' | 'off' | 'custom';
 
 const DEFAULT_TARGET_PPM = 100_000;
+/** Platform override that disables the target (mirrors the backend `TARGET_FEE_OFF`). */
+export const TARGET_FEE_OFF = -1;
 
 /**
  * Target fee: the total share of the purchase charged to the seller, interest-free. The global default applies to
- * every platform; a platform may override it (`value` 0 turns it off, `null` inherits the global one).
+ * every platform; a platform may override it (`TARGET_FEE_OFF` turns it off, `null` inherits the global one).
  */
 export function TargetFeeSection({
   global,
@@ -25,12 +27,12 @@ export function TargetFeeSection({
   onValidityChange: (name: string, valid: boolean) => void;
 }) {
   const mode: Mode = global
-    ? value
+    ? value !== null
       ? 'custom'
       : 'off'
     : value === null
       ? 'inherit'
-      : value === 0
+      : value === TARGET_FEE_OFF
         ? 'off'
         : 'custom';
   const change = (next: Mode) => {
@@ -41,11 +43,11 @@ export function TargetFeeSection({
         : next === 'off'
           ? global
             ? null
-            : 0
-          : globalValue || DEFAULT_TARGET_PPM,
+            : TARGET_FEE_OFF
+          : (globalValue ?? DEFAULT_TARGET_PPM),
     );
   };
-  const effective = global ? value : (value ?? globalValue);
+  const effective = global || value !== null ? value : globalValue;
   return (
     <div className="space-y-3">
       <div className="max-w-md">
@@ -59,9 +61,10 @@ export function TargetFeeSection({
               : [
                   {
                     value: 'inherit',
-                    label: globalValue
-                      ? `Usar padrão global (${formatPpm(globalValue)})`
-                      : 'Usar padrão global (desativada)',
+                    label:
+                      globalValue !== null
+                        ? `Usar padrão global (${formatPpm(globalValue)})`
+                        : 'Usar padrão global (desativada)',
                   },
                 ]),
             { value: 'off', label: 'Desativada' },
@@ -77,10 +80,10 @@ export function TargetFeeSection({
             rate
             value={value}
             onChange={(ppm) =>
-              onChange(ppm > 0 && ppm < 1_000_000 ? ppm : value)
+              onChange(ppm >= 0 && ppm < 1_000_000 ? ppm : value)
             }
             onValidityChange={(name, valid) =>
-              onValidityChange(name, valid && value > 0)
+              onValidityChange(name, valid && value >= 0)
             }
           />
         </div>
