@@ -26,7 +26,6 @@ import {
   BUMP_ROLES,
   MAX_COUNTDOWN_SECONDS,
   MAX_HEADLINE,
-  MAX_ORDER_BUMPS,
   MIN_COUNTDOWN_SECONDS,
   addBump,
   bumpCandidates,
@@ -237,11 +236,9 @@ export function OfferBumpsSection({
       )}
       <div className="flex flex-col gap-4" data-testid="bumps-section">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Ofereça outras ofertas ativas de compra única no checkout. Limites:
-          order bumps {countOf('BUMP')}/{MAX_ORDER_BUMPS}, upsell{' '}
-          {countOf('UPSELL')}/1 e downsell {countOf('DOWNSELL')}/1; o downsell
-          exige um upsell. A ordem da lista é a ordem no checkout e remover uma
-          linha tira a oferta do funil.
+          Ofereça outras ofertas ativas de compra única no checkout.
+          <br />A ordem da lista é a ordem no checkout e remover uma linha tira
+          a oferta do funil.
         </p>
         {bumps.length > 0 && (
           <ul className="flex flex-col gap-2">
