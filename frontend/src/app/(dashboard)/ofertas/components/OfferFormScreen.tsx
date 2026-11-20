@@ -218,7 +218,7 @@ function FormBody({
       return;
     }
     if (!platformReady) {
-      fail('Selecione o destino financeiro da oferta.');
+      fail('Selecione a plataforma/usuário da oferta.');
       return;
     }
     setPreviewPending(true);
