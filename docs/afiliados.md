@@ -34,10 +34,16 @@ cadastro, `AffiliateCommission`) e da co-produção. Código e implementação: 
   (no Delivery, os itens). Sai da parte do dono; coprodutores não mudam.
 - Soma: afiliado efetivo + coprodutores <= 10000 bps, sobre a lista **já deduplicada** (ver abaixo).
   Um código identifica uma pessoa, então o pior caso é o maior total, entre as pessoas listadas, de
-  esse afiliado mais os coprodutores da venda, contando a pessoa uma só vez. O PUT rejeita (400) o
-  pior caso, inclusive contra as ofertas da plataforma (PUT da plataforma). A captura revalida
-  sobre a lista deduplicada: se uma co-produção posterior estourar a soma, a nova venda é recusada
-  (409) e a renovação segue sem comissão.
+  esse afiliado mais os coprodutores da venda, contando a pessoa uma só vez. A validação é
+  **simétrica**: o PUT de afiliados e o PUT de co-produção (plataforma e oferta) calculam o mesmo pior
+  caso conjunto, com a mesma função (`worstCaseBps`, via `assertJointLimit` em
+  `affiliate-limit.ts`), inclusive contra as ofertas da plataforma (PUT da plataforma). Quem estoura é
+  rejeitado com 400 e mensagem que informa o total e o excedente (ex.: "A soma de coprodutores e
+  afiliados chegaria a 100,01% do líquido, 0,01% acima do limite de 100%..."), sem e-mail de
+  terceiros; a gravação inteira é desfeita. Os dois PUTs tomam o mesmo lock da plataforma
+  (`affiliate:<platformId>`), então salvamentos concorrentes não passam cada um sobre o estado antigo
+  do outro. A captura revalida sobre a lista deduplicada: se uma configuração legada ainda estourar a
+  soma, a nova venda é recusada (409) e a renovação segue sem comissão.
 - Sem comissão, sem erro: código desconhecido, inválido ou de pessoa removida da lista; dono da
   plataforma/oferta igual ao afiliado; e-mail do comprador igual ao do afiliado.
 - Renovação: usa o snapshot da primeira venda, gravado em `BillingContract.metadata.affiliate`. Com
@@ -66,7 +72,8 @@ líquido (coprodutor 5% + afiliado 5% de pessoas diferentes: cada um 5%, dono 90
   vence, o mesmo bloco fica em `affiliate.deduplication` (e, portanto, em
   `BillingContract.metadata.affiliate`).
 - Dono como afiliado continua sem comissão.
-- **Soma:** a regra de 100% vale sobre a lista deduplicada. No PUT usa-se o **pior caso**: para cada
+- **Soma:** a regra de 100% vale sobre a lista deduplicada, nos dois PUTs (afiliados e co-produção).
+  Usa-se o **pior caso**: para cada
   pessoa listada, a venda em que ela é a afiliada, com a pessoa contada uma vez (vence a entrada que
   valeria, de coprodutor ou de afiliado), comparada com a co-produção sozinha. Vale o maior total. A
   captura aplica a mesma conta à venda real.
@@ -164,7 +171,10 @@ Somente leitura e sem dados de terceiros; espelha a visibilidade da co-produçã
   retornam `afiliacao: { role: 'OWNER' | 'AFFILIATE', readOnly, myAmountCents, state, isRenewal }`.
   Afiliado: valor exato da própria alocação; sem comprador, sem taxas nem líquido do dono (campos
   nulos). Dono: `affiliateCommissionCents` e `affiliateCode`, nunca o e-mail do afiliado.
-- Quem tem co-produção e afiliação na mesma venda recebe `coproducao` e `afiliacao` separados.
+- Quem tem co-produção e afiliação na mesma venda recebe `coproducao` e `afiliacao` separados. Venda
+  só com afiliado (ou em que a deduplicação tirou o coprodutor) não traz `coproducao`, nem para o
+  dono. O coprodutor nunca vê `afiliacao`, código nem comissão do afiliado; o afiliado nunca vê
+  comprador, líquido nem coprodutores.
   Estorno e chargeback aparecem como `REVERSED`.
 - O catálogo de plataformas (`/platforms`) inclui as plataformas em que o usuário é afiliado
   (acordo da plataforma ou de oferta dela) com identificação básica e

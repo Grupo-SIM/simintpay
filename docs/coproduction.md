@@ -42,7 +42,7 @@ PUT recebe configuração completa:
 }
 ```
 
-`percentageBps` é inteiro: `2550` = 25,50%, `1` = 0,01%, `10000` = 100%. Participação individual deve estar entre 1 e 10000; soma não pode superar 10000. E-mails são normalizados com trim e lowercase; duplicidades e participação do próprio dono são rejeitadas. Lista vazia remove a configuração para futuras cobranças.
+`percentageBps` é inteiro: `2550` = 25,50%, `1` = 0,01%, `10000` = 100%. Participação individual deve estar entre 1 e 10000; soma não pode superar 10000. A soma também é validada **em conjunto com os afiliados vigentes** ([afiliados.md](afiliados.md)): o PUT (plataforma e oferta) calcula o pior caso de coprodutores mais um afiliado, contando a mesma pessoa uma só vez, e rejeita com `400` informando o total e o excedente (por exemplo, "chegaria a 100,01% do líquido, 0,01% acima do limite de 100%"), sem expor e-mails; nada é gravado. O PUT de afiliados aplica a mesma regra, com a mesma função, contra a co-produção vigente. E-mails são normalizados com trim e lowercase; duplicidades e participação do próprio dono são rejeitadas. Lista vazia remove a configuração para futuras cobranças.
 
 PUT retorna `{ "data": { ...configuraçãoPersistida } }`, com versão incrementada e os mesmos participantes persistidos. Frontend verifica resposta antes de confirmar sucesso. Atualização deve ser atômica e usar comparação de versão; versão obsoleta retorna `409`. Recarregar após conflito substitui explicitamente o rascunho pela configuração atual. Falha comum de gravação preserva o rascunho para nova tentativa.
 
