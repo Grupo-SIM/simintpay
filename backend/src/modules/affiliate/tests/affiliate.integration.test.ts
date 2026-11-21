@@ -604,3 +604,230 @@ run(
     expect(saleAffiliateEvent(plain.row as never)).toBeUndefined();
   },
 );
+
+const agreement = (email: string, percentageBps: number, version = 0) => ({
+  basis: 'NET' as const,
+  version,
+  participants: [{ email, percentageBps }],
+});
+const balanceLogs = (f: Awaited<ReturnType<typeof fixture>>, id: string) =>
+  f.prisma.balanceLog.count({ where: { transactionId: id } });
+
+run(
+  'dedup: same person coproducer and affiliate at the same level keeps only the coproducer',
+  async () => {
+    const f = await fixture();
+    await f.copro.save(
+      f.owner.id,
+      'ofertas',
+      f.offer.id,
+      agreement(f.aff1.email, 1000),
+    );
+    const saved = await f.saveOffer({
+      affiliates: [{ email: f.aff1.email, percentageBps: 500 }],
+    });
+    const code = saved.data.affiliates[0].code as string;
+    const { row, snapshot } = await f.sale(code, { net: 100 });
+    expect(snapshot!.affiliate).toBeUndefined();
+    expect(snapshot!.participants).toEqual([
+      { userId: f.aff1.id, percentageBps: 1000 },
+    ]);
+    expect(snapshot!.deduplication).toEqual({
+      discarded: 'affiliate',
+      coproducerLevel: 'offer',
+      affiliateLevel: 'offer',
+      discardedPercentageBps: 500,
+    });
+    expect(JSON.stringify(snapshot!.deduplication)).not.toContain('@');
+    expect(saleAffiliateEvent(row as never)).toBeUndefined();
+    await f.settle(row.id, 'COMPLETED');
+    expect(await f.wallet(f.aff1.id)).toEqual({
+      balance: '10.00',
+      locked: '0.00',
+    });
+    expect((await f.wallet(f.owner.id)).balance).toBe('90.00');
+    expect(
+      await f.prisma.affiliateAllocation.count({
+        where: { transactionId: row.id },
+      }),
+    ).toBe(0);
+    // idempotent, and a refund reverts the single share
+    expect(await f.settle(row.id, 'COMPLETED')).toBe(false);
+    await f.settle(row.id, 'REFUNDED');
+    expect((await f.wallet(f.aff1.id)).balance).toBe('0.00');
+    expect((await f.wallet(f.owner.id)).balance).toBe('0.00');
+  },
+);
+
+run(
+  'dedup: platform coproducer replaced by the same person as offer affiliate',
+  async () => {
+    const f = await fixture();
+    await f.copro.save(
+      f.owner.id,
+      'plataformas',
+      f.platform.id,
+      agreement(f.aff1.email, 2000),
+    );
+    const saved = await f.saveOffer({
+      affiliates: [{ email: f.aff1.email, percentageBps: 500 }],
+    });
+    const code = saved.data.affiliates[0].code as string;
+    const { row, snapshot } = await f.sale(code, { net: 100 });
+    expect(snapshot!.participants).toEqual([]);
+    expect(snapshot!.affiliate).toMatchObject({
+      userId: f.aff1.id,
+      percentageBps: 500,
+      level: 'offer',
+    });
+    expect(snapshot!.deduplication).toEqual({
+      discarded: 'coproducer',
+      coproducerLevel: 'platform',
+      affiliateLevel: 'offer',
+      discardedPercentageBps: 2000,
+    });
+    expect(snapshot!.affiliate!.deduplication).toEqual(snapshot!.deduplication);
+    expect(saleAffiliateEvent(row as never)).toEqual({
+      code,
+      commissionCents: 500,
+      name: 'Pessoa',
+    });
+    await f.settle(row.id, 'COMPLETED');
+    expect((await f.wallet(f.aff1.id)).balance).toBe('5.00');
+    expect((await f.wallet(f.owner.id)).balance).toBe('95.00');
+    expect(await balanceLogs(f, row.id)).toBe(2);
+    expect(await f.settle(row.id, 'COMPLETED')).toBe(false);
+    expect(await balanceLogs(f, row.id)).toBe(2);
+    await f.settle(row.id, 'CHARGEBACK');
+    expect((await f.wallet(f.aff1.id)).balance).toBe('0.00');
+    expect((await f.wallet(f.owner.id)).balance).toBe('0.00');
+    // renewal keeps the first sale's outcome: still a single share for the person
+    const stored = contractAffiliate({
+      affiliate: snapshot!.affiliate,
+    } as never);
+    const renewal = renewalAffiliate(
+      await captureCoproduction(
+        f.prisma,
+        'ofertas',
+        f.offer.id,
+        f.owner.id,
+        f.platform.tag,
+      ),
+      stored,
+      true,
+      'ofertas',
+      f.offer.id,
+      f.owner.id,
+    );
+    expect(renewal!.participants).toEqual([]);
+    expect(renewal!.affiliate).toMatchObject({
+      userId: f.aff1.id,
+      isRenewal: true,
+    });
+    expect(renewal!.deduplication!.discarded).toBe('coproducer');
+  },
+);
+
+run(
+  'dedup: offer OWN coproducer beats the same person as platform affiliate, and renewals keep it',
+  async () => {
+    const f = await fixture();
+    await f.copro.save(
+      f.owner.id,
+      'ofertas',
+      f.offer.id,
+      agreement(f.aff1.email, 1000),
+    );
+    await f.savePlatform({
+      defaultPercentageBps: 500,
+      affiliates: [{ email: f.aff1.email, percentageBps: null }],
+    });
+    const code = await f.codeOf(f.aff1.id);
+    const { row, snapshot } = await f.sale(code, { net: 100 });
+    expect(snapshot!.affiliate).toBeUndefined();
+    expect(snapshot!.participants).toHaveLength(1);
+    expect(snapshot!.deduplication).toMatchObject({
+      discarded: 'affiliate',
+      coproducerLevel: 'offer',
+      affiliateLevel: 'platform',
+    });
+    await f.settle(row.id, 'COMPLETED');
+    expect((await f.wallet(f.aff1.id)).balance).toBe('10.00');
+    // nothing stored on the contract, so renewals pay the coproducer only
+    const renewal = renewalAffiliate(
+      await captureCoproduction(
+        f.prisma,
+        'ofertas',
+        f.offer.id,
+        f.owner.id,
+        f.platform.tag,
+      ),
+      contractAffiliate({ pendingCard: {} } as never),
+      true,
+      'ofertas',
+      f.offer.id,
+      f.owner.id,
+    );
+    expect(renewal!.affiliate).toBeUndefined();
+    expect(renewal!.participants).toHaveLength(1);
+  },
+);
+
+run(
+  'dedup: different people keep both shares and the owner keeps the rest',
+  async () => {
+    const f = await fixture();
+    await f.copro.save(
+      f.owner.id,
+      'ofertas',
+      f.offer.id,
+      agreement(f.aff2.email, 500),
+    );
+    const saved = await f.saveOffer({
+      affiliates: [{ email: f.aff1.email, percentageBps: 500 }],
+    });
+    const { row, snapshot } = await f.sale(
+      saved.data.affiliates[0].code as string,
+      { net: 100 },
+    );
+    expect(snapshot!.deduplication).toBeUndefined();
+    await f.settle(row.id, 'COMPLETED');
+    expect((await f.wallet(f.aff1.id)).balance).toBe('5.00');
+    expect((await f.wallet(f.aff2.id)).balance).toBe('5.00');
+    expect((await f.wallet(f.owner.id)).balance).toBe('90.00');
+  },
+);
+
+run(
+  'dedup: the 100% limit is checked on the deduplicated list (worst case counts the person once)',
+  async () => {
+    const f = await fixture();
+    await f.prisma.wallet.upsert({
+      where: { userId: f.buyer.id },
+      update: {},
+      create: { userId: f.buyer.id, balance: 0 },
+    });
+    await f.copro.save(f.owner.id, 'plataformas', f.platform.id, {
+      basis: 'NET',
+      version: 0,
+      participants: [
+        { email: f.aff1.email, percentageBps: 6000 },
+        { email: f.aff2.email, percentageBps: 3000 },
+      ],
+    });
+    // naive sum 6000 + 3000 + 7000 would overflow; aff1 counted once is exactly 100%
+    await expect(
+      f.saveOffer({
+        affiliates: [{ email: f.aff1.email, percentageBps: 7001 }],
+      }),
+    ).rejects.toThrow('100%');
+    const saved = await f.saveOffer({
+      affiliates: [{ email: f.aff1.email, percentageBps: 7000 }],
+    });
+    const { snapshot } = await f.sale(saved.data.affiliates[0].code as string);
+    expect(snapshot!.participants).toEqual([
+      { userId: f.aff2.id, percentageBps: 3000 },
+    ]);
+    expect(snapshot!.affiliate!.percentageBps).toBe(7000);
+  },
+);
