@@ -109,10 +109,18 @@ export async function transactionCoproductionInfo(
   >(Prisma.sql`SELECT "transactionId", amount, state
     FROM "CoproductionAllocation" WHERE "userId" = ${userId} AND "transactionId" IN (${Prisma.join(transactions.map((t) => t.id))})`);
   const allocations = new Map(rows.map((row) => [row.transactionId, row]));
+  /** Only a sale with coproducers counts: an affiliate-only snapshot has none. */
   const productOf = (snapshot: unknown) => {
-    const value = (snapshot as { coproduction?: { product?: unknown } } | null)
-      ?.coproduction?.product;
-    return typeof value === 'string' ? value : null;
+    const value = (
+      snapshot as {
+        coproduction?: { product?: unknown; participants?: unknown };
+      } | null
+    )?.coproduction;
+    return typeof value?.product === 'string' &&
+      Array.isArray(value.participants) &&
+      value.participants.length
+      ? value.product
+      : null;
   };
   for (const transaction of transactions) {
     const allocation = allocations.get(transaction.id);
