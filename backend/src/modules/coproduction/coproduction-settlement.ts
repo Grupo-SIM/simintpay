@@ -5,6 +5,7 @@ import {
   type TransactionStatus,
 } from '@prisma/client';
 import { allocateNet, snapshotFrom } from './coproduction';
+import { settleAffiliate } from '../affiliate/affiliate-settlement';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 import { canonicalTransactionPlatformTag } from '../platform-core/transaction-platform';
 
@@ -29,6 +30,9 @@ export async function settleCoproduction(
     throw new ConflictException(
       'Proprietário ou líquido incompatível com snapshot',
     );
+  await settleAffiliate(tx, row, snapshot, status, source);
+  // Affiliate-only sale: the owner is credited by the regular path (net minus the commission).
+  if (!snapshot.participants.length) return false;
   const target =
     status === 'COMPLETED'
       ? 'AVAILABLE'

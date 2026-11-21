@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { AffiliateSnapshot } from '../affiliate/affiliate';
 
 export const productTables = {
   plataformas: 'Platform',
@@ -55,6 +56,8 @@ export type Snapshot = {
   baseCents?: number;
   source?: { platformId: string; version: number };
   participants: { userId: string; percentageBps: number }[];
+  /** Platform/offer affiliate of this sale; paid out of the owner's share, never a participant. */
+  affiliate?: AffiliateSnapshot;
 };
 
 export function validateAgreement(input: unknown): Agreement {
@@ -122,10 +125,23 @@ export function allocateNet(snapshot: Snapshot, amount: Prisma.Decimal) {
     userId: p.userId,
     amount: base.mul(p.percentageBps).div(10000).floor().div(100),
   }));
-  const remaining = rows.reduce((net, row) => net.sub(row.amount), amount);
+  const remaining = rows
+    .reduce((net, row) => net.sub(row.amount), amount)
+    .sub(affiliateAmount(snapshot, amount));
   return [{ userId: snapshot.ownerUserId, amount: remaining }, ...rows].sort(
     (a, b) => a.userId.localeCompare(b.userId),
   );
+}
+
+/** Affiliate commission over the same net base as the participants; floored to the cent. */
+export function affiliateAmount(
+  snapshot: Snapshot,
+  amount: Prisma.Decimal,
+): Prisma.Decimal {
+  if (!snapshot.affiliate) return new Prisma.Decimal(0);
+  const cents = amount.mul(100);
+  const base = new Prisma.Decimal(snapshot.baseCents ?? cents);
+  return base.mul(snapshot.affiliate.percentageBps).div(10000).floor().div(100);
 }
 
 export function snapshotFrom(
@@ -164,6 +180,18 @@ export function snapshotFrom(
       throw new BadRequestException('Snapshot de co-produção inválido');
     ids.add(p.userId);
     total += p.percentageBps;
+  }
+  if (s.affiliate) {
+    const a = s.affiliate;
+    if (
+      !a.userId ||
+      a.userId === s.ownerUserId ||
+      !Number.isInteger(a.percentageBps) ||
+      a.percentageBps < 1 ||
+      a.percentageBps > 10000
+    )
+      throw new BadRequestException('Snapshot de afiliado inválido');
+    total += a.percentageBps;
   }
   if (total > 10000)
     throw new BadRequestException('Snapshot de co-produção inválido');

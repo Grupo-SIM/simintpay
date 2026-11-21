@@ -11,6 +11,7 @@ export type WalletEntryNature =
   | 'SALE'
   | 'COMMISSION'
   | 'COPRODUCTION'
+  | 'AFFILIATE'
   | 'WITHDRAWAL'
   | 'REFUND'
   | 'ADJUSTMENT'

@@ -2,6 +2,7 @@ import { BillingCoreModule } from './modules/billing-core/billing-core.module';
 import { OfferModule } from './modules/offer/offer.module';
 import { OfferAccessModule } from './modules/offer-access/offer-access.module';
 import { CoproductionModule } from './modules/coproduction/coproduction.module';
+import { AffiliateModule } from './modules/affiliate/affiliate.module';
 import { SalePushModule } from './modules/sale-push/sale-push.module';
 import { LegacyPlatformUsageInterceptor } from './modules/platform-core/legacy-platform-usage.interceptor';
 import { PlatformCoreModule } from './modules/platform-core/platform-core.module';
@@ -45,6 +46,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     OfferModule,
     OfferAccessModule,
     CoproductionModule,
+    AffiliateModule,
     SalePushModule,
     PlatformEventsModule,
     PlatformCoreModule,

@@ -1,4 +1,5 @@
 import { settleCoproduction } from '../coproduction/coproduction-settlement';
+import { coproductionOwnerNet } from '../coproduction/coproduction';
 import { AffiliateCommissionService } from '../../application/services/affiliate-commission.service';
 import { enqueueCashbackGrant } from './cashback-grant';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
@@ -53,7 +54,8 @@ export async function settleFinalNet(
   const distributed = await settleCoproduction(p, row, status, source, marker);
   let balance = new Prisma.Decimal(0),
     locked = new Prisma.Decimal(0);
-  let value = new Prisma.Decimal(row.netAmount);
+  // Affiliate-only sales pay the owner here: the net minus the commission.
+  let value = coproductionOwnerNet(row.financialSnapshot, row.netAmount);
   // Reversal follows the committed credit, even if configuration changed afterwards.
   if (from === 'COMPLETED' || from === 'IN_MEDIATION') {
     const credit = await p.balanceLog.findFirst({

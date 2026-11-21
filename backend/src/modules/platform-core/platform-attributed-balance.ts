@@ -106,7 +106,7 @@ export class PlatformAttributedBalance {
         ? p.balanceLog.findMany({
             where: {
               userId: merchantUserId,
-              nature: 'COPRODUCTION',
+              nature: { in: ['COPRODUCTION', 'AFFILIATE'] },
               source: { notIn: ['EBOOK_V1', 'EBOOK_COMMISSION'] },
               platformTag: canonicalTransactionPlatformTag(context.tag),
             },
