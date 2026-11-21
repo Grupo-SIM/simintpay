@@ -8,6 +8,7 @@ import { consolidadoTagFor } from '@/lib/consolidado-tag';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useToast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
+import { AffiliateReceipts } from '@/components/affiliates/AffiliateReceipts';
 import { CoproductionReceipts } from '@/components/coproduction/CoproductionReceipts';
 import { ReportsLayout } from './ReportsLayout';
 import { ReportFilterFields } from './ReportFilterFields';
@@ -149,6 +150,9 @@ export function UnifiedReports() {
             key={JSON.stringify(filters)}
             filters={filters}
           />
+        )}
+        {!admin && (
+          <AffiliateReceipts key={JSON.stringify(filters)} filters={filters} />
         )}
       </>
     </ReportsLayout>

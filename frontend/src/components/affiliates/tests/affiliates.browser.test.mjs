@@ -263,3 +263,96 @@ test('GET 404 is an error, not an empty agreement; offer shows inherited read-on
     server.stop(true);
   }
 }, 180000);
+
+test('affiliate view shows code, link, sales and pending/credited/reverted commission, and hides when empty', async () => {
+  const { server, browser } = await serve();
+  try {
+    for (const viewport of [
+      { width: 1280, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      const page = await browser.newPage({ viewport });
+      page.setDefaultTimeout(30000);
+      let empty = false;
+      const pages = [];
+      await page.route('**/*', async (route) => {
+        const url = new URL(route.request().url());
+        if (url.hostname !== '127.0.0.1') return route.abort();
+        if (!url.pathname.startsWith('/api')) return route.continue();
+        if (url.pathname === '/api/auth/me') return route.fulfill({ json: me });
+        pages.push(url.searchParams.get('page'));
+        return route.fulfill({
+          json: empty
+            ? {
+                data: [],
+                summary: { creditedCents: 0, lockedCents: 0, reversedCents: 0 },
+                total: 0,
+                page: 1,
+                pageSize: 20,
+              }
+            : {
+                data: [
+                  {
+                    transactionId: 't1',
+                    amountCents: 1234,
+                    state: 'AVAILABLE',
+                    createdAt: '2026-10-02T12:00:00Z',
+                    originName: 'Curso',
+                    renewal: true,
+                  },
+                  {
+                    transactionId: 't2',
+                    amountCents: 500,
+                    state: 'REVERSED',
+                    createdAt: '2026-10-03T12:00:00Z',
+                    originName: null,
+                  },
+                ],
+                summary: {
+                  creditedCents: 1234,
+                  lockedCents: 800,
+                  reversedCents: 500,
+                },
+                affiliations: [
+                  {
+                    code: 'ANA123',
+                    platformName: 'Loja',
+                    linkBaseUrl: 'https://loja.test',
+                  },
+                ],
+                total: 2,
+                page: 1,
+                pageSize: 20,
+              },
+        });
+      });
+      await page.goto(server.url + '?view=receipts');
+      await page.getByText('ANA123').waitFor();
+      await page.getByText('R$ 12,34').first().waitFor();
+      await page.getByText('R$ 8,00').waitFor();
+      await page.getByText('R$ 5,00').first().waitFor();
+      await page.getByText('Curso (renovação)').waitFor();
+      expect(
+        await page.getByRole('button', { name: 'Copiar link' }).count(),
+      ).toBe(1);
+      expect(pages[0]).toBe('1');
+      if (process.env.AFFILIATES_SCREENSHOT_CSS)
+        await page.screenshot({
+          path: `/tmp/affiliates-view-${viewport.width}.png`,
+          fullPage: true,
+        });
+      empty = true;
+      await page.goto(server.url + '?view=receipts');
+      await page.waitForLoadState('networkidle');
+      expect(
+        await page
+          .getByRole('region', { name: 'Recebimentos de afiliado' })
+          .count(),
+      ).toBe(0);
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+    server.stop(true);
+  }
+}, 180000);
