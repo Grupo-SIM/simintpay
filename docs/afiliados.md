@@ -131,6 +131,32 @@ o líquido menos a comissão (e menos os coprodutores): relatórios usam `coprod
 `affiliate: { code, commissionCents, name? }` somente quando a venda tem comissão. Sem e-mail, id nem
 valores de terceiros. Ver [central-sales-api.md](central-sales-api.md).
 
+## Visibilidade para afiliados
+
+Somente leitura e sem dados de terceiros; espelha a visibilidade da co-produção
+([coproduction.md](coproduction.md)), com blocos próprios e nunca fundidos aos dela.
+
+- `GET /relatorios/dashboard`, `GET /relatorios/financeiro` e o dashboard do cliente retornam
+  `afiliacao: { count, creditedCents, lockedCents, reversedCents }`: só as comissões do próprio
+  usuário como afiliado em vendas de outros donos. Informativo: o valor já integra a carteira e não
+  é somado como receita integral da venda.
+- Para o dono, `afiliados: { count, commissionCents }` é o que foi pago a afiliados nas vendas do
+  período (comissões creditadas). O líquido das vendas próprias já desconta a comissão (relatórios
+  usam a mesma base de `coproductionOwnerNet`), então a comissão aparece separada das taxas e dos
+  coprodutores, para conciliar líquido x bruto.
+- Os blocos respeitam os filtros de período, plataforma e meio de pagamento. Selecionar uma
+  plataforma em que o usuário é só afiliado exibe apenas a participação dele (`participationOnly`).
+- `GET /transacoes` e `GET /transacoes/:id` incluem vendas com `AffiliateAllocation` do usuário e
+  retornam `afiliacao: { role: 'OWNER' | 'AFFILIATE', readOnly, myAmountCents, state, isRenewal }`.
+  Afiliado: valor exato da própria alocação; sem comprador, sem taxas nem líquido do dono (campos
+  nulos). Dono: `affiliateCommissionCents` e `affiliateCode`, nunca o e-mail do afiliado.
+- Quem tem co-produção e afiliação na mesma venda recebe `coproducao` e `afiliacao` separados.
+  Estorno e chargeback aparecem como `REVERSED`.
+- O catálogo de plataformas (`/platforms`) inclui as plataformas em que o usuário é afiliado
+  (acordo da plataforma ou de oferta dela) com identificação básica e
+  `afiliacao: { role: 'AFFILIATE', readOnly: true }`, sem configurações privadas.
+- Fora de escopo: filtros nos recebimentos (`/afiliados/recebimentos`), que seguem sem filtro.
+
 ## Publicação
 
 Aplicar a migration `20261122090000_affiliates` (aditiva) antes do backend; depois frontend/checkout.

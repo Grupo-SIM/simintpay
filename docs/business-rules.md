@@ -356,6 +356,10 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
   mais específico, empate fica com o coprodutor). Dono ou comprador igual ao afiliado, código inválido ou removido: sem comissão e sem erro.
 - Renovação usa o snapshot da primeira venda; `commissionOnRenewals` (padrão: todas) desmarcado paga só
   a primeira compra. Estorno e chargeback revertem o valor original. Detalhes em [afiliados](afiliados.md).
+- Visibilidade: o afiliado vê só a própria comissão (relatórios, transações e catálogo, somente
+  leitura, sem comprador nem financeiro do dono); o dono vê a comissão paga e o código do afiliado,
+  separados de taxas e coprodutores, e o líquido dele já desconta a comissão. Quem tem co-produção e
+  afiliação na mesma venda vê as duas linhas separadas.
 
 ### Coprodução por plataforma
 
