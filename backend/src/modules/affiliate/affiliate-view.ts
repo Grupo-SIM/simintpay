@@ -93,8 +93,8 @@ export async function ownerAffiliateTotals(
     FROM "AffiliateAllocation" a JOIN (${source}) scoped ON scoped.id = a."transactionId"
     WHERE a.state::text = 'AVAILABLE'`);
   return {
-    count: Number(rows[0].count),
-    commissionCents: cents(rows[0].amount),
+    count: Number(rows[0]?.count ?? 0),
+    commissionCents: cents(rows[0]?.amount ?? 0),
   };
 }
 
