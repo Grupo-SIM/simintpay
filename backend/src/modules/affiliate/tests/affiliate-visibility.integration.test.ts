@@ -222,7 +222,7 @@ run(
 );
 
 run(
-  'same user as coproducer and affiliate gets two separate lines',
+  'same user as coproducer and affiliate gets a single coproducer line (tie: coproducer wins)',
   async () => {
     const f = await fixture();
     await f.copro.save(f.owner.id, 'ofertas', f.offer.id, {
@@ -238,20 +238,18 @@ run(
       role: 'COPRODUCER',
       myAmountCents: 2000,
     });
-    expect(item.afiliacao).toMatchObject({
-      role: 'AFFILIATE',
-      myAmountCents: 1000,
-    });
+    // same person, same level: the affiliate entry is discarded (docs/afiliados.md)
+    expect(item.afiliacao ?? null).toBeNull();
     // coproducers keep the complete read-only view they already had
     expect(item.customerEmail).toBe('comprador@privado.test');
     const dash = await new DashboardSummaryUseCase(db! as never).execute({
       userId: f.aff1.id,
     });
     expect(dash.coproducao).toMatchObject({ creditedCents: 2000 });
-    expect(dash.afiliacao).toMatchObject({ creditedCents: 1000 });
+    expect(dash.afiliacao?.creditedCents ?? 0).toBe(0);
     const owner = await new DashboardSummaryUseCase(db! as never).execute({
       userId: f.owner.id,
     });
-    expect(owner.transactionsByPeriod.totalSales).toBe(70);
+    expect(owner.transactionsByPeriod.totalSales).toBe(80);
   },
 );

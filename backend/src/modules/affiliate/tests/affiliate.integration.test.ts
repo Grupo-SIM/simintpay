@@ -1,5 +1,8 @@
 import { expect } from 'bun:test';
-import { withCoproduction } from '../../coproduction/coproduction.service';
+import {
+  captureCoproduction,
+  withCoproduction,
+} from '../../coproduction/coproduction.service';
 import { contractAffiliate, renewalAffiliate } from '../affiliate-capture';
 import { saleAffiliateEvent } from '../affiliate-event';
 import { settleAffiliate } from '../affiliate-settlement';
