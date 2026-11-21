@@ -4,7 +4,13 @@ import { useModalHistory } from '@/hooks/use-modal-history';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toast';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { ParticipationTotals } from '@/components/participations/ParticipationTotals';
 import type { Coproducer } from '@/features/coproduction/types';
+import { useCoproductionRows } from '@/features/coproduction/use-coproduction-rows';
+import {
+  coproducersFromRows,
+  jointTotal,
+} from '@/features/participations/joint';
 import { CoproductionDialogContent, CoproductionForm } from './components';
 
 export function CoproductionDraftDialog({
@@ -23,6 +29,13 @@ export function CoproductionDraftDialog({
   });
   const { user } = useCurrentUser();
   const { toast } = useToast();
+  const initial = { basis: 'NET' as const, version: 0, participants };
+  const draft = useCoproductionRows(initial, false);
+  const joint = jointTotal({
+    coproducers: coproducersFromRows(draft.rows),
+    coproducerLevel: 'offer',
+    affiliates: [],
+  });
   return (
     <Dialog
       open
@@ -31,11 +44,14 @@ export function CoproductionDraftDialog({
       }}
     >
       <CoproductionDialogContent
-        description="Defina os coprodutores antes de criar o produto. As participações serão gravadas junto com ele."
+        title="Participações"
+        description="Defina os coprodutores antes de criar a oferta. Os afiliados ficam disponíveis depois que ela for criada."
         onClose={close}
+        toolbar={<ParticipationTotals result={joint} showAffiliate={false} />}
       >
         <CoproductionForm
-          initial={{ basis: 'NET', version: 0, participants }}
+          initial={initial}
+          draft={draft}
           pending={false}
           blocked={false}
           ownerEmail={!user?.isAdmin ? user?.email : undefined}

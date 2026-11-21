@@ -18,6 +18,8 @@ export function useAffiliatesDraft(
   );
   return {
     draft,
+    reset: (next: AffiliateAgreement) =>
+      setDraft(draftFromAgreement(next, platform)),
     patch: (next: Partial<AffiliateDraft>) =>
       setDraft((previous) => ({ ...previous, ...next })),
     addRow: () =>
@@ -40,3 +42,5 @@ export function useAffiliatesDraft(
       })),
   };
 }
+
+export type AffiliatesDraftState = ReturnType<typeof useAffiliatesDraft>;

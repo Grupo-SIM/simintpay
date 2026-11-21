@@ -4,7 +4,6 @@ import { CoproductionSummaryCard } from '../CoproductionSummaryCard';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from '@/components/ui/Toast';
 import { CoproductionReceipts } from '../CoproductionReceipts';
-import { CoproductionButton } from '../CoproductionButton';
 import type { CoproductionProduct } from '@/features/coproduction/types';
 import { CoproductionCreateHarness } from './CoproductionCreateHarness';
 
@@ -36,9 +35,7 @@ createRoot(document.getElementById('root')!).render(
         <CoproductionReceipts />
       ) : view === 'create' ? (
         <CoproductionCreateHarness kind={kind} />
-      ) : (
-        <CoproductionButton product={kind} productId="owned" />
-      )}
+      ) : null}
     </ToastProvider>
   </QueryClientProvider>,
 );

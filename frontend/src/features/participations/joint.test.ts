@@ -83,7 +83,7 @@ describe('affiliatesFromDraft', () => {
     renewals: 'all' as const,
     linkBaseUrl: '',
   };
-  test('oferta soma herdados e usa o global próprio no nível da oferta', () => {
+  test('oferta soma herdados e o global da oferta vale também para eles', () => {
     const list = affiliatesFromDraft(
       draft,
       {
@@ -95,7 +95,7 @@ describe('affiliatesFromDraft', () => {
     );
     expect(list.map((i) => [i.label, i.bps, i.level])).toEqual([
       ['x@x.com', 1000, 'offer'],
-      ['P', 500, 'platform'],
+      ['P', 1000, 'offer'],
     ]);
   });
   test('linha sem percentual efetivo é ignorada', () => {

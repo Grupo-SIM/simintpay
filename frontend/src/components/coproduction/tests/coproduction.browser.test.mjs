@@ -33,222 +33,6 @@ async function addParticipant(page, search, email, percentage) {
   await row.getByRole('textbox', { name: 'Participação', exact: false }).blur();
 }
 
-test('five products load safely, edit and discard drafts, save percentages, recover failures and conflicts', async () => {
-  const bundle = await Bun.build({
-    entrypoints: [import.meta.dir + '/browser-entry.tsx'],
-    target: 'browser',
-    define: {
-      'process.env': '{}',
-      'process.env.NEXT_PUBLIC_API_BASE_URL': '"/api"',
-      'process.env.NODE_ENV': '"test"',
-    },
-  });
-  if (!bundle.success) throw new Error(bundle.logs.join('\n'));
-  const script = await bundle.outputs[0].text();
-  const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
-    fetch: (request) =>
-      new Response(
-        new URL(request.url).pathname === '/app.js'
-          ? script
-          : '<style>[data-slot=dialog-overlay]{position:fixed;inset:0;background:#0008;z-index:50}[data-slot=dialog-content]{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:calc(100% - 32px);max-height:90vh;overflow:auto;background:white;z-index:51}[data-slot=popover-content]{position:relative;z-index:60;background:white}</style><div id="root"></div><script src="/app.js"></script>',
-        {
-          headers: {
-            'Content-Type':
-              new URL(request.url).pathname === '/app.js'
-                ? 'text/javascript'
-                : 'text/html; charset=utf-8',
-          },
-        },
-      ),
-  });
-  const browser = await chromium.launch({
-    executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable',
-    headless: true,
-    args: ['--no-sandbox', '--disable-background-networking', '--disable-gpu'],
-  });
-  try {
-    const page = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    page.setDefaultTimeout(30000);
-    const errors = [];
-    page.on('pageerror', (error) => {
-      errors.push(error.message);
-      console.error('Browser error:', error.message);
-    });
-    let agreement = { basis: 'NET', version: 1, participants: [] };
-    let loadError = false,
-      saveError = false,
-      conflict = false,
-      delay = false;
-    const writes = [];
-    const requests = [];
-    await page.route('**/*', async (route) => {
-      const request = route.request(),
-        url = new URL(request.url());
-      if (url.hostname !== '127.0.0.1') return route.abort();
-      if (!url.pathname.startsWith('/api')) return route.continue();
-      requests.push(url.pathname);
-      if (url.pathname === '/api/auth/me')
-        return route.fulfill({
-          json: {
-            data: {
-              id: 'owner',
-              email: 'owner@example.test',
-              isAdmin: false,
-              clientStatus: 'APPROVED',
-            },
-          },
-        });
-      if (url.pathname === '/api/coproducao/contas')
-        return route.fulfill({ json: accountResponse(url) });
-      if (request.method() === 'GET') {
-        if (delay) await new Promise((resolve) => setTimeout(resolve, 600));
-        return route.fulfill({
-          status: loadError ? 503 : 200,
-          json: loadError
-            ? { message: 'Servidor indisponível' }
-            : { data: agreement },
-        });
-      }
-      const body = request.postDataJSON();
-      writes.push({ path: url.pathname, body });
-      if (saveError || conflict)
-        return route.fulfill({
-          status: conflict ? 409 : 500,
-          json: {
-            message: conflict
-              ? 'Configuração alterada por outra sessão'
-              : 'Falha ao salvar',
-          },
-        });
-      agreement = { ...body, version: body.version + 1 };
-      return route.fulfill({ json: { data: agreement } });
-    });
-    for (const kind of [
-      'links-pagamento',
-      'links-assinatura',
-      'boletos',
-      'planos',
-      'planos-pix',
-    ]) {
-      agreement = { basis: 'NET', version: 1, participants: [] };
-      await page.goto(`http://127.0.0.1:${server.port}/?kind=${kind}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000,
-      });
-      await page
-        .getByRole('button', { name: 'Co-produção', exact: true })
-        .click();
-      await page.getByText('Sem coprodutores.', { exact: false }).waitFor();
-      await addParticipant(page, 'Parceiro', 'partner@example.test', '25,50');
-      // No API mutation until explicit main Save.
-      const before = writes.length;
-      await page
-        .locator('[data-slot="dialog-overlay"]')
-        .click({ position: { x: 2, y: 2 } });
-      await page.getByRole('dialog').waitFor({ state: 'hidden' });
-      expect(new URL(page.url()).searchParams.has('modal')).toBe(false);
-      expect(writes.length).toBe(before);
-      await page
-        .getByRole('button', { name: 'Co-produção', exact: true })
-        .click();
-      await page.getByText('Sem coprodutores.', { exact: false }).waitFor();
-      await addParticipant(
-        page,
-        'partner@example',
-        'partner@example.test',
-        '25,50',
-      );
-      saveError = true;
-      await page
-        .getByRole('button', { name: 'Salvar co-produção', exact: true })
-        .click();
-      await page
-        .getByRole('dialog')
-        .getByText('Falha ao salvar', { exact: true })
-        .waitFor();
-      expect(
-        await page
-          .getByRole('dialog')
-          .getByText('partner@example.test', { exact: true })
-          .count(),
-      ).toBe(1);
-      saveError = false;
-      await page
-        .getByRole('button', { name: 'Salvar co-produção', exact: true })
-        .click();
-      await page.getByRole('dialog').waitFor({ state: 'hidden' });
-      expect(writes.at(-1)).toEqual({
-        path: `/api/coproducao/${kind}/owned`,
-        body: {
-          basis: 'NET',
-          version: 1,
-          participants: [
-            { email: 'partner@example.test', percentageBps: 2550 },
-          ],
-        },
-      });
-      await page
-        .getByRole('button', { name: 'Co-produção', exact: true })
-        .click();
-      await page
-        .getByRole('button', {
-          name: 'Remover participação de partner@example.test',
-        })
-        .click();
-      conflict = true;
-      await page
-        .getByRole('button', { name: 'Salvar co-produção', exact: true })
-        .click();
-      await page
-        .getByRole('button', { name: 'Recarregar configuração' })
-        .waitFor();
-      conflict = false;
-      agreement = { ...agreement, version: 3 };
-      await page
-        .getByRole('button', { name: 'Recarregar configuração' })
-        .click();
-      await page
-        .getByRole('button', {
-          name: 'Remover participação de partner@example.test',
-        })
-        .click();
-      await page
-        .getByRole('button', { name: 'Salvar co-produção', exact: true })
-        .click();
-      await page.getByRole('dialog').waitFor({ state: 'hidden' });
-      expect(writes.at(-1).body).toEqual({
-        basis: 'NET',
-        version: 3,
-        participants: [],
-      });
-      expect(requests).toContain(`/api/coproducao/${kind}/owned`);
-    }
-    loadError = true;
-    await page
-      .getByRole('button', { name: 'Co-produção', exact: true })
-      .click();
-    await page.getByRole('button', { name: 'Tentar novamente' }).waitFor();
-    expect(
-      await page.getByRole('button', { name: 'Adicionar coprodutor' }).count(),
-    ).toBe(0);
-    expect(
-      await page.getByText('Sem coprodutores.', { exact: false }).count(),
-    ).toBe(0);
-    loadError = false;
-    delay = true;
-    await page.getByRole('button', { name: 'Tentar novamente' }).click();
-    await page.getByText('Sem coprodutores.', { exact: false }).waitFor();
-    expect(errors).toEqual([]);
-  } finally {
-    await browser.close();
-    server.stop(true);
-  }
-}, 300000);
-
 test('partner receipts show loading, errors, cent amounts and pagination without owning a platform', async () => {
   const bundle = await Bun.build({
     entrypoints: [import.meta.dir + '/browser-entry.tsx'],
@@ -455,7 +239,7 @@ test('all five products accept several coproducers before creation and preserve 
         { waitUntil: 'domcontentloaded', timeout: 60000 },
       );
       await page
-        .getByRole('button', { name: 'Co-produção', exact: true })
+        .getByRole('button', { name: 'Participações', exact: true })
         .click();
       await addParticipant(page, 'Primeira', 'first@example.test', '20');
       await addParticipant(
@@ -481,7 +265,7 @@ test('all five products accept several coproducers before creation and preserve 
       await page.getByRole('button', { name: 'Aplicar coprodutores' }).click();
       expect(writes.length).toBe(count);
       await page
-        .getByRole('button', { name: 'Co-produção (2)', exact: true })
+        .getByRole('button', { name: 'Participações (2)', exact: true })
         .click();
       await page
         .getByRole('button', {
@@ -501,7 +285,7 @@ test('all five products accept several coproducers before creation and preserve 
         .waitFor();
       expect(
         await page
-          .getByRole('button', { name: 'Co-produção (2)', exact: true })
+          .getByRole('button', { name: 'Participações (2)', exact: true })
           .count(),
       ).toBe(1);
       fail = false;

@@ -17,7 +17,7 @@ import type {
   AffiliateAgreement,
   AffiliateSaveInput,
 } from '@/features/affiliates/types';
-import { useAffiliatesDraft } from '@/features/affiliates/use-affiliates-draft';
+import type { AffiliatesDraftState } from '@/features/affiliates/use-affiliates-draft';
 import { AffiliateRow } from './AffiliateRow';
 
 const field =
@@ -25,6 +25,9 @@ const field =
 
 export function AffiliatesForm({
   initial,
+  draftState,
+  extraError = null,
+  closeLabel = 'Descartar',
   platform,
   pending,
   blocked,
@@ -33,6 +36,10 @@ export function AffiliatesForm({
   onClose,
 }: {
   initial: AffiliateAgreement;
+  draftState: AffiliatesDraftState;
+  /** Erro da validação conjunta com a outra aba; bloqueia o salvar. */
+  extraError?: string | null;
+  closeLabel?: string;
   platform: boolean;
   pending: boolean;
   blocked: boolean;
@@ -43,10 +50,7 @@ export function AffiliatesForm({
   const { toast } = useToast();
   const globalId = useId();
   const linkId = useId();
-  const { draft, patch, addRow, updateRow, removeRow } = useAffiliatesDraft(
-    initial,
-    platform,
-  );
+  const { draft, patch, addRow, updateRow, removeRow } = draftState;
   const inherited = initial.inherited;
   const error = validateAffiliates(draft, {
     ownerEmail,
@@ -61,14 +65,6 @@ export function AffiliatesForm({
   );
   return (
     <>
-      <p className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm leading-relaxed text-zinc-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-        {platform
-          ? 'Afiliados valem em toda compra desta plataforma, por oferta ou API.'
-          : 'Afiliados desta oferta somam aos da plataforma.'}{' '}
-        A comissão é um percentual do valor líquido após taxas e sai da parte do
-        proprietário. Alterações valem para novas cobranças; vendas já feitas
-        preservam a comissão original.
-      </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <label htmlFor={globalId} className="text-sm font-medium">
@@ -166,9 +162,6 @@ export function AffiliatesForm({
             ))}
           </div>
         )}
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Assinaturas já criadas seguem a regra vigente na compra original.
-        </p>
       </div>
       <ScrollArea className="max-h-[40vh]">
         {draft.rows.length ? (
@@ -236,9 +229,9 @@ export function AffiliatesForm({
           )}
         </section>
       )}
-      {error && (
+      {(error ?? extraError) && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {error}
+          {error ?? extraError}
         </p>
       )}
       <DialogFooter className="border-t border-zinc-200 pt-5 dark:border-white/10">
@@ -249,12 +242,12 @@ export function AffiliatesForm({
           disabled={pending}
           onClick={onClose}
         >
-          Descartar
+          {closeLabel}
         </Button>
         <Button
           type="button"
           className="h-11 cursor-pointer rounded-xl border border-[#7c3aed] bg-[#7c3aed] text-white hover:bg-[#6d28d9] disabled:cursor-not-allowed"
-          disabled={disabled || Boolean(error)}
+          disabled={disabled || Boolean(error ?? extraError)}
           onClick={() => onSave(serializeAffiliates(draft, platform))}
         >
           {pending ? 'Salvando...' : 'Salvar afiliados'}

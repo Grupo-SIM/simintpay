@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
-import { CoproductionButton } from '../CoproductionButton';
+import { ParticipationsButton } from '../../participations';
 import { useCoproductionDraft } from '@/features/coproduction/use-coproduction-draft';
 import { createApiClient } from '@/services/api/api.client';
 import type { CoproductionProduct } from '@/features/coproduction/types';
@@ -15,8 +15,8 @@ export function CoproductionCreateHarness({
   const api = createApiClient({ baseUrl: '/api' });
   return (
     <>
-      <CoproductionButton
-        product={kind}
+      <ParticipationsButton
+        product="ofertas"
         draft={draft.participants}
         onDraftChange={draft.setParticipants}
         disabled={state === 'pending'}

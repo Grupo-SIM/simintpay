@@ -1,6 +1,6 @@
 'use client';
 
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { Users, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/ScrollArea';
 import { Button } from '@/components/ui/Button';
@@ -14,6 +14,7 @@ export function CoproductionDialogContent({
   description,
   title = 'Co-produção',
   pending = false,
+  toolbar,
   onClose,
   children,
   ...props
@@ -21,6 +22,8 @@ export function CoproductionDialogContent({
   description: string;
   title?: string;
   pending?: boolean;
+  /** Fixo entre o cabeçalho e o conteúdo rolável (abas e totais). */
+  toolbar?: ReactNode;
   onClose: () => void;
 }) {
   return (
@@ -54,6 +57,7 @@ export function CoproductionDialogContent({
           <X size={18} />
         </Button>
       </div>
+      {toolbar}
       <ScrollArea className="min-h-0 space-y-5 p-6">{children}</ScrollArea>
     </DialogContent>
   );

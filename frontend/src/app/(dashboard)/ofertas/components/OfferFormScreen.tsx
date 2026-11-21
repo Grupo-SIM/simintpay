@@ -10,8 +10,7 @@ import { useTheme } from 'next-themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useToast } from '@/components/ui/Toast';
-import { AffiliatesButton } from '@/components/affiliates';
-import { CoproductionButton } from '@/components/coproduction';
+import { ParticipationsButton } from '@/components/participations';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { saveCoproduction } from '@/features/coproduction/coproduction.service';
@@ -317,16 +316,11 @@ function FormBody({
           <Eye aria-hidden className="h-4 w-4" />
           {previewPending ? 'Calculando…' : 'Pré-visualizar'}
         </Button>
-        <CoproductionButton
+        <ParticipationsButton
           product="ofertas"
           productId={id}
           draft={coproduction.participants}
           onDraftChange={coproduction.setParticipants}
-          disabled={save.isPending}
-        />
-        <AffiliatesButton
-          product="ofertas"
-          productId={id}
           disabled={save.isPending}
         />
       </div>

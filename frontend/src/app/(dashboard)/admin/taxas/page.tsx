@@ -1,6 +1,6 @@
 'use client';
 
-import { CoproductionButton } from '@/components/coproduction';
+import { ParticipationsButton } from '@/components/participations';
 import { usePlatformOwners } from '@/hooks/use-platform-owners';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -92,7 +92,7 @@ export default function AdminTaxasPlataformasPage() {
       )}
       {!isUser && selectedPlatform?.id && (
         <div className="flex justify-end">
-          <CoproductionButton
+          <ParticipationsButton
             product="plataformas"
             productId={selectedPlatform.id}
           />

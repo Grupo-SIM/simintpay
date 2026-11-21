@@ -3,14 +3,15 @@
 import { useState } from 'react';
 import { Users } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import type {
-  Coproducer,
-  CoproductionProduct,
-} from '@/features/coproduction/types';
-import { CoproductionDialog } from './CoproductionDialog';
-import { CoproductionDraftDialog } from './CoproductionDraftDialog';
+import { CoproductionDraftDialog } from '@/components/coproduction/CoproductionDraftDialog';
+import type { Coproducer } from '@/features/coproduction/types';
+import {
+  ParticipationsDialog,
+  type ParticipationsProduct,
+} from './ParticipationsDialog';
 
-export function CoproductionButton({
+/** Botão único de co-produção e afiliados; sem id (oferta nova) abre só o rascunho de coprodutores. */
+export function ParticipationsButton({
   product,
   productId,
   draft = [],
@@ -18,7 +19,7 @@ export function CoproductionButton({
   disabled = false,
   iconOnly = false,
 }: {
-  product: CoproductionProduct;
+  product: ParticipationsProduct;
   productId?: string | null;
   draft?: Coproducer[];
   onDraftChange?: (participants: Coproducer[]) => void;
@@ -37,22 +38,22 @@ export function CoproductionButton({
             : 'w-fit cursor-pointer disabled:cursor-not-allowed'
         }
         size={iconOnly ? 'icon-sm' : 'default'}
-        aria-label={iconOnly ? 'Co-produção' : undefined}
-        title={iconOnly ? 'Co-produção' : undefined}
+        aria-label={iconOnly ? 'Participações' : undefined}
+        title={iconOnly ? 'Participações: co-produção e afiliados' : undefined}
         disabled={disabled}
         onClick={() => setOpen(true)}
       >
         <Users aria-hidden className="h-4 w-4" />
         {!iconOnly && (
           <>
-            Co-produção
+            Participações
             {!productId && draft.length > 0 ? ` (${draft.length})` : ''}
           </>
         )}
       </Button>
       {open &&
         (productId ? (
-          <CoproductionDialog
+          <ParticipationsDialog
             product={product}
             productId={productId}
             onClose={() => setOpen(false)}

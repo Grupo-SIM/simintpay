@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DialogFooter } from '@/components/ui/Dialog';
@@ -8,19 +7,18 @@ import { ScrollArea } from '@/components/ui/ScrollArea';
 import { useToast } from '@/components/ui/Toast';
 import {
   formatPercentage,
-  percentageBps,
   serializeParticipants,
   validateParticipants,
 } from '@/features/coproduction/coproduction';
-import type {
-  Coproducer,
-  CoproducerDraft,
-  Coproduction,
-} from '@/features/coproduction/types';
+import type { CoproductionRowsDraft } from '@/features/coproduction/use-coproduction-rows';
+import type { Coproducer, Coproduction } from '@/features/coproduction/types';
 import { CoproducerRow } from './CoproducerRow';
 
 export function CoproductionForm({
   initial,
+  draft,
+  extraError = null,
+  closeLabel = 'Descartar',
   pending,
   blocked,
   ownerEmail,
@@ -31,6 +29,10 @@ export function CoproductionForm({
   platform = false,
 }: {
   initial: Coproduction;
+  draft: CoproductionRowsDraft;
+  /** Erro da validação conjunta com a outra aba; bloqueia o salvar. */
+  extraError?: string | null;
+  closeLabel?: string;
   pending: boolean;
   blocked: boolean;
   ownerEmail?: string;
@@ -41,25 +43,9 @@ export function CoproductionForm({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [rows, setRows] = useState<CoproducerDraft[]>(() =>
-    initial.participants.map((row, i) => ({
-      id: String(i),
-      email: row.email,
-      name: row.name,
-      percentage: formatPercentage(row.percentageBps),
-    })),
-  );
-  const [mode, setMode] = useState<'OWN' | 'INHERIT'>(
-    allowInheritance ? (initial.mode ?? 'OWN') : 'OWN',
-  );
+  const { rows, setRows, mode, setMode } = draft;
   const inherited = allowInheritance && mode === 'INHERIT';
   const error = inherited ? null : validateParticipants(rows, ownerEmail);
-  const total = inherited
-    ? (initial.effective?.participants ?? []).reduce(
-        (sum, row) => sum + row.percentageBps,
-        0,
-      )
-    : rows.reduce((sum, row) => sum + (percentageBps(row.percentage) || 0), 0);
   return (
     <>
       {allowInheritance && (
@@ -118,15 +104,11 @@ export function CoproductionForm({
           )}
         </div>
       )}
-      <p className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-white/10 dark:bg-white/[0.04] p-4 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        Adicione vários coprodutores, cada um com seu percentual, até o total de
-        100%.{' '}
-        {platform
-          ? 'No Delivery, divisão sobre itens após descontos e créditos, sem frete nem taxas. Nos demais produtos, sobre o líquido após taxas. Empresa recebe restante e frete integral.'
-          : 'Divisão sobre o valor líquido após taxas; o proprietário recebe o restante.'}{' '}
-        Alterações valem para novas cobranças; assinaturas existentes preservam
-        sua divisão.
-      </p>
+      {platform && (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          No Delivery, a divisão é sobre os itens, sem frete nem taxas.
+        </p>
+      )}
       {!inherited && (
         <ScrollArea className="max-h-[40vh]">
           {rows.length ? (
@@ -180,21 +162,9 @@ export function CoproductionForm({
           Adicionar coprodutor
         </Button>
       )}
-      <div
-        aria-live="polite"
-        className="grid grid-cols-2 gap-3 rounded-xl border border-[#7c3aed]/20 bg-[#7c3aed]/5 p-4 text-sm text-zinc-600 dark:text-zinc-300"
-      >
-        <p>
-          Coprodutores: <strong>{formatPercentage(total)}%</strong>
-        </p>
-        <p>
-          Proprietário:{' '}
-          <strong>{formatPercentage(Math.max(0, 10000 - total))}%</strong>
-        </p>
-      </div>
-      {error && (
+      {(error ?? extraError) && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {error}
+          {error ?? extraError}
         </p>
       )}
       <DialogFooter className="border-t border-zinc-200 pt-5 dark:border-white/10">
@@ -205,12 +175,12 @@ export function CoproductionForm({
           disabled={pending}
           onClick={onClose}
         >
-          Descartar
+          {closeLabel}
         </Button>
         <Button
           type="button"
           className="h-11 cursor-pointer rounded-xl border border-[#7c3aed] bg-[#7c3aed] text-white hover:bg-[#6d28d9] disabled:cursor-not-allowed"
-          disabled={pending || blocked || Boolean(error)}
+          disabled={pending || blocked || Boolean(error ?? extraError)}
           onClick={() =>
             onSave(
               inherited ? [] : serializeParticipants(rows),

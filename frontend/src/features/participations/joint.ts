@@ -150,13 +150,14 @@ export function affiliatesFromDraft(
       level: offerLevel ? 'offer' : 'platform',
     });
   }
+  // O global da oferta vale também para quem só está na lista da plataforma.
   for (const item of inherited?.affiliates ?? [])
     if (!claimed.has(item.code))
       list.push({
         label: item.name,
         name: item.name,
-        bps: item.percentageBps,
-        level: 'platform',
+        bps: (!platform ? global : null) ?? item.percentageBps,
+        level: !platform && global !== null ? 'offer' : 'platform',
       });
   return list;
 }
