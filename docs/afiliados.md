@@ -93,9 +93,17 @@ financeiro. A resolução ocorre antes do gateway em todos os chamadores (`captu
 
 Dono aprovado ou admin ativo; versão otimista (409); e-mails normalizados e únicos; sem o próprio dono.
 
-- `GET|PUT /afiliados/plataformas/:platformId` e `GET|PUT /afiliados/ofertas/:id`.
-- `GET /afiliados/contas?search=&page=`: mesma busca de contas da co-produção.
-- `GET /afiliados/recebimentos?page=&startDate=&endDate=&platform=&paymentMethod=`: comissões do
+Prefixo HTTP: `/comissoes` (neutro de propósito: bloqueadores de anúncio, como EasyList, bloqueiam
+caminhos com "afiliado"/"affiliate" e devolvem `net::ERR_BLOCKED_BY_CLIENT`). O frontend chama só
+`/comissoes/*`.
+
+- **Obsoleto:** `/afiliados/*` continua respondendo como alias (mesmo controller, mesmos guards) só para
+  clientes antigos durante o deploy. Remover quando nenhum cliente o usar.
+- **Ordem de deploy:** backend primeiro (serve os dois prefixos), frontend depois.
+
+- `GET|PUT /comissoes/plataformas/:platformId` e `GET|PUT /comissoes/ofertas/:id`.
+- `GET /comissoes/contas?search=&page=`: mesma busca de contas da co-produção.
+- `GET /comissoes/recebimentos?page=&startDate=&endDate=&platform=&paymentMethod=`: comissões do
   afiliado (`amountCents`, `state`, `isRenewal`, `originName`) e `summary` (`creditedCents`,
   `lockedCents`, `reversedCents`). Os filtros são os mesmos, com a mesma validação e semântica de
   fuso, de `GET /coproducao/recebimentos` (`startDate`/`endDate` `YYYY-MM-DD` inclusivos em
