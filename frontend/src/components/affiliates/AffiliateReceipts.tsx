@@ -165,7 +165,7 @@ export function AffiliateReceipts({
                 </td>
                 <td className="px-5 py-4 font-medium">
                   {row.originName ?? 'Venda'}
-                  {row.renewal ? ' (renovação)' : ''}
+                  {row.isRenewal ? ' (renovação)' : ''}
                 </td>
                 <td className="whitespace-nowrap px-5 py-4 text-xs text-zinc-600 dark:text-zinc-300">
                   {states[row.state] ?? 'Indisponível'}

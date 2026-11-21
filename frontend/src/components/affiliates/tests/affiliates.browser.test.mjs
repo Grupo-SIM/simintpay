@@ -298,7 +298,7 @@ test('affiliate view shows code, link, sales and pending/credited/reverted commi
                     state: 'AVAILABLE',
                     createdAt: '2026-10-02T12:00:00Z',
                     originName: 'Curso',
-                    renewal: true,
+                    isRenewal: true,
                   },
                   {
                     transactionId: 't2',

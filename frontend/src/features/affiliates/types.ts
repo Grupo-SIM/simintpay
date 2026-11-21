@@ -59,7 +59,7 @@ export type AffiliateReceipts = {
     state: 'AVAILABLE' | 'LOCKED' | 'REVERSED';
     createdAt: string;
     originName: string | null;
-    renewal?: boolean;
+    isRenewal?: boolean;
   }[];
   summary: {
     creditedCents: number;
