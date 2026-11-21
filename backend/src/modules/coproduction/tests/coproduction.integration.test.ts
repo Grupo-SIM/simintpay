@@ -811,6 +811,7 @@ run(
         participantsCount: 1,
         myPercentageBps: 500,
       },
+      afiliacao: null,
     });
     await expect(
       new PlatformContextService(db! as never).authorize(tag, 'read', partner),

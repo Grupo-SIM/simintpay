@@ -383,15 +383,17 @@ describe('owned catalogue scope', () => {
         }),
       },
       platform: { findMany },
-      $queryRaw: async () =>
-        ++query === 1
-          ? [{ productId: 'shared' }]
-          : [
-              {
-                productId: 'shared',
-                participants: [{ userId: 'owner', percentageBps: 2500 }],
-              },
-            ],
+      $queryRaw: async (sql: { sql: string }) =>
+        sql.sql.includes('AffiliateAgreement')
+          ? []
+          : ++query === 1
+            ? [{ productId: 'shared' }]
+            : [
+                {
+                  productId: 'shared',
+                  participants: [{ userId: 'owner', percentageBps: 2500 }],
+                },
+              ],
     };
     const result = await new PlatformsService(prisma as never).list(
       user as never,
@@ -412,6 +414,7 @@ describe('owned catalogue scope', () => {
           participantsCount: 1,
           myPercentageBps: 2500,
         },
+        afiliacao: null,
       },
     ]);
   });

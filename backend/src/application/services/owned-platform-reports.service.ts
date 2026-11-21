@@ -15,6 +15,12 @@ import {
   sharedProductIds,
 } from '../../modules/coproduction/coproduction-view';
 import {
+  affiliatePlatformIds,
+  affiliateTotals,
+  hasAffiliateHistory,
+  ownerAffiliateTotals,
+} from '../../modules/affiliate/affiliate-view';
+import {
   ownedReportSource,
   reportUnattributedSource,
 } from './owned-report-source';
@@ -182,19 +188,35 @@ export class OwnedPlatformReportsService {
         allowParticipant && actor.role !== 'ADMIN'
           ? await sharedProductIds(db, 'plataformas', actor.id)
           : [];
-      const participant = shared.length
-        ? await db.platform.findFirst({
-            where: { id: { in: shared }, tag: normalized },
-            select: { id: true },
-          })
-        : null;
+      const affiliated =
+        allowParticipant && actor.role !== 'ADMIN'
+          ? await affiliatePlatformIds(db, actor.id)
+          : [];
+      const participant =
+        shared.length || affiliated.length
+          ? await db.platform.findFirst({
+              where: {
+                id: { in: [...shared, ...affiliated] },
+                tag: normalized,
+              },
+              select: { id: true },
+            })
+          : null;
       const historical =
         allowParticipant && actor.role !== 'ADMIN'
           ? await db.$queryRaw<{ count: bigint }[]>(
               Prisma.sql`SELECT count(*) AS count FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId" WHERE a."userId" = ${actor.id} AND t."userId" <> ${actor.id} AND t."platformTag" = ${normalized}`,
             )
           : [];
-      if (!participant && !Number(historical[0]?.count ?? 0))
+      const affiliateHistory =
+        allowParticipant && actor.role !== 'ADMIN'
+          ? await hasAffiliateHistory(db, actor.id, normalized)
+          : false;
+      if (
+        !participant &&
+        !Number(historical[0]?.count ?? 0) &&
+        !affiliateHistory
+      )
         throw new ForbiddenException('Plataforma indisponível para esta conta');
     }
     return platforms;
@@ -379,6 +401,14 @@ export class OwnedPlatformReportsService {
         this.withdrawals(db, scope, filters),
         this.attributionGaps(db, scope, filters),
       ]);
+      const afiliacao =
+        actor.role === 'ADMIN'
+          ? undefined
+          : await affiliateTotals(db, actor.id, coproductionRange);
+      const afiliados = await ownerAffiliateTotals(
+        db,
+        this.transactions(scope, filters),
+      );
       const row = rows[0];
       // Buyers are unique across own and coproduction sales: count the CPF union.
       const customers = coproducao?.creditedCount
@@ -404,6 +434,8 @@ export class OwnedPlatformReportsService {
           filters.platform && !scope.length && actor.role !== 'ADMIN',
         ),
         coproducao,
+        afiliacao,
+        afiliados,
         summary: {
           salesCount: Number(row.count),
           grossCents: cents(row.gross),

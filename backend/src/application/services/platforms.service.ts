@@ -4,6 +4,10 @@ import {
   sharedProductIds,
 } from '../../modules/coproduction/coproduction-view';
 import {
+  affiliatePlatformIds,
+  type AffiliatePlatformInfo,
+} from '../../modules/affiliate/affiliate-view';
+import {
   encryptPlatformSecret,
   hashPlatformToken,
 } from '../../modules/platform-integrations/platform-secrets';
@@ -159,11 +163,15 @@ export class PlatformsService {
     const sharedIds = adminListing
       ? []
       : await sharedProductIds(this.prisma, 'plataformas', user.sub);
+    const affiliateIds = adminListing
+      ? []
+      : await affiliatePlatformIds(this.prisma, user.sub);
+    const visibleIds = [...new Set([...sharedIds, ...affiliateIds])];
     const platforms = await this.prisma.platform.findMany({
       where: adminListing
         ? {}
-        : sharedIds.length
-          ? { OR: [{ ownerUserId: user.sub }, { id: { in: sharedIds } }] }
+        : visibleIds.length
+          ? { OR: [{ ownerUserId: user.sub }, { id: { in: visibleIds } }] }
           : { ownerUserId: user.sub },
       select: publicSelect,
       orderBy: { tag: 'asc' },
@@ -182,12 +190,18 @@ export class PlatformsService {
         const coproducao = info.get(platform.id) ?? null;
         // Participation grants listing visibility, never configuration or fee access.
         if (!adminListing && platform.ownerUserId !== user.sub) {
+          const afiliacao: AffiliatePlatformInfo | null = affiliateIds.includes(
+            platform.id,
+          )
+            ? { role: 'AFFILIATE', readOnly: true }
+            : null;
           return {
             id: platform.id,
             tag: platform.tag,
             name: platform.name,
             isActive: platform.isActive,
             coproducao,
+            afiliacao,
           };
         }
         const withdrawalFee = (key: PlataformaTaxaKey) =>
@@ -199,6 +213,7 @@ export class PlatformsService {
         return {
           ...platform,
           coproducao,
+          afiliacao: null,
           // Charged fee: highest active acquirer fee + platform extra.
           withdrawalFees: {
             fixed: resolveWithdrawalFixedFee(platform.tag),

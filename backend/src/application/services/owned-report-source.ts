@@ -32,7 +32,7 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
       t.amount, CASE WHEN t."financialSnapshot" ? 'coproduction' THEN t."netAmount" - coalesce((
         SELECT sum(floor(coalesce((t."financialSnapshot" #>> '{coproduction,baseCents}')::numeric, t."netAmount" * 100) * (participant->>'percentageBps')::numeric / 10000) / 100)
         FROM jsonb_array_elements(t."financialSnapshot" #> '{coproduction,participants}') participant
-      ), 0) ELSE t."netAmount" END AS "netAmount",
+      ), 0) - coalesce(floor(coalesce((t."financialSnapshot" #>> '{coproduction,baseCents}')::numeric, t."netAmount" * 100) * (t."financialSnapshot" #>> '{coproduction,affiliate,percentageBps}')::numeric / 10000) / 100, 0) ELSE t."netAmount" END AS "netAmount",
       CASE WHEN t."netAmount" IS NOT NULL THEN t.amount - t."netAmount" ELSE t."totalFee" END AS "totalFee",
       p.tag AS "platformTag",
       ${reportBuyerCpfSql(Prisma.sql`t."customerDocument"`)} AS "customerKey",

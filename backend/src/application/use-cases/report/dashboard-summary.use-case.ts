@@ -5,6 +5,11 @@ import dayjs from 'dayjs';
 import { Prisma } from '@prisma/client';
 import { coproductionOwnerNet } from '../../../modules/coproduction/coproduction';
 import { coproductionTotals } from '../../../modules/coproduction/coproduction-view';
+import {
+  affiliateTotals,
+  ownerAffiliateTotals,
+  ownerSalesSource,
+} from '../../../modules/affiliate/affiliate-view';
 
 @Injectable()
 export class DashboardSummaryUseCase {
@@ -260,10 +265,20 @@ export class DashboardSummaryUseCase {
       start,
       end,
     });
+    // Comissões próprias como afiliado e o que foi pago a afiliados nas vendas do dono (já descontado do líquido).
+    const [afiliacao, afiliados] = await Promise.all([
+      affiliateTotals(this.prisma, userId, { start, end }),
+      ownerAffiliateTotals(
+        this.prisma,
+        ownerSalesSource(userId, { start, end }),
+      ),
+    ]);
 
     return {
       user: { name: user?.name || 'Usuário' },
       coproducao,
+      afiliacao,
+      afiliados,
       summary: {
         availableBalance: availableNet,
         balanceInProcessing: 0,

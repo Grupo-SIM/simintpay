@@ -7,6 +7,10 @@ import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { transactionCoproductionInfo } from '../../../modules/coproduction/coproduction-view';
+import {
+  redactForAffiliate,
+  transactionAffiliateInfo,
+} from '../../../modules/affiliate/affiliate-view';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 
 dayjs.extend(utc);
@@ -45,6 +49,7 @@ export class ListTransactionsUseCase {
           OR: [
             { userId: input.userId },
             { coproductionAllocations: { some: { userId: input.userId } } },
+            { affiliateAllocations: { some: { userId: input.userId } } },
             {
               AND: [
                 { userId: getPlatformOwnerId('RENOVADA') ?? '' },
@@ -73,6 +78,7 @@ export class ListTransactionsUseCase {
           OR: [
             { userId: input.userId },
             { coproductionAllocations: { some: { userId: input.userId } } },
+            { affiliateAllocations: { some: { userId: input.userId } } },
           ],
         });
       }
@@ -233,43 +239,57 @@ export class ListTransactionsUseCase {
       transactions,
     );
 
+    const afiliacao = await transactionAffiliateInfo(
+      this.prisma,
+      input.userId,
+      transactions,
+    );
+
     return {
       data: {
-        transactions: transactions.map((transaction) => ({
-          id: transaction.id,
-          userId: transaction.userId,
-          amount: transaction.amount.toString(),
-          netAmount: transaction.netAmount?.toString() ?? null,
-          status: transaction.status,
-          previousStatus: transaction.previousStatus,
-          paymentMethod: transaction.paymentMethod,
-          description: transaction.description,
-          platformTag: transaction.platformTag,
-          installments: transaction.installments,
-          totalFee: transaction.totalFee.toString(),
-          acquirerFee: acquirerCostReais(transaction).toFixed(2),
-          platformFee: transaction.platformFee.toString(),
-          domTransactionId: transaction.domTransactionId,
-          domPaymentId: transaction.domPaymentId,
-          acquirer: transaction.acquirer,
-          externalTransactionId: transaction.externalTransactionId,
-          externalPaymentId: transaction.externalPaymentId,
-          pixQrCode: transaction.pixQrCode,
-          pixContent: transaction.pixContent,
-          pixExpire: transaction.pixExpire?.toISOString() ?? null,
-          cardBrand: transaction.cardBrand,
-          cardBin: transaction.cardBin,
-          cardCodeAuth: transaction.cardCodeAuth,
-          customerName: transaction.customerName,
-          customerEmail: transaction.customerEmail,
-          customerDocument: transaction.customerDocument,
-          customerPhone: transaction.customerPhone,
-          offerId: transaction.offerId,
-          paymentLinkId: transaction.offerId,
-          coproducao: coproducao.get(transaction.id) ?? null,
-          createdAt: transaction.createdAt.toISOString(),
-          updatedAt: transaction.updatedAt.toISOString(),
-        })),
+        transactions: transactions.map((transaction) => {
+          const own = afiliacao.get(transaction.id) ?? null;
+          // Affiliates (without coproduction on the sale) never see the buyer or the owner's financials.
+          const mask =
+            own?.role === 'AFFILIATE' && !coproducao.has(transaction.id);
+          const item = {
+            id: transaction.id,
+            userId: transaction.userId,
+            amount: transaction.amount.toString(),
+            netAmount: transaction.netAmount?.toString() ?? null,
+            status: transaction.status,
+            previousStatus: transaction.previousStatus,
+            paymentMethod: transaction.paymentMethod,
+            description: transaction.description,
+            platformTag: transaction.platformTag,
+            installments: transaction.installments,
+            totalFee: transaction.totalFee.toString(),
+            acquirerFee: acquirerCostReais(transaction).toFixed(2),
+            platformFee: transaction.platformFee.toString(),
+            domTransactionId: transaction.domTransactionId,
+            domPaymentId: transaction.domPaymentId,
+            acquirer: transaction.acquirer,
+            externalTransactionId: transaction.externalTransactionId,
+            externalPaymentId: transaction.externalPaymentId,
+            pixQrCode: transaction.pixQrCode,
+            pixContent: transaction.pixContent,
+            pixExpire: transaction.pixExpire?.toISOString() ?? null,
+            cardBrand: transaction.cardBrand,
+            cardBin: transaction.cardBin,
+            cardCodeAuth: transaction.cardCodeAuth,
+            customerName: transaction.customerName,
+            customerEmail: transaction.customerEmail,
+            customerDocument: transaction.customerDocument,
+            customerPhone: transaction.customerPhone,
+            offerId: transaction.offerId,
+            paymentLinkId: transaction.offerId,
+            coproducao: coproducao.get(transaction.id) ?? null,
+            afiliacao: own,
+            createdAt: transaction.createdAt.toISOString(),
+            updatedAt: transaction.updatedAt.toISOString(),
+          };
+          return mask ? redactForAffiliate(item) : item;
+        }),
         total,
       },
       page,

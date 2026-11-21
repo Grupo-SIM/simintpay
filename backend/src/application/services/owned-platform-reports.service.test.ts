@@ -9,32 +9,37 @@ import { ReportSessionGuard } from '../../modules/platform-core/report-session.g
 const user = { sub: 'owner', email: 'owner@test.local', role: 'USER' };
 function fixture() {
   const raw = mock(async (query: any) =>
-    query.text.includes('FROM "CoproductionAllocation"')
-      ? []
-      : query.text.includes('FROM (SELECT "productId", participants')
+    query.text.includes('FROM "AffiliateAllocation" a JOIN (')
+      ? [{ count: 0n, amount: 0 }]
+      : query.text.includes('"AffiliateAllocation"') ||
+          query.text.includes('"AffiliateAgreement"')
         ? []
-        : query.text.includes('SELECT p.id')
-          ? [
-              {
-                id: 'p',
-                tag: 'OWN',
-                name: 'Minha Loja',
-                ownerUserId: 'owner',
-                isActive: false,
-              },
-            ]
-          : [
-              {
-                count: 0n,
-                gross: 0,
-                fees: 0,
-                net: 0,
-                refunds: 0,
-                refundCount: 0n,
-                missing: 0n,
-                total: 1n,
-              },
-            ],
+        : query.text.includes('FROM "CoproductionAllocation"')
+          ? []
+          : query.text.includes('FROM (SELECT "productId", participants')
+            ? []
+            : query.text.includes('SELECT p.id')
+              ? [
+                  {
+                    id: 'p',
+                    tag: 'OWN',
+                    name: 'Minha Loja',
+                    ownerUserId: 'owner',
+                    isActive: false,
+                  },
+                ]
+              : [
+                  {
+                    count: 0n,
+                    gross: 0,
+                    fees: 0,
+                    net: 0,
+                    refunds: 0,
+                    refundCount: 0n,
+                    missing: 0n,
+                    total: 1n,
+                  },
+                ],
   );
   const db: any = {
     user: {
@@ -102,12 +107,14 @@ test('rejects third-party filters before reading data, including after transfer'
     () => service.transactionDetails(user, { platform: 'OTHER' }),
   ])
     await expect(action()).rejects.toThrow('Plataforma indisponível');
-  expect(db.$queryRaw.mock.calls).toHaveLength(2);
+  expect(db.$queryRaw.mock.calls).toHaveLength(4);
   expect(
     db.$queryRaw.mock.calls.every(
       ([query]: any[]) =>
         query.text.includes('CoproductionAgreement') ||
-        query.text.includes('CoproductionAllocation'),
+        query.text.includes('CoproductionAllocation') ||
+        query.text.includes('AffiliateAgreement') ||
+        query.text.includes('AffiliateAllocation'),
     ),
   ).toBe(true);
   expect(db.withdrawRequest.findMany).not.toHaveBeenCalled();

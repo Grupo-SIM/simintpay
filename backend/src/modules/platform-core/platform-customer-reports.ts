@@ -12,6 +12,11 @@ import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
 import { coproductionOwnerNet } from '../coproduction/coproduction';
 import { coproductionTotals } from '../coproduction/coproduction-view';
+import {
+  affiliateTotals,
+  ownerAffiliateTotals,
+  ownerSalesSource,
+} from '../affiliate/affiliate-view';
 import { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 
 dayjs.extend(utc);
@@ -218,10 +223,21 @@ export class PlatformCustomerReports {
     const coproducao = this.context
       ? null
       : await coproductionTotals(this.prisma, jwtUser.sub, { start, end });
+    const afiliacao = this.context
+      ? null
+      : await affiliateTotals(this.prisma, jwtUser.sub, { start, end });
+    const afiliados = this.context
+      ? null
+      : await ownerAffiliateTotals(
+          this.prisma,
+          ownerSalesSource(jwtUser.sub, { start, end }),
+        );
 
     return {
       period,
       coproducao,
+      afiliacao,
+      afiliados,
       summary: {
         availableBalance: availableBalanceNet,
         balanceInProcessing: 0,

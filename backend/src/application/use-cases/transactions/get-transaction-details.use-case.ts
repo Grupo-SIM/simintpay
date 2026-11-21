@@ -15,6 +15,10 @@ import {
 import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
 import { PaymentGatewayResolver } from '../../../infrastructure/http/payment-gateway.resolver';
 import { toAcquirer } from '../../../core/services/acquirer.enum';
+import {
+  affiliateOrder,
+  transactionAffiliateInfo,
+} from '../../../modules/affiliate/affiliate-view';
 import { transactionCoproductionInfo } from '../../../modules/coproduction/coproduction-view';
 
 @Injectable()
@@ -265,11 +269,31 @@ export class GetTransactionDetailsUseCase {
           await transactionCoproductionInfo(this.prisma, input.userId, [tx])
         ).get(tx.id) ?? null)
       : null;
+    const afiliacao = tx
+      ? ((await transactionAffiliateInfo(this.prisma, input.userId, [tx])).get(
+          tx.id,
+        ) ?? null)
+      : null;
+    // Afiliado puro: só a própria comissão, sem comprador nem financeiro do dono.
+    if (
+      input.role !== 'ADMIN' &&
+      afiliacao?.role === 'AFFILIATE' &&
+      !coproducao
+    )
+      return {
+        status: 'OK',
+        order: affiliateOrder(settled),
+        platformTag: tx?.platformTag ?? null,
+        acquirer: null,
+        coproducao: null,
+        afiliacao,
+      };
     return {
       ...detail,
       platformTag: tx?.platformTag ?? null,
       acquirer: tx?.acquirer ?? null,
       coproducao,
+      afiliacao,
     };
   }
 
@@ -352,6 +376,7 @@ export class GetTransactionDetailsUseCase {
               OR: [
                 { userId: input.userId },
                 { coproductionAllocations: { some: { userId: input.userId } } },
+                { affiliateAllocations: { some: { userId: input.userId } } },
               ],
             }),
       },

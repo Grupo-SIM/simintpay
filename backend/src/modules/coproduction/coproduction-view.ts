@@ -143,14 +143,14 @@ export async function transactionCoproductionInfo(
   return info;
 }
 
-type CoproductionRange = {
+export type CoproductionRange = {
   start?: Date;
   end?: Date;
   platform?: string;
   paymentMethod?: string;
 };
 
-function coproductionPeriod(range?: CoproductionRange) {
+export function coproductionPeriod(range?: CoproductionRange) {
   return Prisma.sql`
     ${range?.start ? Prisma.sql`AND t."createdAt" >= ${range.start}` : Prisma.empty}
     ${range?.end ? Prisma.sql`AND t."createdAt" <= ${range.end}` : Prisma.empty}
