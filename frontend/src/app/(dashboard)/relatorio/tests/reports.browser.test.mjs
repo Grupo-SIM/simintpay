@@ -1008,7 +1008,7 @@ test('affiliate blocks: own commissions and commissions paid by the owner stay s
       const url = new URL(route.request().url());
       if (
         url.pathname === '/api/coproducao/recebimentos' ||
-        url.pathname === '/api/afiliados/recebimentos'
+        url.pathname === '/api/comissoes/recebimentos'
       )
         return route.fulfill({
           json: {

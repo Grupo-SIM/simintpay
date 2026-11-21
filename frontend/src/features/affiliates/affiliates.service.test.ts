@@ -126,7 +126,7 @@ test('receipts send the report filters and page, no-store, dropping unset ones',
     2,
   );
   await getAffiliateReceipts(api);
-  expect(calls[0].path).toBe('/afiliados/recebimentos');
+  expect(calls[0].path).toBe('/comissoes/recebimentos');
   expect(calls[0].options).toEqual({
     query: {
       startDate: '2026-03-01',

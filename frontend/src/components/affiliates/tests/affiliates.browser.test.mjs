@@ -80,7 +80,7 @@ test('platform dialog: draft survives failures, 409 reload replaces it, save sen
       if (url.hostname !== '127.0.0.1') return route.abort();
       if (!url.pathname.startsWith('/api')) return route.continue();
       if (url.pathname === '/api/auth/me') return route.fulfill({ json: me });
-      if (url.pathname === '/api/afiliados/contas')
+      if (url.pathname === '/api/comissoes/contas')
         return route.fulfill({
           json: {
             data: [{ id: 'b', name: 'Bruno', email: 'bruno@local.test' }],

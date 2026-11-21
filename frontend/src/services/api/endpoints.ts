@@ -1,9 +1,9 @@
 export const endpoints = {
   affiliates: {
-    accounts: '/afiliados/contas',
+    accounts: '/comissoes/contas',
     configuration: (product: 'plataformas' | 'ofertas', id: string) =>
-      `/afiliados/${product}/${encodeURIComponent(id)}`,
-    receipts: '/afiliados/recebimentos',
+      `/comissoes/${product}/${encodeURIComponent(id)}`,
+    receipts: '/comissoes/recebimentos',
   },
   coproduction: {
     accounts: '/coproducao/contas',
