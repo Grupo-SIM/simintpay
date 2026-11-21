@@ -42,6 +42,11 @@ import {
   affiliationStateLabel,
   isAffiliateOnly,
 } from '@/features/affiliates/affiliation';
+import {
+  coproductionCell,
+  coproductionStateLabel,
+  userNetAmount,
+} from '@/features/transacoes/participations';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import {
   formatDocument,
@@ -49,45 +54,6 @@ import {
   formatTransacaoDescricaoUi,
   transacaoPlataformaUi,
 } from '@/lib/utils';
-
-/** Valor líquido que ficou com o usuário atual (parte da coprodução ou da afiliação, quando houver). */
-function userNetAmount(row: Transacao) {
-  const mine = row.coproducao?.myAmountCents;
-  if (mine != null) return mine / 100;
-  const affiliation = row.afiliacao;
-  if (affiliation?.role === 'AFFILIATE')
-    return affiliation.myAmountCents == null
-      ? null
-      : affiliation.myAmountCents / 100;
-  // A comissão do afiliado já saiu do líquido do dono.
-  if (
-    affiliation?.role === 'OWNER' &&
-    affiliation.affiliateCommissionCents != null &&
-    row.netAmount != null
-  )
-    return Math.max(
-      0,
-      Number(row.netAmount) - affiliation.affiliateCommissionCents / 100,
-    );
-  return row.netAmount;
-}
-
-/** Parte do líquido desviada para outros coprodutores, ou null sem coprodução. */
-function coproductionDiverted(row: Transacao) {
-  const mine = row.coproducao?.myAmountCents;
-  const net = Number(row.netAmount ?? 0) * 100;
-  if (mine == null || !(net > 0)) return null;
-  // A comissão de afiliado tem coluna própria: não conta como coprodução.
-  const affiliate =
-    row.afiliacao?.role === 'OWNER'
-      ? (row.afiliacao.affiliateCommissionCents ?? 0)
-      : 0;
-  const cents = Math.max(0, net - mine - affiliate);
-  return {
-    amount: cents / 100,
-    percentage: (cents / net) * 100,
-  };
-}
 
 function formatBRL(
   value: number | undefined | null,
@@ -844,20 +810,27 @@ function TransacoesContent() {
               className: 'text-right whitespace-nowrap',
               headerClassName: 'text-right',
               render: (row: Transacao) => {
-                const diverted = coproductionDiverted(row);
-                return diverted == null ? (
-                  <span className="text-xs text-zinc-400">-</span>
-                ) : (
+                const cell = coproductionCell(row);
+                if (cell == null)
+                  return <span className="text-xs text-zinc-400">-</span>;
+                const reversed = row.coproducao?.state === 'REVERSED';
+                return (
                   <div className="flex flex-col items-end">
                     <MoneyCell
-                      value={diverted.amount}
-                      className="text-sm font-medium text-violet-600 dark:text-violet-300"
+                      value={
+                        (cell.kind === 'OWNER'
+                          ? cell.divertedCents
+                          : cell.myCents) / 100
+                      }
+                      className={`text-sm font-medium text-violet-600 dark:text-violet-300 ${reversed ? 'line-through opacity-70' : ''}`}
                     />
                     <span className="text-xs text-zinc-400">
-                      {diverted.percentage.toLocaleString('pt-BR', {
-                        maximumFractionDigits: 2,
-                      })}
-                      %
+                      {coproductionStateLabel(cell.state)}
+                      {cell.kind === 'OWNER'
+                        ? ` · ${cell.percentage.toLocaleString('pt-BR', {
+                            maximumFractionDigits: 2,
+                          })}%`
+                        : ' · sua parte'}
                     </span>
                   </div>
                 );
