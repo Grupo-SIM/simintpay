@@ -254,39 +254,7 @@ export class CoproductionService {
   }
 
   receipts(actorId: string, pageValue = '1', filters: ReceiptFilters = {}) {
-    for (const value of Object.values(filters))
-      if (value !== undefined && typeof value !== 'string')
-        throw new BadRequestException('Filtro inválido');
-    for (const value of [filters.startDate, filters.endDate])
-      if (
-        value !== undefined &&
-        (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-          !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) ||
-          new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)
-      )
-        throw new BadRequestException('Data inválida');
-    if (
-      filters.startDate &&
-      filters.endDate &&
-      filters.startDate > filters.endDate
-    )
-      throw new BadRequestException('Intervalo inválido');
-    if (
-      filters.paymentMethod &&
-      !Object.values(PaymentMethod).includes(
-        filters.paymentMethod as PaymentMethod,
-      )
-    )
-      throw new BadRequestException('Método inválido');
-    const start = filters.startDate
-      ? new Date(`${filters.startDate}T00:00:00-03:00`)
-      : undefined;
-    const end = filters.endDate
-      ? new Date(
-          new Date(`${filters.endDate}T00:00:00-03:00`).getTime() + 86400000,
-        )
-      : undefined;
-    const tag = canonicalTransactionPlatformTag(filters.platform);
+    const { start, end, tag } = parseReceiptFilters(filters);
     if (
       !/^[1-9]\d*$/.test(pageValue) ||
       !Number.isSafeInteger(Number(pageValue)) ||
@@ -362,6 +330,47 @@ export class CoproductionService {
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
+}
+
+/**
+ * Validates receipt filters (shared with affiliate receipts). Dates are São Paulo calendar days:
+ * `end` is exclusive (the day after `endDate` at 00:00 -03:00).
+ */
+export function parseReceiptFilters(filters: ReceiptFilters = {}) {
+  for (const value of Object.values(filters))
+    if (value !== undefined && typeof value !== 'string')
+      throw new BadRequestException('Filtro inválido');
+  for (const value of [filters.startDate, filters.endDate])
+    if (
+      value !== undefined &&
+      (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+        !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) ||
+        new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)
+    )
+      throw new BadRequestException('Data inválida');
+  if (
+    filters.startDate &&
+    filters.endDate &&
+    filters.startDate > filters.endDate
+  )
+    throw new BadRequestException('Intervalo inválido');
+  if (
+    filters.paymentMethod &&
+    !Object.values(PaymentMethod).includes(
+      filters.paymentMethod as PaymentMethod,
+    )
+  )
+    throw new BadRequestException('Método inválido');
+  const start = filters.startDate
+    ? new Date(`${filters.startDate}T00:00:00-03:00`)
+    : undefined;
+  const end = filters.endDate
+    ? new Date(
+        new Date(`${filters.endDate}T00:00:00-03:00`).getTime() + 86400000,
+      )
+    : undefined;
+  const tag = canonicalTransactionPlatformTag(filters.platform);
+  return { start, end, tag, paymentMethod: filters.paymentMethod };
 }
 
 /** Capture before contacting the gateway. Public responses must never include this object. */

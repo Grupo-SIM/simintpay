@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CoproductionSessionGuard } from '../coproduction/coproduction-session.guard';
+import type { ReceiptFilters } from '../coproduction/coproduction.service';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -30,8 +31,17 @@ export class AffiliateController {
   }
   @Get('recebimentos')
   @Header('Cache-Control', 'no-store')
-  receipts(@CurrentUser() actor: JwtPayload, @Query('page') page?: string) {
-    return this.service.receipts(actor.sub, page);
+  receipts(
+    @CurrentUser() actor: JwtPayload,
+    @Query() query: ReceiptFilters & { page?: string },
+  ) {
+    const { page, startDate, endDate, platform, paymentMethod } = query;
+    return this.service.receipts(actor.sub, page, {
+      startDate,
+      endDate,
+      platform,
+      paymentMethod,
+    });
   }
   @Get('plataformas/:platformId')
   @Header('Cache-Control', 'no-store')

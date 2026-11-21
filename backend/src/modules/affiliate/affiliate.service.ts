@@ -11,6 +11,8 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import {
   CoproductionService,
   captureCoproduction,
+  parseReceiptFilters,
+  type ReceiptFilters,
 } from '../coproduction/coproduction.service';
 import { productTables, type ProductKey } from '../coproduction/coproduction';
 import {
@@ -318,7 +320,12 @@ export class AffiliateService {
     throw new ConflictException('Não foi possível gerar o código do afiliado');
   }
 
-  async receipts(actorId: string, pageValue = '1') {
+  async receipts(
+    actorId: string,
+    pageValue = '1',
+    filters: ReceiptFilters = {},
+  ) {
+    const { start, end, tag, paymentMethod } = parseReceiptFilters(filters);
     if (
       typeof pageValue !== 'string' ||
       !/^[1-9]\d*$/.test(pageValue) ||
@@ -340,6 +347,11 @@ export class AffiliateService {
           throw new ForbiddenException(
             'Recebimentos exclusivos de clientes aprovados',
           );
+        const predicate = Prisma.sql`a."userId" = ${actorId}
+        ${start ? Prisma.sql`AND t."createdAt" >= ${start}` : Prisma.empty}
+        ${end ? Prisma.sql`AND t."createdAt" < ${end}` : Prisma.empty}
+        ${tag ? Prisma.sql`AND t."platformTag" = ${tag}` : Prisma.empty}
+        ${paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${paymentMethod}` : Prisma.empty}`;
         const [totals, rows] = await Promise.all([
           tx.$queryRaw<
             {
@@ -348,11 +360,11 @@ export class AffiliateService {
               locked: Prisma.Decimal;
               reversed: Prisma.Decimal;
             }[]
-          >`SELECT count(*) AS count,
+          >(Prisma.sql`SELECT count(*) AS count,
             coalesce(sum(a.amount) FILTER (WHERE a.state = 'AVAILABLE'), 0) AS available,
             coalesce(sum(a.amount) FILTER (WHERE a.state = 'LOCKED'), 0) AS locked,
             coalesce(sum(a.amount) FILTER (WHERE a.state = 'REVERSED'), 0) AS reversed
-            FROM "AffiliateAllocation" a WHERE a."userId" = ${actorId}`,
+            FROM "AffiliateAllocation" a JOIN "Transaction" t ON t.id = a."transactionId" WHERE ${predicate}`),
           tx.$queryRaw<
             {
               transactionId: string;
@@ -362,12 +374,12 @@ export class AffiliateService {
               createdAt: Date;
               originName: string | null;
             }[]
-          >`SELECT a."transactionId", a.amount, a.state, a."isRenewal", a."createdAt", coalesce(o.name, pl.name) AS "originName"
+          >(Prisma.sql`SELECT a."transactionId", a.amount, a.state, a."isRenewal", a."createdAt", coalesce(o.name, pl.name) AS "originName"
             FROM "AffiliateAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
             LEFT JOIN "Offer" o ON o.id = t."offerId"
             LEFT JOIN "Platform" pl ON pl.tag = t."platformTag"
-            WHERE a."userId" = ${actorId}
-            ORDER BY a."createdAt" DESC, a."transactionId" ASC LIMIT 10 OFFSET ${offset}`,
+            WHERE ${predicate}
+            ORDER BY a."createdAt" DESC, a."transactionId" ASC LIMIT 10 OFFSET ${offset}`),
         ]);
         const cents = (amount: Prisma.Decimal) =>
           new Prisma.Decimal(amount).mul(100).toNumber();
