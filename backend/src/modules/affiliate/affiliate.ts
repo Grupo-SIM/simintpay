@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import type { Snapshot } from '../coproduction/coproduction';
 
 export type AffiliateProduct = 'plataformas' | 'ofertas';
 export type AffiliateEntry = { userId: string; percentageBps: number | null };
@@ -9,6 +10,15 @@ export type AffiliateConfig = {
   commissionOnRenewals: boolean | null;
   linkBaseUrl: string | null;
   affiliates: AffiliateEntry[];
+};
+/** Audit of the one-person-one-share rule applied to a sale; never carries an e-mail. */
+export type Deduplication = {
+  /** Which entry of the same person was dropped from this sale. */
+  discarded: 'coproducer' | 'affiliate';
+  coproducerLevel: 'offer' | 'platform';
+  affiliateLevel: 'offer' | 'platform';
+  /** Percentage of the dropped entry, in basis points. */
+  discardedPercentageBps: number;
 };
 /** Resolved affiliate of one sale, frozen in the sale snapshot. */
 export type AffiliateSnapshot = {
@@ -25,6 +35,8 @@ export type AffiliateSnapshot = {
   commissionOnRenewals: boolean;
   /** True on the snapshot of a renewal charge. */
   isRenewal?: boolean;
+  /** Set when this affiliate replaced the same person's coproducer entry. */
+  deduplication?: Deduplication;
 };
 export type AffiliateInput = {
   version: number;
@@ -150,21 +162,82 @@ export function effectiveRenewals(
   return offer?.commissionOnRenewals ?? platform?.commissionOnRenewals ?? true;
 }
 
-/** Worst single-affiliate percentage any sale of this scope pair can carry (one code = one person). */
-export function worstPercentage(
+/** Level a snapshot's coproduction came from: the offer's own agreement, else the platform's. */
+function coproducerLevel(snapshot: Snapshot): 'offer' | 'platform' {
+  return snapshot.product === 'ofertas' && !snapshot.source
+    ? 'offer'
+    : 'platform';
+}
+
+/**
+ * One person never gets two shares of the same sale. When the affiliate is also a coproducer
+ * the most specific level wins (offer over platform); on a tie the coproducer wins and the
+ * affiliate entry is dropped. When the affiliate wins, the coproducer leaves the snapshot.
+ */
+export function dedupOverlap(
+  snapshot: Snapshot | null,
+  affiliate: {
+    userId: string;
+    percentageBps: number;
+    level: 'offer' | 'platform';
+  },
+): {
+  snapshot: Snapshot | null;
+  keepAffiliate: boolean;
+  deduplication?: Deduplication;
+} {
+  const co = snapshot?.participants.find((p) => p.userId === affiliate.userId);
+  if (!snapshot || !co) return { snapshot, keepAffiliate: true };
+  const level = coproducerLevel(snapshot);
+  const affiliateWins = affiliate.level === 'offer' && level === 'platform';
+  const deduplication: Deduplication = {
+    discarded: affiliateWins ? 'coproducer' : 'affiliate',
+    coproducerLevel: level,
+    affiliateLevel: affiliate.level,
+    discardedPercentageBps: affiliateWins
+      ? co.percentageBps
+      : affiliate.percentageBps,
+  };
+  return {
+    snapshot: {
+      ...snapshot,
+      participants: affiliateWins
+        ? snapshot.participants.filter((p) => p.userId !== affiliate.userId)
+        : snapshot.participants,
+      deduplication,
+    },
+    keepAffiliate: affiliateWins,
+    deduplication,
+  };
+}
+
+/**
+ * Worst total any sale of this scope pair can carry over the net, after deduplication: for each
+ * listed person the sale where that person is the affiliate (counted once, whichever entry
+ * wins), compared with the coproduction alone. One code names one person, so only one
+ * affiliate is ever on a sale.
+ */
+export function worstCaseBps(
   offer: AffiliateConfig | null,
   platform: AffiliateConfig | null,
+  snapshot: Snapshot | null,
 ): number {
+  const total = (s: Snapshot | null) =>
+    (s?.participants ?? []).reduce((sum, p) => sum + p.percentageBps, 0);
+  let worst = total(snapshot);
   const ids = new Set([
     ...(offer?.affiliates ?? []).map((a) => a.userId),
     ...(platform?.affiliates ?? []).map((a) => a.userId),
   ]);
-  let worst = 0;
-  for (const id of ids)
+  for (const userId of ids) {
+    const effective = effectivePercentage(userId, offer, platform);
+    if (!effective) continue;
+    const d = dedupOverlap(snapshot, { userId, ...effective });
     worst = Math.max(
       worst,
-      effectivePercentage(id, offer, platform)?.percentageBps ?? 0,
+      total(d.snapshot) + (d.keepAffiliate ? effective.percentageBps : 0),
     );
+  }
   return worst;
 }
 

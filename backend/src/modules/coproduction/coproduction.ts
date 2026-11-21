@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { AffiliateSnapshot } from '../affiliate/affiliate';
+import type { AffiliateSnapshot, Deduplication } from '../affiliate/affiliate';
 
 export const productTables = {
   plataformas: 'Platform',
@@ -58,6 +58,8 @@ export type Snapshot = {
   participants: { userId: string; percentageBps: number }[];
   /** Platform/offer affiliate of this sale; paid out of the owner's share, never a participant. */
   affiliate?: AffiliateSnapshot;
+  /** Audit: the same person was coproducer and affiliate; which entry was dropped. */
+  deduplication?: Deduplication;
 };
 
 export function validateAgreement(input: unknown): Agreement {

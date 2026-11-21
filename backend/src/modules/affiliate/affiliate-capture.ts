@@ -7,6 +7,7 @@ import {
 } from '../coproduction/coproduction';
 import { paymentTracking } from '../platform-core/payment-tracking';
 import {
+  dedupOverlap,
   effectivePercentage,
   effectiveRenewals,
   type AffiliateConfig,
@@ -65,17 +66,43 @@ function participantsTotal(snapshot: Snapshot | null): number {
   );
 }
 
-/** Adds the affiliate to the sale snapshot, creating an owner-only one when there is no coproduction. */
+/**
+ * Adds the affiliate to the sale snapshot, creating an owner-only one when there is no
+ * coproduction. The same person is deduplicated against the coproducers first, and the sum
+ * limit applies to the deduplicated list.
+ */
 function attach(
-  snapshot: Snapshot | null,
-  affiliate: AffiliateSnapshot,
+  original: Snapshot | null,
+  stored: AffiliateSnapshot,
   product: Snapshot['product'],
   productId: string,
   ownerUserId: string,
   onOverflow: 'throw' | 'drop',
+  /** Renewals keep the first sale's outcome: the affiliate always replaces the coproducer. */
+  renewal = false,
 ): Snapshot | null {
+  let snapshot = original;
+  let affiliate = stored;
+  if (renewal) {
+    if (snapshot?.participants.some((p) => p.userId === stored.userId))
+      snapshot = {
+        ...snapshot,
+        participants: snapshot.participants.filter(
+          (p) => p.userId !== stored.userId,
+        ),
+        ...(stored.deduplication
+          ? { deduplication: stored.deduplication }
+          : {}),
+      };
+  } else {
+    const d = dedupOverlap(snapshot, stored);
+    snapshot = d.snapshot;
+    if (!d.keepAffiliate) return snapshot;
+    if (d.deduplication)
+      affiliate = { ...stored, deduplication: d.deduplication };
+  }
   if (participantsTotal(snapshot) + affiliate.percentageBps > 10000) {
-    if (onOverflow === 'drop') return snapshot;
+    if (onOverflow === 'drop') return original;
     throw new ConflictException(
       'Comissão do afiliado somada à co-produção ultrapassa 100% do líquido',
     );
@@ -204,5 +231,6 @@ export function renewalAffiliate(
     productId,
     ownerUserId,
     'drop',
+    true,
   );
 }

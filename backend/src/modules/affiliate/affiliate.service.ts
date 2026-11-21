@@ -17,7 +17,7 @@ import {
   emptyConfig,
   generateAffiliateCode,
   validateAffiliateInput,
-  worstPercentage,
+  worstCaseBps,
   type AffiliateConfig,
   type AffiliateProduct,
 } from './affiliate';
@@ -245,7 +245,8 @@ export class AffiliateService {
 
   /**
    * One code names one person, so the worst sale carries the highest effective percentage of any
-   * listed person plus the coproducers of that sale. Offers on the platform are checked too.
+   * listed person plus the coproducers of that sale, with that person counted once (worst case
+   * over the deduplicated list). Offers on the platform are checked too.
    */
   private async assertWorstCase(
     tx: Tx,
@@ -259,33 +260,32 @@ export class AffiliateService {
         'Afiliado somado à co-produção não pode ultrapassar 100% do líquido',
       );
     };
-    const coTotal = async (
+    const co = (
       key: ProductKey,
       productId: string,
       owner: string,
       tag?: string,
-    ) =>
-      (
-        (await captureCoproduction(tx, key, productId, owner, tag))
-          ?.participants ?? []
-      ).reduce((sum, p) => sum + p.percentageBps, 0);
+    ) => captureCoproduction(tx, key, productId, owner, tag);
     if (product === 'ofertas') {
       const platform = await readAffiliateConfig(
         tx,
         'plataformas',
         scope.platformId!,
       );
-      const total = await coTotal(
+      const snapshot = await co(
         'ofertas',
         id,
         scope.ownerId,
         scope.platformTag ?? undefined,
       );
-      if (worstPercentage(next, platform) + total > 10000) fail();
+      if (worstCaseBps(next, platform, snapshot) > 10000) fail();
       return;
     }
-    const own = await coTotal('plataformas', id, scope.ownerId);
-    if (worstPercentage(null, next) + own > 10000) fail();
+    if (
+      worstCaseBps(null, next, await co('plataformas', id, scope.ownerId)) >
+      10000
+    )
+      fail();
     const offers = await tx.$queryRaw<{ id: string; ownerUserId: string }[]>`
       SELECT o.id, o."ownerUserId" FROM "Offer" o
       WHERE o."platformTag" = ${scope.platformTag}
@@ -293,13 +293,13 @@ export class AffiliateService {
           OR EXISTS (SELECT 1 FROM "CoproductionAgreement" c WHERE c.product = 'ofertas' AND c."productId" = o.id))`;
     for (const offer of offers) {
       const config = await readAffiliateConfig(tx, 'ofertas', offer.id);
-      const total = await coTotal(
+      const snapshot = await co(
         'ofertas',
         offer.id,
         offer.ownerUserId,
         scope.platformTag ?? undefined,
       );
-      if (worstPercentage(config, next) + total > 10000) fail();
+      if (worstCaseBps(config, next, snapshot) > 10000) fail();
     }
   }
 
