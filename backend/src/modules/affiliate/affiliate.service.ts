@@ -14,15 +14,15 @@ import {
   parseReceiptFilters,
   type ReceiptFilters,
 } from '../coproduction/coproduction.service';
-import { productTables, type ProductKey } from '../coproduction/coproduction';
+import { productTables } from '../coproduction/coproduction';
 import {
   emptyConfig,
   generateAffiliateCode,
   validateAffiliateInput,
-  worstCaseBps,
   type AffiliateConfig,
   type AffiliateProduct,
 } from './affiliate';
+import { assertJointLimit } from './affiliate-limit';
 import { platformIdOfOffer, readAffiliateConfig } from './affiliate-capture';
 
 type Tx = Prisma.TransactionClient;
@@ -228,7 +228,6 @@ export class AffiliateService {
         linkBaseUrl: input.linkBaseUrl,
         affiliates,
       };
-      await this.assertWorstCase(tx, product, id, scope, next);
       for (const a of affiliates)
         await this.ensureCode(tx, scope.platformId, a.userId);
       const list = JSON.stringify(affiliates);
@@ -237,72 +236,20 @@ export class AffiliateService {
         ON CONFLICT (product, "productId") DO UPDATE SET version = EXCLUDED.version, "defaultPercentageBps" = EXCLUDED."defaultPercentageBps", "commissionOnRenewals" = EXCLUDED."commissionOnRenewals", "linkBaseUrl" = EXCLUDED."linkBaseUrl", affiliates = EXCLUDED.affiliates, "actorId" = EXCLUDED."actorId", "updatedAt" = now()`;
       await tx.$executeRaw`INSERT INTO "AffiliateAgreementRevision" (product, "productId", version, "defaultPercentageBps", "commissionOnRenewals", "linkBaseUrl", affiliates, "actorId")
         VALUES (${product}, ${id}, ${next.version}, ${next.defaultPercentageBps}, ${next.commissionOnRenewals}, ${next.linkBaseUrl}, ${list}::jsonb, ${actorId})`;
+      // Joint limit with the coproduction, checked on the state just written; the throw rolls it back.
+      await assertJointLimit(tx, captureCoproduction, {
+        product,
+        id,
+        ownerId: scope.ownerId,
+        platformId: scope.platformId,
+        platformTag: scope.platformTag,
+      });
       const platform =
         product === 'ofertas'
           ? await readAffiliateConfig(tx, 'plataformas', scope.platformId)
           : null;
       return this.present(tx, product, scope, next, platform);
     });
-  }
-
-  /**
-   * One code names one person, so the worst sale carries the highest effective percentage of any
-   * listed person plus the coproducers of that sale, with that person counted once (worst case
-   * over the deduplicated list). Offers on the platform are checked too.
-   */
-  private async assertWorstCase(
-    tx: Tx,
-    product: AffiliateProduct,
-    id: string,
-    scope: Scope,
-    next: AffiliateConfig,
-  ) {
-    const fail = () => {
-      throw new BadRequestException(
-        'Afiliado somado à co-produção não pode ultrapassar 100% do líquido',
-      );
-    };
-    const co = (
-      key: ProductKey,
-      productId: string,
-      owner: string,
-      tag?: string,
-    ) => captureCoproduction(tx, key, productId, owner, tag);
-    if (product === 'ofertas') {
-      const platform = await readAffiliateConfig(
-        tx,
-        'plataformas',
-        scope.platformId!,
-      );
-      const snapshot = await co(
-        'ofertas',
-        id,
-        scope.ownerId,
-        scope.platformTag ?? undefined,
-      );
-      if (worstCaseBps(next, platform, snapshot) > 10000) fail();
-      return;
-    }
-    if (
-      worstCaseBps(null, next, await co('plataformas', id, scope.ownerId)) >
-      10000
-    )
-      fail();
-    const offers = await tx.$queryRaw<{ id: string; ownerUserId: string }[]>`
-      SELECT o.id, o."ownerUserId" FROM "Offer" o
-      WHERE o."platformTag" = ${scope.platformTag}
-        AND (EXISTS (SELECT 1 FROM "AffiliateAgreement" a WHERE a.product = 'ofertas' AND a."productId" = o.id)
-          OR EXISTS (SELECT 1 FROM "CoproductionAgreement" c WHERE c.product = 'ofertas' AND c."productId" = o.id))`;
-    for (const offer of offers) {
-      const config = await readAffiliateConfig(tx, 'ofertas', offer.id);
-      const snapshot = await co(
-        'ofertas',
-        offer.id,
-        offer.ownerUserId,
-        scope.platformTag ?? undefined,
-      );
-      if (worstCaseBps(config, next, snapshot) > 10000) fail();
-    }
   }
 
   /** Stable per (platform, person); created the first time the person joins any list. */

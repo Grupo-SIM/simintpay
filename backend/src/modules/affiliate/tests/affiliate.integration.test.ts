@@ -315,11 +315,16 @@ run(
     expect((await f.wallet(f.aff2.id)).balance).toBe('60.00');
     expect((await f.wallet(f.owner.id)).balance).toBe('0.00');
     // coproduction raised after the agreement: capture revalidates and refuses the sale
-    await f.copro.save(f.owner.id, 'ofertas', f.offer.id, {
-      basis: 'NET',
-      version: 1,
-      participants: [{ email: f.aff2.email, percentageBps: 7000 }],
-    });
+    // (the PUT now refuses it, so a legacy overflow is forced straight into the table)
+    await expect(
+      f.copro.save(f.owner.id, 'ofertas', f.offer.id, {
+        basis: 'NET',
+        version: 1,
+        participants: [{ email: f.aff2.email, percentageBps: 7000 }],
+      }),
+    ).rejects.toThrow('100%');
+    await f.prisma
+      .$executeRaw`UPDATE "CoproductionAgreement" SET participants = jsonb_set(participants, '{0,percentageBps}', '7000') WHERE product = 'ofertas' AND "productId" = ${f.offer.id}`;
     await expect(f.sale(code)).rejects.toThrow('100%');
     // a platform list cannot overflow either, checked against offers of the platform
     await expect(

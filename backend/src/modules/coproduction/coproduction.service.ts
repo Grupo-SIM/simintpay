@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, PaymentMethod } from '@prisma/client';
+import { assertJointLimitForCoproduction } from '../affiliate/affiliate-limit';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
   allocateNet,
@@ -244,6 +245,14 @@ export class CoproductionService {
         participants,
         actorId,
         input.mode ?? 'OWN',
+      );
+      // Joint limit with the affiliates in force, on the state just written; the throw rolls it back.
+      await assertJointLimitForCoproduction(
+        tx,
+        captureCoproduction,
+        product as Product,
+        id,
+        ownerId,
       );
       return this.present(
         tx,
