@@ -1,0 +1,606 @@
+import { afterAll, expect, test } from 'bun:test';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { AffiliateService } from '../affiliate.service';
+import {
+  captureAffiliate,
+  contractAffiliate,
+  renewalAffiliate,
+} from '../affiliate-capture';
+import { saleAffiliateEvent } from '../affiliate-event';
+import {
+  CoproductionService,
+  captureCoproduction,
+  withCoproduction,
+} from '../../coproduction/coproduction.service';
+import { settleFinalNet } from '../../platform-core/link-settlement';
+import { settleAffiliate } from '../affiliate-settlement';
+import { snapshotFrom } from '../../coproduction/coproduction';
+
+const url = process.env.COPRODUCTION_TEST_DATABASE_URL;
+if (url && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname))
+  throw new Error('Tests require a local isolated database');
+const db = url
+  ? new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) })
+  : null;
+afterAll(async () => {
+  await db?.$disconnect();
+});
+const run = (name: string, body: () => Promise<void>) =>
+  test.skipIf(!db)(name, body, 30000);
+
+async function fixture() {
+  const prisma = db!;
+  const user = (role: 'ADMIN' | 'USER' = 'USER') =>
+    prisma.user.create({
+      data: {
+        email: `${crypto.randomUUID()}@local.test`,
+        name: 'Pessoa',
+        password: 'test',
+        role,
+        clientStatus: 'APPROVED',
+      },
+    });
+  const [owner, aff1, aff2, buyer, outsider, admin] = await Promise.all([
+    user(),
+    user(),
+    user(),
+    user(),
+    user(),
+    user('ADMIN'),
+  ]);
+  for (const u of [owner, aff1, aff2])
+    await prisma.wallet.create({ data: { userId: u.id, balance: 0 } });
+  const platform = await prisma.platform.create({
+    data: {
+      tag: `AFF-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      name: 'Plataforma',
+      ownerUserId: owner.id,
+    },
+  });
+  const offer = await prisma.offer.create({
+    data: {
+      ownerUserId: owner.id,
+      createdByUserId: owner.id,
+      code: crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase(),
+      name: 'Oferta',
+      amountCents: 10000,
+      acceptedMethods: ['PIX'],
+      platformTag: platform.tag,
+    } as never,
+  });
+  const service = new AffiliateService(
+    prisma as never,
+    new CoproductionService(prisma as never),
+  );
+  const copro = new CoproductionService(prisma as never);
+  const body = (over: Record<string, unknown> = {}) => ({
+    version: 0,
+    defaultPercentageBps: null,
+    commissionOnRenewals: true,
+    linkBaseUrl: null,
+    affiliates: [],
+    ...over,
+  });
+  const savePlatform = (
+    over: Record<string, unknown>,
+    version = 0,
+    actor = owner.id,
+  ) =>
+    service.save(actor, 'plataformas', platform.id, body({ version, ...over }));
+  const saveOffer = (
+    over: Record<string, unknown>,
+    version = 0,
+    actor = owner.id,
+  ) =>
+    service.save(
+      actor,
+      'ofertas',
+      offer.id,
+      body({ version, commissionOnRenewals: null, ...over }),
+    );
+  /** Captures like a real checkout and books the sale; `net` in reais. */
+  const sale = async (
+    code: string | undefined,
+    opts: { net?: number; via?: 'offer' | 'api'; buyerEmail?: string } = {},
+  ) => {
+    const via = opts.via ?? 'offer';
+    const key =
+      via === 'offer' ? ('ofertas' as const) : ('plataformas' as const);
+    const productId = via === 'offer' ? offer.id : platform.id;
+    const base = await captureCoproduction(
+      prisma,
+      key,
+      productId,
+      owner.id,
+      platform.tag,
+    );
+    const snapshot = await captureAffiliate(prisma, base, {
+      product: key,
+      productId,
+      ownerUserId: owner.id,
+      platformTag: platform.tag,
+      tracking: code ? { aff: code } : {},
+      buyerEmail: opts.buyerEmail ?? buyer.email,
+    });
+    if (snapshot && snapshot.baseCents === undefined)
+      snapshot.baseCents = Math.round((opts.net ?? 100) * 100);
+    const row = await prisma.transaction.create({
+      data: {
+        userId: owner.id,
+        amount: (opts.net ?? 100) + 5,
+        netAmount: opts.net ?? 100,
+        status: 'PENDING',
+        settlementBasis: 'FINAL_NET',
+        platformTag: platform.tag,
+        financialSnapshot: withCoproduction(undefined, snapshot, undefined),
+      } as never,
+    });
+    return { row, snapshot };
+  };
+  const settle = async (
+    id: string,
+    status: 'COMPLETED' | 'IN_MEDIATION' | 'CHARGEBACK' | 'REFUNDED',
+  ) =>
+    prisma.$transaction(async (tx) =>
+      settleFinalNet(
+        tx,
+        await tx.transaction.findUniqueOrThrow({ where: { id } }),
+        status,
+        'LOCAL_TEST',
+      ),
+    );
+  const wallet = async (id: string) => {
+    const w = await prisma.wallet.findUniqueOrThrow({ where: { userId: id } });
+    return {
+      balance: w.balance.toFixed(2),
+      locked: w.lockedBalance.toFixed(2),
+    };
+  };
+  const codeOf = async (userId: string) =>
+    (
+      await prisma.$queryRaw<
+        { code: string }[]
+      >`SELECT code FROM "AffiliateCode" WHERE "platformId" = ${platform.id} AND "userId" = ${userId}`
+    )[0]?.code as string;
+  return {
+    prisma,
+    owner,
+    aff1,
+    aff2,
+    buyer,
+    outsider,
+    admin,
+    platform,
+    offer,
+    service,
+    copro,
+    savePlatform,
+    saveOffer,
+    sale,
+    settle,
+    wallet,
+    codeOf,
+    body,
+  };
+}
+
+run(
+  'config: security, optimistic version, stable codes and read-only inheritance',
+  async () => {
+    const f = await fixture();
+    const p = await f.savePlatform({
+      defaultPercentageBps: 1000,
+      linkBaseUrl: 'https://rastrewin.com/',
+      affiliates: [{ email: f.aff1.email.toUpperCase(), percentageBps: null }],
+    });
+    expect(p.data.version).toBe(1);
+    expect(p.data.affiliates[0]).toMatchObject({
+      email: f.aff1.email,
+      percentageBps: null,
+    });
+    const code = p.data.affiliates[0].code as string;
+    expect(code).toMatch(/^[A-Za-z0-9_-]{3,40}$/);
+    expect(code).not.toContain('@');
+    // stale version, outsider, owner as affiliate, duplicate, bad link, integration-less users
+    await expect(f.savePlatform({}, 0)).rejects.toThrow('outra sessão');
+    await expect(f.savePlatform({}, 1, f.outsider.id)).rejects.toThrow(
+      'restritos',
+    );
+    await expect(
+      f.savePlatform(
+        { affiliates: [{ email: f.owner.email, percentageBps: 100 }] },
+        1,
+      ),
+    ).rejects.toThrow('duplicado');
+    await expect(
+      f.savePlatform(
+        {
+          affiliates: [
+            { email: f.aff2.email, percentageBps: 100 },
+            { email: f.aff2.email.toUpperCase(), percentageBps: 100 },
+          ],
+        },
+        1,
+      ),
+    ).rejects.toThrow('duplicado');
+    await expect(
+      f.savePlatform({ linkBaseUrl: 'http://x.com' }, 1),
+    ).rejects.toThrow('HTTPS');
+    await expect(
+      f.savePlatform({ commissionOnRenewals: null }, 1),
+    ).rejects.toThrow();
+    // admin can configure; the same person in an offer list keeps the platform code
+    expect(
+      (
+        await f.savePlatform(
+          {
+            defaultPercentageBps: 1000,
+            linkBaseUrl: 'https://rastrewin.com/',
+            affiliates: [{ email: f.aff1.email, percentageBps: null }],
+          },
+          1,
+          f.admin.id,
+        )
+      ).data.version,
+    ).toBe(2);
+    const o = await f.saveOffer({
+      affiliates: [
+        { email: f.aff1.email, percentageBps: 500 },
+        { email: f.aff2.email, percentageBps: null },
+      ],
+    });
+    expect(o.data.affiliates.find((a) => a.email === f.aff1.email)!.code).toBe(
+      code,
+    );
+    expect(o.data.affiliates.find((a) => a.email === f.aff2.email)!.code).toBe(
+      await f.codeOf(f.aff2.id),
+    );
+    expect(o.data.inherited).toEqual({
+      defaultPercentageBps: 1000,
+      commissionOnRenewals: true,
+      affiliates: [{ name: 'Pessoa', code, percentageBps: null }],
+    });
+    expect(JSON.stringify(o.data.inherited)).not.toContain('@');
+    expect(
+      (await f.service.get(f.owner.id, 'plataformas', f.platform.id)).data
+        .linkBaseUrl,
+    ).toBe('https://rastrewin.com/');
+    // codes are per platform and unique
+    expect(await f.codeOf(f.aff1.id)).toBe(code);
+    // immutable revisions kept
+    expect(
+      Number(
+        (
+          await f.prisma.$queryRaw<
+            { n: bigint }[]
+          >`SELECT count(*) n FROM "AffiliateAgreementRevision" WHERE "productId" = ${f.platform.id}`
+        )[0].n,
+      ),
+    ).toBe(2);
+    // concurrent saves: one wins
+    const results = await Promise.allSettled([
+      f.saveOffer({}, 1),
+      f.saveOffer({}, 1),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  },
+);
+
+run(
+  'precedence: person in offer > offer default > person in platform > platform default',
+  async () => {
+    const f = await fixture();
+    await f.savePlatform({
+      defaultPercentageBps: 1000,
+      affiliates: [
+        { email: f.aff1.email, percentageBps: 3000 },
+        { email: f.aff2.email, percentageBps: null },
+      ],
+    });
+    const c1 = await f.codeOf(f.aff1.id);
+    const c2 = await f.codeOf(f.aff2.id);
+    // platform only through the API path
+    expect(
+      (await f.sale(c1, { via: 'api' })).snapshot!.affiliate,
+    ).toMatchObject({ percentageBps: 3000, level: 'platform' });
+    expect(
+      (await f.sale(c2, { via: 'api' })).snapshot!.affiliate,
+    ).toMatchObject({ percentageBps: 1000, level: 'platform' });
+    // offer unions with the platform list (no offer config yet): platform people also sell the offer
+    expect((await f.sale(c1)).snapshot!.affiliate).toMatchObject({
+      percentageBps: 3000,
+      level: 'platform',
+    });
+    // offer default beats the person's platform percentage
+    await f.saveOffer({ defaultPercentageBps: 500 });
+    const s = (await f.sale(c1)).snapshot!.affiliate!;
+    expect(s).toMatchObject({
+      percentageBps: 500,
+      level: 'offer',
+      versions: { platform: 1, offer: 1 },
+    });
+    // person in the offer beats everything, including the offer default; same person in both
+    await f.saveOffer(
+      {
+        defaultPercentageBps: 500,
+        affiliates: [{ email: f.aff1.email, percentageBps: 2000 }],
+      },
+      1,
+    );
+    expect((await f.sale(c1)).snapshot!.affiliate).toMatchObject({
+      percentageBps: 2000,
+      level: 'offer',
+    });
+    expect((await f.sale(c2)).snapshot!.affiliate).toMatchObject({
+      percentageBps: 500,
+      level: 'offer',
+    });
+    // the API path ignores the offer list
+    expect(
+      (await f.sale(c1, { via: 'api' })).snapshot!.affiliate,
+    ).toMatchObject({ percentageBps: 3000 });
+    // person with null in the offer falls through offer default -> platform person
+    await f.saveOffer(
+      { affiliates: [{ email: f.aff1.email, percentageBps: null }] },
+      2,
+    );
+    expect((await f.sale(c1)).snapshot!.affiliate).toMatchObject({
+      percentageBps: 3000,
+      level: 'platform',
+    });
+  },
+);
+
+run(
+  'invalid, unknown, removed codes, self-referral and the buyer himself earn nothing',
+  async () => {
+    const f = await fixture();
+    await f.savePlatform({
+      defaultPercentageBps: 1000,
+      affiliates: [{ email: f.aff1.email, percentageBps: null }],
+    });
+    const code = await f.codeOf(f.aff1.id);
+    expect((await f.sale('ZZZ-unknown')).snapshot).toBeNull();
+    expect((await f.sale('a@b.com')).snapshot).toBeNull();
+    expect((await f.sale(undefined)).snapshot).toBeNull();
+    expect(
+      (await f.sale(code, { buyerEmail: f.aff1.email.toUpperCase() })).snapshot,
+    ).toBeNull();
+    expect((await f.sale(code)).snapshot!.affiliate).toBeTruthy();
+    // removed from the list: code kept but ignored
+    await f.savePlatform({ affiliates: [] }, 1);
+    expect(await f.codeOf(f.aff1.id)).toBe(code);
+    expect((await f.sale(code)).snapshot).toBeNull();
+    // owner: even forcing their own code gives no commission
+    await f.prisma
+      .$executeRaw`INSERT INTO "AffiliateCode" ("platformId","userId",code) VALUES (${f.platform.id}, ${f.owner.id}, 'OWNERCODE')`;
+    expect((await f.sale('OWNERCODE')).snapshot).toBeNull();
+  },
+);
+
+run(
+  'settlement: credit, mediation lock, chargeback reversal, idempotency, API and offer',
+  async () => {
+    const f = await fixture();
+    await f.savePlatform({
+      defaultPercentageBps: 1000,
+      affiliates: [{ email: f.aff1.email, percentageBps: null }],
+    });
+    const code = await f.codeOf(f.aff1.id);
+    for (const via of ['api', 'offer'] as const) {
+      const before = {
+        owner: await f.wallet(f.owner.id),
+        aff: await f.wallet(f.aff1.id),
+      };
+      const { row } = await f.sale(code, { via, net: 10.01 });
+      expect(await f.settle(row.id, 'COMPLETED')).toBe(true);
+      expect(await f.settle(row.id, 'COMPLETED')).toBe(false);
+      const aff = await f.wallet(f.aff1.id);
+      const own = await f.wallet(f.owner.id);
+      // 10% of 1001 cents floored = 100 cents
+      expect(Number(aff.balance) - Number(before.aff.balance)).toBeCloseTo(
+        1.0,
+        2,
+      );
+      expect(Number(own.balance) - Number(before.owner.balance)).toBeCloseTo(
+        9.01,
+        2,
+      );
+      expect(
+        await f.prisma.balanceLog.count({
+          where: { transactionId: row.id, nature: 'AFFILIATE' },
+        }),
+      ).toBe(1);
+      // direct replay is a no-op
+      await f.prisma.$transaction(async (tx) => {
+        const current = await tx.transaction.findUniqueOrThrow({
+          where: { id: row.id },
+        });
+        await settleAffiliate(
+          tx,
+          current,
+          snapshotFrom(current.financialSnapshot)!,
+          'COMPLETED',
+          'REPLAY',
+        );
+      });
+      expect(
+        await f.prisma.balanceLog.count({
+          where: { transactionId: row.id, nature: 'AFFILIATE' },
+        }),
+      ).toBe(1);
+      await f.settle(row.id, 'IN_MEDIATION');
+      expect((await f.wallet(f.aff1.id)).locked).toBe(
+        (Number(before.aff.locked) + 1).toFixed(2),
+      );
+      expect(await f.settle(row.id, 'CHARGEBACK')).toBe(true);
+      // reversed to the original amount, no recalculation
+      expect(await f.wallet(f.aff1.id)).toEqual(before.aff);
+      expect(await f.wallet(f.owner.id)).toEqual(before.owner);
+      const allocation = (
+        await f.prisma.$queryRaw<
+          { amount: unknown; state: string; isRenewal: boolean }[]
+        >`SELECT amount, state, "isRenewal" FROM "AffiliateAllocation" WHERE "transactionId" = ${row.id}`
+      )[0];
+      expect(allocation).toMatchObject({ state: 'REVERSED', isRenewal: false });
+    }
+    // refund of a completed sale reverses it too
+    const { row } = await f.sale(code, { net: 50 });
+    await f.settle(row.id, 'COMPLETED');
+    const w = await f.wallet(f.aff1.id);
+    await f.settle(row.id, 'REFUNDED');
+    expect(Number((await f.wallet(f.aff1.id)).balance)).toBeCloseTo(
+      Number(w.balance) - 5,
+      2,
+    );
+    // receipts of the affiliate
+    const receipts = await f.service.receipts(f.aff1.id);
+    expect(receipts.total).toBe(3);
+    expect(receipts.summary.reversedCents).toBe(100 + 100 + 500);
+    await expect(f.service.receipts(f.outsider.id)).resolves.toMatchObject({
+      total: 0,
+    });
+  },
+);
+
+run(
+  'coproduction + affiliate: commission comes out of the owner share and the sum is guarded',
+  async () => {
+    const f = await fixture();
+    await f.copro.save(f.owner.id, 'ofertas', f.offer.id, {
+      basis: 'NET',
+      version: 0,
+      participants: [{ email: f.aff2.email, percentageBps: 6000 }],
+    });
+    await expect(
+      f.saveOffer({
+        defaultPercentageBps: 5000,
+        affiliates: [{ email: f.aff1.email, percentageBps: null }],
+      }),
+    ).rejects.toThrow('100%');
+    const saved = await f.saveOffer({
+      defaultPercentageBps: 4000,
+      affiliates: [{ email: f.aff1.email, percentageBps: null }],
+    });
+    const code = saved.data.affiliates[0].code as string;
+    const { row, snapshot } = await f.sale(code, { net: 100 });
+    expect(snapshot!.affiliate!.percentageBps).toBe(4000);
+    await f.settle(row.id, 'COMPLETED');
+    expect((await f.wallet(f.aff1.id)).balance).toBe('40.00');
+    expect((await f.wallet(f.aff2.id)).balance).toBe('60.00');
+    expect((await f.wallet(f.owner.id)).balance).toBe('0.00');
+    // coproduction raised after the agreement: capture revalidates and refuses the sale
+    await f.copro.save(f.owner.id, 'ofertas', f.offer.id, {
+      basis: 'NET',
+      version: 1,
+      participants: [{ email: f.aff2.email, percentageBps: 7000 }],
+    });
+    await expect(f.sale(code)).rejects.toThrow('100%');
+    // a platform list cannot overflow either, checked against offers of the platform
+    await expect(
+      f.savePlatform({
+        defaultPercentageBps: 3500,
+        affiliates: [{ email: f.aff1.email, percentageBps: null }],
+      }),
+    ).rejects.toThrow('100%');
+  },
+);
+
+run(
+  'renewals follow the original snapshot and the commissionOnRenewals option',
+  async () => {
+    const f = await fixture();
+    await f.savePlatform({
+      defaultPercentageBps: 1000,
+      affiliates: [{ email: f.aff1.email, percentageBps: null }],
+    });
+    const code = await f.codeOf(f.aff1.id);
+    const first = (await f.sale(code)).snapshot!;
+    const metadata = { pendingCard: {}, affiliate: first.affiliate };
+    const stored = contractAffiliate(metadata as never);
+    expect(stored?.code).toBe(code);
+    // option on: the renewal is paid and marked
+    const paid = renewalAffiliate(
+      null,
+      stored,
+      true,
+      'ofertas',
+      f.offer.id,
+      f.owner.id,
+    );
+    expect(paid!.affiliate).toMatchObject({
+      percentageBps: 1000,
+      isRenewal: true,
+    });
+    paid!.baseCents = 10000;
+    const row = await f.prisma.transaction.create({
+      data: {
+        userId: f.owner.id,
+        amount: 105,
+        netAmount: 100,
+        status: 'PENDING',
+        settlementBasis: 'FINAL_NET',
+        platformTag: f.platform.tag,
+        financialSnapshot: withCoproduction(undefined, paid),
+      },
+    } as never);
+    await f.settle(row.id, 'COMPLETED');
+    expect(
+      (
+        await f.prisma.$queryRaw<
+          { isRenewal: boolean }[]
+        >`SELECT "isRenewal" FROM "AffiliateAllocation" WHERE "transactionId" = ${row.id}`
+      )[0].isRenewal,
+    ).toBe(true);
+    // option off: renewal has no allocation and no event block, the first cycle still pays
+    const off = { ...stored!, commissionOnRenewals: false };
+    expect(
+      renewalAffiliate(null, off, true, 'ofertas', f.offer.id, f.owner.id),
+    ).toBeNull();
+    expect(
+      renewalAffiliate(null, off, false, 'ofertas', f.offer.id, f.owner.id)!
+        .affiliate,
+    ).toBeTruthy();
+    expect(
+      renewalAffiliate(null, null, true, 'ofertas', f.offer.id, f.owner.id),
+    ).toBeNull();
+    // contract without affiliate metadata
+    expect(contractAffiliate(null)).toBeNull();
+    expect(contractAffiliate({ pendingCard: {} } as never)).toBeNull();
+    // effective option snapshot: offer overrides platform, null falls back
+    await f.savePlatform(
+      {
+        commissionOnRenewals: false,
+        defaultPercentageBps: 1000,
+        affiliates: [{ email: f.aff1.email, percentageBps: null }],
+      },
+      1,
+    );
+    expect((await f.sale(code)).snapshot!.affiliate!.commissionOnRenewals).toBe(
+      false,
+    );
+    await f.saveOffer({ commissionOnRenewals: true });
+    expect((await f.sale(code)).snapshot!.affiliate!.commissionOnRenewals).toBe(
+      true,
+    );
+  },
+);
+
+run(
+  'sales event carries only code, commission and name; absent without commission',
+  async () => {
+    const f = await fixture();
+    await f.savePlatform({
+      defaultPercentageBps: 1500,
+      affiliates: [{ email: f.aff1.email, percentageBps: null }],
+    });
+    const code = await f.codeOf(f.aff1.id);
+    const { row } = await f.sale(code, { net: 20 });
+    const event = saleAffiliateEvent(row as never);
+    expect(event).toEqual({ code, commissionCents: 300, name: 'Pessoa' });
+    expect(JSON.stringify(event)).not.toContain(f.aff1.email);
+    const plain = await f.sale(undefined);
+    expect(saleAffiliateEvent(plain.row as never)).toBeUndefined();
+  },
+);
