@@ -50,6 +50,7 @@ import {
   captureCoproduction,
   withCoproduction,
 } from '../coproduction/coproduction.service';
+import { captureAffiliate } from '../affiliate/affiliate-capture';
 import { paymentTracking } from '../platform-core/payment-tracking';
 import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
@@ -335,12 +336,23 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     const documentType =
       input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF');
     const key = coproductionKeyFor(offer);
-    const coproduction = await captureCoproduction(
+    const coproduction = await captureAffiliate(
       this.prisma,
-      key.product,
-      key.productId,
-      offer.ownerUserId,
-      offer.platformTag ? pricing.platformTag : undefined,
+      await captureCoproduction(
+        this.prisma,
+        key.product,
+        key.productId,
+        offer.ownerUserId,
+        offer.platformTag ? pricing.platformTag : undefined,
+      ),
+      {
+        product: key.product,
+        productId: key.productId,
+        ownerUserId: offer.ownerUserId,
+        platformTag: offer.platformTag ? pricing.platformTag : undefined,
+        tracking: input.tracking,
+        buyerEmail: email,
+      },
     );
     const baseDescription = offer.description
       ? `${offer.name} | ${offer.description}`
@@ -457,9 +469,15 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
           data: {
             acquirer,
             description: offer.name.slice(0, 120),
-            ...(pendingCard
+            // The first sale's affiliate is frozen here; renewals pay from this snapshot.
+            ...(pendingCard || coproduction?.affiliate
               ? {
-                  metadata: { pendingCard } as unknown as Prisma.InputJsonValue,
+                  metadata: {
+                    ...(pendingCard ? { pendingCard } : {}),
+                    ...(coproduction?.affiliate
+                      ? { affiliate: coproduction.affiliate }
+                      : {}),
+                  } as unknown as Prisma.InputJsonValue,
                 }
               : {}),
           },
@@ -739,12 +757,26 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
       throw error;
     }
     try {
+      const trialKey = coproductionKeyFor(offer);
+      const trialAffiliate = (
+        await captureAffiliate(this.prisma, null, {
+          product: trialKey.product,
+          productId: trialKey.productId,
+          ownerUserId: offer.ownerUserId,
+          platformTag: offer.platformTag?.toUpperCase(),
+          tracking: input.tracking,
+          buyerEmail: email,
+        })
+      )?.affiliate;
       await this.prisma.billingContract.update({
         where: { id: contract.id },
         data: {
           acquirer,
           description: offer.name.slice(0, 120),
-          metadata: { pendingCard } as unknown as Prisma.InputJsonValue,
+          metadata: {
+            pendingCard,
+            ...(trialAffiliate ? { affiliate: trialAffiliate } : {}),
+          } as unknown as Prisma.InputJsonValue,
         },
       });
       await this.persistCard(

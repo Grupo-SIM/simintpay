@@ -1,4 +1,6 @@
 import { transactionPlatformTagData } from '../../platform-core/transaction-platform';
+import { captureAffiliate } from '../../affiliate/affiliate-capture';
+import { paymentTracking } from '../../platform-core/payment-tracking';
 import {
   captureCoproduction,
   withCoproduction,
@@ -519,7 +521,7 @@ export class PlatformPaymentsService {
       financialSnapshot: financialQuote.financialSnapshot,
       settlementBasis: 'FINAL_NET' as const,
     };
-    const coproduction = input.linkId
+    const coproductionOnly = input.linkId
       ? await captureCoproduction(
           this.prisma,
           'links-pagamento',
@@ -533,7 +535,7 @@ export class PlatformPaymentsService {
           platform.id,
           financialUserId,
         );
-    if (coproduction && context.delivery) {
+    if (coproductionOnly && context.delivery) {
       if (
         input.allocation?.itemsAmountCents === undefined ||
         input.allocation.deliveryAmountCents === undefined
@@ -542,8 +544,22 @@ export class PlatformPaymentsService {
           code: 'COPRODUCTION_BASE_REQUIRED',
           message: 'Cobrança exige detalhamento de itens e frete',
         });
-      coproduction.baseCents = input.allocation.itemsAmountCents;
     }
+    const coproduction = await captureAffiliate(this.prisma, coproductionOnly, {
+      product: input.linkId ? 'links-pagamento' : 'plataformas',
+      productId: input.linkId ?? platform.id,
+      ownerUserId: financialUserId,
+      platformTag: platform.tag,
+      tracking: input.tracking,
+      buyerEmail: input.customer.email,
+    });
+    if (
+      coproduction &&
+      context.delivery &&
+      input.allocation?.itemsAmountCents !== undefined &&
+      input.allocation.deliveryAmountCents !== undefined
+    )
+      coproduction.baseCents = input.allocation.itemsAmountCents;
     if (coproduction && coproduction.baseCents === undefined)
       coproduction.baseCents = financialFields.netAmount.mul(100).toNumber();
     const finalSnapshot = withCoproduction(
@@ -560,6 +576,7 @@ export class PlatformPaymentsService {
         id,
         userId: financialUserId,
         tracking: {
+          ...paymentTracking(input.tracking),
           ...(cardDigest ? { cardRequestDigest: cardDigest } : {}),
           ...(context.delivery
             ? {

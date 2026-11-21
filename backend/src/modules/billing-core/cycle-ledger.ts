@@ -1,3 +1,8 @@
+import {
+  contractAffiliate,
+  isRenewalCharge,
+  renewalAffiliate,
+} from '../affiliate/affiliate-capture';
 import { ConflictException } from '@nestjs/common';
 import { coproductionKeyFor } from '../offer/offer-coproduction';
 import { Prisma, type Charge, type Offer } from '@prisma/client';
@@ -64,12 +69,25 @@ export async function recordCyclePayment(
       'Política financeira sem faixa para o meio de pagamento do ciclo',
     );
   const key = coproductionKeyFor(offer);
-  const coproduction = await captureCoproduction(
-    tx,
+  const contract = charge.contractId
+    ? await tx.billingContract.findUnique({
+        where: { id: charge.contractId },
+        select: { metadata: true },
+      })
+    : null;
+  const coproduction = renewalAffiliate(
+    await captureCoproduction(
+      tx,
+      key.product,
+      key.productId,
+      charge.ownerUserId,
+      offer.platformTag ? platformTag : undefined,
+    ),
+    contractAffiliate(contract?.metadata),
+    await isRenewalCharge(tx, charge.contractId, charge.id),
     key.product,
     key.productId,
     charge.ownerUserId,
-    offer.platformTag ? platformTag : undefined,
   );
   const financialSnapshot = withCoproduction(
     (quote.financialSnapshot ?? null) as Prisma.InputJsonValue,

@@ -32,6 +32,11 @@ import { StoredCardCycleExecutor } from '../billing-core/stored-card-cycle.execu
 import { StoredCardVaultService } from '../billing-core/stored-card-vault.service';
 import { verifyRenewalSignature } from '../billing-core/renewal-signature';
 import {
+  contractAffiliate,
+  isRenewalCharge,
+  renewalAffiliate,
+} from '../affiliate/affiliate-capture';
+import {
   captureCoproduction,
   withCoproduction,
 } from '../coproduction/coproduction.service';
@@ -505,12 +510,19 @@ export class OfferRenewalService {
     const document = contract.customerDocument.replace(/\D/g, '');
     const amount = charge.amountCents / 100;
     const key = coproductionKeyFor(offer);
-    const coproduction = await captureCoproduction(
-      tx,
+    const coproduction = renewalAffiliate(
+      await captureCoproduction(
+        tx,
+        key.product,
+        key.productId,
+        offer.ownerUserId,
+        offer.platformTag ? ctx.platformTag : undefined,
+      ),
+      contractAffiliate(contract.metadata),
+      await isRenewalCharge(tx, contract.id, charge.id),
       key.product,
       key.productId,
       offer.ownerUserId,
-      offer.platformTag ? ctx.platformTag : undefined,
     );
     const base =
       kind === 'REACTIVATION'

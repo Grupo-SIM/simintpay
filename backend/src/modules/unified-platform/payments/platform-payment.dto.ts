@@ -5,6 +5,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -56,6 +57,8 @@ export class CreatePlatformPaymentDto {
   @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';
   @IsString() @MinLength(1) @MaxLength(128) idempotencyKey!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  /** Attribution (utm_*, src, aff...); `aff` names an affiliate of the platform, never a financial input. */
+  @IsOptional() @IsObject() tracking?: Record<string, unknown>;
   @IsDefined()
   @ValidateNested()
   @Type(() => PlatformPaymentCustomerDto)

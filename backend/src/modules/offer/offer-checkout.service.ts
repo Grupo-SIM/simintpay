@@ -28,6 +28,7 @@ import {
 } from '../coproduction/coproduction.service';
 import { priceOfferCycle } from '../billing-core/cycle-pricing';
 import { isDomCashbackActive } from '../platform-taxas/platform-taxas.store';
+import { captureAffiliate } from '../affiliate/affiliate-capture';
 import { paymentTracking } from '../platform-core/payment-tracking';
 import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
@@ -215,12 +216,23 @@ export class OfferCheckoutService {
       financialQuote;
 
     const key = coproductionKeyFor(offer);
-    const coproduction = await captureCoproduction(
+    const coproduction = await captureAffiliate(
       this.prisma,
-      key.product,
-      key.productId,
-      offer.ownerUserId,
-      platformTag,
+      await captureCoproduction(
+        this.prisma,
+        key.product,
+        key.productId,
+        offer.ownerUserId,
+        platformTag,
+      ),
+      {
+        product: key.product,
+        productId: key.productId,
+        ownerUserId: offer.ownerUserId,
+        platformTag,
+        tracking: input.tracking,
+        buyerEmail: input.customerEmail,
+      },
     );
 
     const document = input.customerDocument.replace(/\D/g, '');
