@@ -345,6 +345,17 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
 - “Quantidade de clientes” conta CPFs únicos nas vendas aprovadas do escopo e período selecionados, respeitando o método de pagamento. Inclui e-books e demais produtos; o mesmo CPF em várias compras/produtos conta uma vez no consolidado. Somente compradores de vendas atribuídas a plataformas cadastradas entram; vendas sem plataforma identificada não contam.
 - CPF é normalizado para 11 dígitos, removendo pontuação. Compras sem CPF de 11 dígitos não aumentam a contagem; e-mail, telefone e cadastros de plataforma não substituem CPF.
 
+### Afiliados por plataforma e oferta
+
+- Afiliado é conta cliente aprovada adicionada por e-mail pelo dono (ou admin) da plataforma ou da
+  oferta, com código estável por plataforma (nunca o e-mail). Plataforma e oferta somam (a oferta
+  vence para a mesma pessoa), ao contrário da coprodução, que substitui. Percentual: pessoa na oferta,
+  global da oferta, pessoa na plataforma, global da plataforma.
+- Comissão = parte inteira inferior do líquido após taxas, paga pelo dono; afiliado + coprodutores
+  <= 100%. Dono ou comprador igual ao afiliado, código inválido ou removido: sem comissão e sem erro.
+- Renovação usa o snapshot da primeira venda; `commissionOnRenewals` (padrão: todas) desmarcado paga só
+  a primeira compra. Estorno e chargeback revertem o valor original. Detalhes em [afiliados](afiliados.md).
+
 ### Coprodução por plataforma
 
 - Plataforma define padrão versionado, gerido por proprietário aprovado ou admin.

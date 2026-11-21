@@ -7,7 +7,7 @@ Contrato opt-in para plataformas com WEBHOOK_SECRET cifrado em PlatformIntegrati
 - POST /platforms/:tag/links/:id/files: links:write, multipart files, PDFs até 20 MB, no máximo 20 por envio. Hash no nome evita duplicidade de conteúdo reenviado.
 - GET /platforms/:tag/pricing/simulation?amountCents=: reports:read. Mesma política de juros da criação canônica.
 - POST /platforms/:tag/payments aceita linkId opcional. Quando presente, link precisa estar ativo, pertencer à plataforma e ter o mesmo valor; consulta devolve netAmountCents.
-- Checkout PIX/cartão aceita tracking no corpo ou query: utm_*, src, fbclid, fbc, fbp. Allowlist e limite de 500 caracteres por valor. Não aceitar campos financeiros em tracking.
+- Checkout PIX/cartão aceita tracking no corpo ou query: utm_*, src, fbclid, fbc, fbp. Allowlist e limite de 500 caracteres por valor. Não aceitar campos financeiros em tracking. `aff` (alias `ref`, normalizado para `aff`, formato `[A-Za-z0-9_-]{3,40}`, descartado em silêncio se inválido) identifica um afiliado da plataforma; vale também no `tracking` de `POST /platforms/:tag/payments` (ver [afiliados](afiliados.md)).
 - GET /platforms/:tag/event-history?cursor=: events:read, páginas de 100 snapshots. SSE /events existente preservado.
 
 Worker a cada 30 segundos reconstrói eventos a partir de estado/histórico financeiro. PlatformSalesEvent persiste payload/eventId, tentativas e conclusão de webhook/e-mail. HMAC-SHA256 hexadecimal do JSON exato em x-simintpay-signature. Para `purchase_approved`, `purchase_refunded` e `subscription_activated` envia também `x-simpay-token` (valor do `WEBHOOK_SECRET` da própria plataforma, o mesmo usado na assinatura), que é o que o receptor legado `POST /webhooks-simpay` do saas-netflix-back valida; a assinatura continua em todos os eventos. Nenhum CPF/documento/cartão no payload. Valores em centavos, calculados na transação. Retentativa com backoff e lease de dois minutos.
@@ -18,7 +18,7 @@ Configurar SIMPAY_CHECKOUT_URL, WEBHOOK_SECRET, WEBHOOK_URL (para cobranças sem
 
 Migração 20261015000100_platform_sales_events foi preparada, não aplicada. Revisar e aplicar pelo processo normal antes de subir aplicação. Não há acesso a banco ou deploy nos testes novos: mocks e Bun. Validar adquirente/SMTP em homologação antes de operar.
 
-Checkout consumidor precisa encaminhar tracking ao criar cobrança. Patch reproduzível está no repositório sim-produtos-digitais, integrations/checkout/tracking.patch. Cupons, bumps, assinaturas e afiliados permanecem fase futura.
+Checkout consumidor precisa encaminhar tracking ao criar cobrança. Patch reproduzível está no repositório sim-produtos-digitais, integrations/checkout/tracking.patch. Cupons, bumps e assinaturas permanecem fase futura; afiliados estão em [afiliados.md](afiliados.md).
 
 ## Estorno parcial (contrato proposto, não implementado)
 
@@ -64,6 +64,11 @@ Exemplo de `purchase_partially_refunded`:
   "items": []
 }
 ```
+
+Quando a venda tem comissão de afiliado, `purchase_approved`, `purchase_refunded`, `chargeback` e
+`refund_requested` incluem `"affiliate": { "code": "Ab3_xY9z", "commissionCents": 1000, "name": "Maria" }`
+(`name` opcional). O campo não existe sem comissão (inclusive renovação com `commissionOnRenewals`
+desmarcado) e nunca traz e-mail nem valores de terceiros.
 
 Exemplo do `purchase_refunded` que fecha o total após o estorno acima (demais campos como no exemplo anterior):
 

@@ -1,0 +1,103 @@
+# Afiliados por plataforma e oferta — contrato de integração
+
+Afiliado é uma conta cliente aprovada que indica vendas de uma plataforma (ou de uma oferta dela) e
+recebe uma comissão na carteira. É independente do programa de indicação de contas (`?ref=` no
+cadastro, `AffiliateCommission`) e da co-produção. Código e implementação: `backend/src/modules/affiliate/`.
+
+## Modelo
+
+- `AffiliateAgreement` por `(product, productId)`, `product` = `plataformas` | `ofertas`: `version`,
+  `defaultPercentageBps` (global, opcional), `commissionOnRenewals`, `linkBaseUrl` (só plataforma) e
+  `affiliates` (JSON `{ userId, percentageBps | null }`). `AffiliateAgreementRevision` é a auditoria
+  imutável de cada versão aceita.
+- `AffiliateCode` `(platformId, userId, code)`: código estável por pessoa e plataforma, único na
+  plataforma, `[A-Za-z0-9_-]{3,40}`, gerado pelo servidor (8 caracteres aleatórios) na primeira vez em
+  que a pessoa entra em qualquer lista da plataforma ou de uma oferta dela. Nunca é o e-mail e não muda
+  ao sair e voltar para uma lista.
+- `AffiliateAllocation` `(transactionId, userId)`: valor original da comissão, `state`
+  (`AVAILABLE`, `LOCKED`, `REVERSED`) e `isRenewal`. Tabela própria, e não `CoproductionAllocation`
+  com `kind`: a chave `(transactionId, userId)` da co-produção não permite a mesma pessoa como
+  coprodutora e afiliada na mesma venda, e os recebimentos da co-produção não podem misturar comissão.
+- O snapshot da venda (`financialSnapshot.coproduction.affiliate`) guarda afiliado, código, nome,
+  percentual efetivo, nível de origem (`offer` | `platform`), versões dos acordos e
+  `commissionOnRenewals` efetivo. Venda só com afiliado grava um snapshot sem participantes.
+
+## Regras
+
+- Plataforma e oferta **somam** (diferente da co-produção, que substitui): vale a união das duas
+  listas. Afiliado da plataforma vale em toda compra dela (oferta, assinatura, renovação e API);
+  afiliado da oferta vale só nela.
+- Percentual, do mais forte ao mais fraco: pessoa na oferta, global da oferta, pessoa na plataforma,
+  global da plataforma. Mesma pessoa nas duas listas: vale o percentual da oferta. Sem percentual em
+  nenhum nível, não há comissão.
+- Base: líquido após taxas, em centavos, parte inteira inferior (`floor`), mesma base da co-produção
+  (no Delivery, os itens). Sai da parte do dono; coprodutores não mudam.
+- Soma: afiliado efetivo + coprodutores <= 10000 bps. Um código identifica uma pessoa, então o pior
+  caso é o maior percentual efetivo de qualquer pessoa listada mais os coprodutores daquela venda.
+  O PUT rejeita (400) o pior caso, inclusive contra as ofertas da plataforma (PUT da plataforma). A
+  captura revalida: se uma co-produção posterior estourar a soma, a nova venda é recusada (409) e a
+  renovação segue sem comissão.
+- Sem comissão, sem erro: código desconhecido, inválido ou de pessoa removida da lista; dono da
+  plataforma/oferta igual ao afiliado; e-mail do comprador igual ao do afiliado.
+- Renovação: usa o snapshot da primeira venda, gravado em `BillingContract.metadata.affiliate`. Com
+  `commissionOnRenewals` efetivo `false`, só o primeiro ciclo pago comissiona (inclusive o primeiro
+  ciclo depois de um período de teste); renovações não geram alocação nem bloco `affiliate` no evento.
+  Mudar a opção depois vale só para novas assinaturas. Renovações marcam `isRenewal`.
+- Oferta fora de qualquer plataforma ativa não aceita afiliados (PUT 400).
+- Ebook (`EBOOK_V1`): o acerto é por manifesto, com afiliados do próprio manifesto; os afiliados
+  deste contrato **não** se aplicam a ele.
+
+## Identificação na venda
+
+Chave `aff` (alias `ref`, normalizado para `aff`) no `tracking` do checkout (query ou corpo) e no
+`tracking` de `POST /platforms/:tag/payments`. Formato `^[A-Za-z0-9_-]{3,40}$`; fora dele é descartado
+em silêncio. O código fica em `Transaction.tracking.aff` apenas como chave de busca, nunca como valor
+financeiro. A resolução ocorre antes do gateway em todos os chamadores (`captureAffiliate` ao lado de
+`captureCoproduction`; renovações usam `renewalAffiliate`).
+
+## Endpoints (sessão de usuário; token de integração não configura)
+
+Dono aprovado ou admin ativo; versão otimista (409); e-mails normalizados e únicos; sem o próprio dono.
+
+- `GET|PUT /afiliados/plataformas/:platformId` e `GET|PUT /afiliados/ofertas/:id`.
+- `GET /afiliados/contas?search=&page=`: mesma busca de contas da co-produção.
+- `GET /afiliados/recebimentos?page=`: comissões do afiliado (`amountCents`, `state`, `isRenewal`,
+  `originName`) e `summary` (`creditedCents`, `lockedCents`, `reversedCents`).
+
+Corpo do PUT (ambos escopos):
+
+```json
+{
+  "version": 0,
+  "defaultPercentageBps": 1000,
+  "commissionOnRenewals": true,
+  "linkBaseUrl": "https://rastrewin.com/",
+  "affiliates": [{ "email": "pessoa@exemplo.com", "percentageBps": null }]
+}
+```
+
+`percentageBps` 1..10000 (`null` usa o global); `commissionOnRenewals`: boolean na plataforma, e na
+oferta `null` usa a da plataforma; `linkBaseUrl` só na plataforma (HTTPS, sem credenciais).
+
+Resposta do GET/PUT: `{ data: { version, defaultPercentageBps, commissionOnRenewals, linkBaseUrl?,
+affiliates: [{ email, name, code, percentageBps }], inherited? } }`. `inherited` só nas ofertas,
+somente leitura e sem e-mails: `{ defaultPercentageBps, commissionOnRenewals, affiliates: [{ name,
+code, percentageBps }] }` da plataforma.
+
+## Liquidação
+
+Mesmo liquidador da co-produção (`settleFinalNet`): `COMPLETED` credita a carteira do afiliado
+(`nature: AFFILIATE`, ação `AFFILIATE_<status>`), `IN_MEDIATION` bloqueia, `REFUNDED`/`CHARGEBACK`
+revertem o valor original sem recalcular. Idempotente por `(transactionId, userId)`. O dono recebe
+o líquido menos a comissão (e menos os coprodutores): relatórios usam `coproductionOwnerNet`.
+
+## API de vendas
+
+`purchase_approved`, `purchase_refunded`, `chargeback` e `refund_requested` levam
+`affiliate: { code, commissionCents, name? }` somente quando a venda tem comissão. Sem e-mail, id nem
+valores de terceiros. Ver [central-sales-api.md](central-sales-api.md).
+
+## Publicação
+
+Aplicar a migration `20261122090000_affiliates` (aditiva) antes do backend; depois frontend/checkout.
+Nada é retroativo: vendas e assinaturas existentes não ganham afiliado.

@@ -103,6 +103,9 @@ GET acrescenta `mode` e `effective: { source, participants } | null`, para consu
 interativa. Esses dados privados não integram checkout nem callbacks da integração.
 Produtos sem plataforma efetiva não herdam. Assinaturas existentes não são recalculadas.
 
+A herança vale só para a co-produção: afiliados (`docs/afiliados.md`) somam plataforma e oferta, não
+substituem. A soma afiliado efetivo + coprodutores não pode passar de 100% do líquido.
+
 Vendas canônicas diretas usam acordo da plataforma; quando informam link, acordo
 próprio do link tem prioridade. Coprodutores recebem frações inteiras em centavos;
 restante pertence ao beneficiário financeiro original da venda. Se esse beneficiário
