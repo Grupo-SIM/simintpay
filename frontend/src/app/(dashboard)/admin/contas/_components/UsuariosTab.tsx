@@ -18,7 +18,6 @@ import {
   Pencil,
   Download,
   Wallet,
-  Receipt,
   DoorOpen,
 } from 'lucide-react';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -39,8 +38,6 @@ import { PlatformSelect } from '@/components/product-platforms/PlatformSelect';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { AccountPlatformsButton } from '../components';
 import type { Lead } from '@/features/admin/types/admin.types';
-import { ClientChargesModal } from './charges';
-import type { ChargeClient } from './charges/types';
 
 type ClientStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -271,8 +268,6 @@ export default function UsuariosTab({
   const { toast } = useToast();
   const { user, loading: loadingUser } = useCurrentUser();
   const isMaster = Boolean(user?.isMasterAdmin);
-
-  const [chargeClient, setChargeClient] = useState<ChargeClient | null>(null);
 
   const [items, setItems] = useState<ExternalUser[]>([]);
   const [total, setTotal] = useState(0);
@@ -1529,22 +1524,6 @@ export default function UsuariosTab({
                                   <DoorOpen size={14} />
                                 </IconAction>
                               )}
-                              {u.simpayUser && (
-                                <IconAction
-                                  label="Cobranças"
-                                  tone="violet"
-                                  onClick={() =>
-                                    setChargeClient({
-                                      id: u.simpayUser!.id,
-                                      name: u.simpayUser!.name,
-                                      email: u.simpayUser!.email,
-                                      saldoDisponivel: u.balance,
-                                    })
-                                  }
-                                >
-                                  <Receipt size={14} />
-                                </IconAction>
-                              )}
                               <IconAction
                                 label="Carteira"
                                 tone="emerald"
@@ -1606,16 +1585,6 @@ export default function UsuariosTab({
           </div>
         )}
       </div>
-
-      {chargeClient && (
-        <ClientChargesModal
-          client={chargeClient}
-          onClose={() => setChargeClient(null)}
-          onChanged={() => {
-            void fetchUsers();
-          }}
-        />
-      )}
 
       {/* Carteira */}
       <Modal
