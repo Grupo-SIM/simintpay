@@ -143,7 +143,7 @@ export function affiliatesFromDraft(
         : (match?.percentageBps ?? inherited?.defaultPercentageBps ?? null));
     if (bps == null) continue;
     list.push({
-      label: row.name ?? (row.email || 'afiliado'),
+      label: row.name ?? (row.email || 'sem conta'),
       email: row.email,
       name: row.name,
       bps,

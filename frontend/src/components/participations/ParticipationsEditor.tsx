@@ -46,6 +46,13 @@ const isConflict = (
   (error instanceof ApiError && error.status === 409) ||
   error instanceof confirmation;
 
+const serverMessage = (message: string, platform: boolean) => {
+  const text = /[.!?]$/.test(message) ? message : `${message}.`;
+  return platform && /100%/.test(message)
+    ? `${text} Na plataforma, a soma também vale para as ofertas que já têm co-produção ou afiliados.`
+    : text;
+};
+
 export function ParticipationsEditor({
   api,
   product,
@@ -124,12 +131,6 @@ export function ParticipationsEditor({
       coRows.reset(saved);
       toast({ type: 'success', title: 'Co-produção salva' });
     },
-    onError: (error: Error) =>
-      toast({
-        type: 'error',
-        title: 'Não foi possível salvar',
-        description: error.message,
-      }),
   });
   const affSave = useMutation({
     mutationFn: (input: AffiliateSaveInput) =>
@@ -142,12 +143,6 @@ export function ParticipationsEditor({
       affDraft.reset(saved);
       toast({ type: 'success', title: 'Afiliados salvos' });
     },
-    onError: (error: Error) =>
-      toast({
-        type: 'error',
-        title: 'Não foi possível salvar',
-        description: error.message,
-      }),
   });
   const pending = coSave.isPending || affSave.isPending;
   const coConflict = isConflict(coSave.error, CoproductionConfirmationError);
@@ -161,10 +156,7 @@ export function ParticipationsEditor({
     <>
       {mutation.isError && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {mutation.error?.message}
-          {platform && /100%/.test(mutation.error?.message ?? '')
-            ? ' Na plataforma, a soma também vale para as ofertas que já têm co-produção ou afiliados.'
-            : ''}
+          {serverMessage(mutation.error?.message ?? '', platform)}
         </p>
       )}
       {conflict && (
@@ -242,19 +234,19 @@ export function ParticipationsEditor({
           blocked={coConflict}
           onSave={(participants, mode) => coSave.mutate({ participants, mode })}
           onClose={onClose}
+          notice={status(
+            coSave,
+            async () => {
+              const result = await refetchCoproduction();
+              if (result.data) {
+                coRows.reset(result.data);
+                coSave.reset();
+                reloaded('Revise as participações antes de salvar.');
+              }
+            },
+            coConflict,
+          )}
         />
-        {status(
-          coSave,
-          async () => {
-            const result = await refetchCoproduction();
-            if (result.data) {
-              coRows.reset(result.data);
-              coSave.reset();
-              reloaded('Revise as participações antes de salvar.');
-            }
-          },
-          coConflict,
-        )}
       </div>
       <div
         role="tabpanel"
@@ -274,21 +266,21 @@ export function ParticipationsEditor({
           blocked={affConflict}
           onSave={(input) => affSave.mutate(input)}
           onClose={onClose}
+          notice={status(
+            affSave,
+            async () => {
+              const result = await refetchAffiliates();
+              if (result.data) {
+                affDraft.reset(result.data);
+                affSave.reset();
+                reloaded(
+                  'O rascunho foi substituído pela versão do servidor. Revise antes de salvar.',
+                );
+              }
+            },
+            affConflict,
+          )}
         />
-        {status(
-          affSave,
-          async () => {
-            const result = await refetchAffiliates();
-            if (result.data) {
-              affDraft.reset(result.data);
-              affSave.reset();
-              reloaded(
-                'O rascunho foi substituído pela versão do servidor. Revise antes de salvar.',
-              );
-            }
-          },
-          affConflict,
-        )}
       </div>
     </CoproductionDialogContent>
   );

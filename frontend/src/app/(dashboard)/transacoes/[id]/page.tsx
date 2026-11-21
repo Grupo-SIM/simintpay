@@ -30,6 +30,10 @@ import { ActionButton } from '../../relatorio/components/ActionButton';
 import { useTransacaoDetail } from '@/features/transacoes/hooks/use-transacao-detail';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { AffiliationDetailCard } from '@/components/affiliates/AffiliationDetailCard';
+import {
+  hasCoproducers,
+  ownerSplit,
+} from '@/features/transacoes/participations';
 import { ParticipationsDetailCard } from '@/components/transactions/ParticipationsDetailCard';
 import { isAffiliateOnly } from '@/features/affiliates/affiliation';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
@@ -326,7 +330,20 @@ export default function TransacaoDetailPage() {
       </div>
 
       {data?.coproducao && <ParticipationsDetailCard detail={data} />}
-      {data?.afiliacao && <AffiliationDetailCard afiliacao={data.afiliacao} />}
+      {data?.afiliacao && (
+        <AffiliationDetailCard
+          afiliacao={data.afiliacao}
+          remainingCents={
+            hasCoproducers(data, data.coproducao, data.afiliacao)
+              ? null
+              : (ownerSplit({
+                  netAmount: data.order?.total_liquid,
+                  coproducao: data.coproducao,
+                  afiliacao: data.afiliacao,
+                })?.remainingCents ?? null)
+          }
+        />
+      )}
 
       {/* Grid for details cards */}
       <div className="grid gap-6 lg:grid-cols-12">

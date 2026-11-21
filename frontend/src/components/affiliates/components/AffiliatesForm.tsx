@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import { useId } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +29,7 @@ export function AffiliatesForm({
   draftState,
   extraError = null,
   closeLabel = 'Descartar',
+  notice,
   platform,
   pending,
   blocked,
@@ -40,6 +42,8 @@ export function AffiliatesForm({
   /** Erro da validação conjunta com a outra aba; bloqueia o salvar. */
   extraError?: string | null;
   closeLabel?: string;
+  /** Erro do servidor e recarga, logo acima dos botões. */
+  notice?: ReactNode;
   platform: boolean;
   pending: boolean;
   blocked: boolean;
@@ -234,6 +238,7 @@ export function AffiliatesForm({
           {error ?? extraError}
         </p>
       )}
+      {notice}
       <DialogFooter className="border-t border-zinc-200 pt-5 dark:border-white/10">
         <Button
           type="button"

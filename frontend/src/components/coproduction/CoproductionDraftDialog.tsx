@@ -45,7 +45,7 @@ export function CoproductionDraftDialog({
     >
       <CoproductionDialogContent
         title="Participações"
-        description="Defina os coprodutores antes de criar a oferta. Os afiliados ficam disponíveis depois que ela for criada."
+        description="Defina os coprodutores antes de criar a oferta. Afiliados, e a soma com os afiliados da plataforma, ficam disponíveis depois que ela for criada."
         onClose={close}
         toolbar={<ParticipationTotals result={joint} showAffiliate={false} />}
       >

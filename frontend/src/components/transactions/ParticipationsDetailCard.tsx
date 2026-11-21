@@ -1,6 +1,7 @@
 import { HandCoins } from 'lucide-react';
 import {
   coproductionStateLabel,
+  hasCoproducers,
   ownerSplit,
 } from '@/features/transacoes/participations';
 import type { TransacaoDetail } from '@/features/transacoes/types/transacoes.types';
@@ -24,10 +25,13 @@ function Item({ label, value }: { label: string; value: string }) {
 export function ParticipationsDetailCard({
   detail,
 }: {
-  detail: Pick<TransacaoDetail, 'coproducao' | 'afiliacao' | 'order'>;
+  detail: Pick<
+    TransacaoDetail,
+    'coproducao' | 'afiliacao' | 'order' | 'status'
+  >;
 }) {
   const co = detail.coproducao;
-  if (!co) return null;
+  if (!co || !hasCoproducers(detail, co, detail.afiliacao)) return null;
   const mine = co.role === 'COPRODUCER';
   const split = mine
     ? null

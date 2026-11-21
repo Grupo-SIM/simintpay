@@ -11,8 +11,11 @@ const money = (cents: number) =>
 /** Afiliação da venda, somente leitura: comissão do afiliado ou comissão paga pelo dono. */
 export function AffiliationDetailCard({
   afiliacao,
+  remainingCents,
 }: {
   afiliacao: TransacaoAfiliacao;
+  /** Quanto restou ao dono, quando não há card de coprodução para mostrá-lo. */
+  remainingCents?: number | null;
 }) {
   const mine = afiliacao.role === 'AFFILIATE';
   const cents = affiliationAmountCents(afiliacao);
@@ -48,6 +51,14 @@ export function AffiliationDetailCard({
             {afiliacao.isRenewal ? 'Renovação' : 'Primeira venda'}
           </dd>
         </div>
+        {!mine && remainingCents != null && (
+          <div>
+            <dt className="text-xs text-zinc-500 dark:text-zinc-400">
+              Restou para você
+            </dt>
+            <dd className="text-lg font-semibold">{money(remainingCents)}</dd>
+          </div>
+        )}
         {!mine && afiliacao.affiliateCode && (
           <div>
             <dt className="text-xs text-zinc-500 dark:text-zinc-400">

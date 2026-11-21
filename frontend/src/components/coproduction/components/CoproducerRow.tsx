@@ -26,7 +26,7 @@ export function CoproducerRow({
     (value) => onChange({ ...row, percentage: value }),
   );
   return (
-    <li className="grid grid-cols-[5.5rem_minmax(0,1fr)_2.5rem] items-end gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
+    <li className="grid grid-cols-[7rem_minmax(0,1fr)_2.5rem] items-end gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
       <div className="space-y-1.5">
         <label htmlFor={percentageId} className="text-sm font-medium">
           Participação <span className="text-red-500">*</span>

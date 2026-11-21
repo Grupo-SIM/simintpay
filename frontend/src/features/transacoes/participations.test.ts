@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   coproductionCell,
   coproductionStateLabel,
+  hasCoproducers,
   ownerSplit,
   userNetAmount,
 } from './participations';
@@ -132,5 +133,32 @@ describe('participations', () => {
     expect(
       userNetAmount({ netAmount: 100, coproducao: null, afiliacao: null }),
     ).toBe(100);
+  });
+});
+
+describe('participations extras', () => {
+  test('venda concluída só com afiliado não tem bloco de coprodução', () => {
+    const co = { ...owner(null), state: null };
+    expect(
+      hasCoproducers({ status: 'COMPLETED' }, co, affiliateOwner(850)),
+    ).toBe(false);
+    expect(hasCoproducers({ status: 'PENDING' }, co, affiliateOwner(850))).toBe(
+      true,
+    );
+    expect(
+      hasCoproducers({ status: 'COMPLETED' }, owner(5950), affiliateOwner(850)),
+    ).toBe(true);
+    expect(hasCoproducers({ status: 'COMPLETED' }, coproducer, null)).toBe(
+      true,
+    );
+  });
+  test('venda estornada zera o líquido do usuário', () => {
+    expect(
+      userNetAmount({
+        netAmount: 85,
+        coproducao: { ...coproducer, state: 'REVERSED' },
+        afiliacao: null,
+      }),
+    ).toBe(0);
   });
 });

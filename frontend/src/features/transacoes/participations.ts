@@ -47,6 +47,14 @@ export function ownerSplit(
 export function userNetAmount(
   row: Pick<Transacao, 'netAmount' | 'coproducao' | 'afiliacao'>,
 ): number | string | null | undefined {
+  const own =
+    row.coproducao?.role === 'COPRODUCER'
+      ? row.coproducao.state
+      : row.afiliacao?.role === 'AFFILIATE'
+        ? row.afiliacao.state
+        : (row.coproducao?.state ?? row.afiliacao?.state);
+  // Venda estornada: a parte original foi revertida e nada ficou com o usuário.
+  if (own === 'REVERSED') return 0;
   const mine = row.coproducao?.myAmountCents;
   if (mine != null) return mine / 100;
   const affiliation = row.afiliacao;
@@ -90,4 +98,23 @@ export function coproductionCell(
     percentage: split.coproducersPercentage ?? 0,
     state: co.state,
   };
+}
+
+/**
+ * Venda concluída só com afiliado: o dono não tem alocação de coprodução, então o bloco de
+ * coprodução não tem o que mostrar (a divisão aparece no card de afiliação).
+ */
+export function hasCoproducers(
+  detail: { status?: string },
+  co: TransacaoCoproducao | null | undefined,
+  affiliation: { role: string } | null | undefined,
+): boolean {
+  if (!co) return false;
+  if (co.role === 'COPRODUCER') return true;
+  return !(
+    ['COMPLETED', 'APPROVED'].includes(detail.status ?? '') &&
+    co.myAmountCents == null &&
+    co.state == null &&
+    affiliation?.role === 'OWNER'
+  );
 }

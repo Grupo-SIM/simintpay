@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DialogFooter } from '@/components/ui/Dialog';
@@ -19,6 +20,7 @@ export function CoproductionForm({
   draft,
   extraError = null,
   closeLabel = 'Descartar',
+  notice,
   pending,
   blocked,
   ownerEmail,
@@ -33,6 +35,8 @@ export function CoproductionForm({
   /** Erro da validação conjunta com a outra aba; bloqueia o salvar. */
   extraError?: string | null;
   closeLabel?: string;
+  /** Erro do servidor e recarga, logo acima dos botões. */
+  notice?: ReactNode;
   pending: boolean;
   blocked: boolean;
   ownerEmail?: string;
@@ -167,6 +171,7 @@ export function CoproductionForm({
           {error ?? extraError}
         </p>
       )}
+      {notice}
       <DialogFooter className="border-t border-zinc-200 pt-5 dark:border-white/10">
         <Button
           type="button"
