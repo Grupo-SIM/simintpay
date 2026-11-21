@@ -1,3 +1,4 @@
+import { saleAffiliateEvent } from '../affiliate/affiliate-event';
 import { whereTransactionPlatform } from './transaction-platform';
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
@@ -197,6 +198,14 @@ export class PlatformSalesEventsService {
             const eventId = createHash('sha256')
               .update(`${p.id}:${tx.id}:${event}`)
               .digest('hex');
+            const affiliate = [
+              'purchase_approved',
+              'purchase_refunded',
+              'chargeback',
+              'refund_requested',
+            ].includes(event)
+              ? saleAffiliateEvent(tx)
+              : undefined;
             const payload = {
               eventId,
               occurredAt: snapshot.em.toISOString(),
@@ -216,6 +225,7 @@ export class PlatformSalesEventsService {
               customerEmail: tx.customerEmail,
               customerName: tx.customerName,
               tracking: tx.tracking ?? {},
+              ...(affiliate ? { affiliate } : {}),
               ...(offerSales.has(tx.id)
                 ? { items: offerSales.get(tx.id)!.items }
                 : {}),
