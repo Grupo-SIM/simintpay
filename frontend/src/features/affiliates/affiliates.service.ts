@@ -4,10 +4,31 @@ import { parseAffiliates } from './affiliates';
 import type {
   AffiliateAgreement,
   AffiliateProduct,
+  AffiliateReceipts,
   AffiliateSaveInput,
 } from './types';
 
 export class AffiliateConfirmationError extends Error {}
+
+/** Mesmos filtros do relatório e de GET /coproducao/recebimentos. */
+export type AffiliateReceiptFilters = {
+  startDate?: string;
+  endDate?: string;
+  platform?: string;
+  paymentMethod?: string;
+};
+
+export function getAffiliateReceipts(
+  api: ApiClient,
+  filters: AffiliateReceiptFilters = {},
+  page = 1,
+) {
+  const { startDate, endDate, platform, paymentMethod } = filters;
+  return api.get<AffiliateReceipts>(endpoints.affiliates.receipts, {
+    query: { startDate, endDate, platform, paymentMethod, page },
+    cache: 'no-store',
+  });
+}
 
 export async function getAffiliates(
   api: ApiClient,

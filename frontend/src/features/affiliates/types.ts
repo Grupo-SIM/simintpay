@@ -73,6 +73,8 @@ export type AffiliateReceipts = {
     linkBaseUrl?: string | null;
   }[];
   total: number;
+  /** Sem filtros: o usuário já tem alguma comissão de afiliado. */
+  hasAffiliation?: boolean;
   page: number;
   pageSize: number;
 };

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { createApiClient } from '@/services/api/api.client';
 import {
   AffiliateConfirmationError,
+  getAffiliateReceipts,
   getAffiliates,
   saveAffiliates,
 } from './affiliates.service';
@@ -101,4 +102,49 @@ test('validation: global fallback, owner, duplicates and link base', () => {
   expect(affiliateLink('https://x.com/?a=1', 'ABC')).toBe(
     'https://x.com/?a=1&aff=ABC',
   );
+});
+
+test('receipts send the report filters and page, no-store, dropping unset ones', async () => {
+  const calls: { path: string; options: Record<string, unknown> }[] = [];
+  const api = {
+    ...createApiClient({ baseUrl: 'http://127.0.0.1' }),
+    get: async (path: string, options: Record<string, unknown>) => {
+      calls.push({ path, options });
+      return { data: [], total: 0 };
+    },
+  } as unknown as ReturnType<typeof createApiClient>;
+  await getAffiliateReceipts(
+    api,
+    {
+      startDate: '2026-03-01',
+      endDate: '2026-03-31',
+      platform: 'ATLAS',
+      paymentMethod: 'PIX',
+      // anything else the report holds must not leak into the request
+      ...({ search: 'x' } as object),
+    },
+    2,
+  );
+  await getAffiliateReceipts(api);
+  expect(calls[0].path).toBe('/afiliados/recebimentos');
+  expect(calls[0].options).toEqual({
+    query: {
+      startDate: '2026-03-01',
+      endDate: '2026-03-31',
+      platform: 'ATLAS',
+      paymentMethod: 'PIX',
+      page: 2,
+    },
+    cache: 'no-store',
+  });
+  expect(calls[1].options).toEqual({
+    query: {
+      startDate: undefined,
+      endDate: undefined,
+      platform: undefined,
+      paymentMethod: undefined,
+      page: 1,
+    },
+    cache: 'no-store',
+  });
 });

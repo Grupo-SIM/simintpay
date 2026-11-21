@@ -12,9 +12,8 @@ import {
   createApiClient,
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
-import { endpoints } from '@/services/api/endpoints';
 import { affiliateLink } from '@/features/affiliates/affiliates';
-import type { AffiliateReceipts as Receipts } from '@/features/affiliates/types';
+import { getAffiliateReceipts } from '@/features/affiliates/affiliates.service';
 
 const money = (cents: number) =>
   (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -38,11 +37,7 @@ export function AffiliateReceipts({
   });
   const query = useQuery({
     queryKey: ['affiliate-receipts', user?.id, page, filters],
-    queryFn: () =>
-      api.get<Receipts>(endpoints.affiliates.receipts, {
-        query: { ...filters, page },
-        cache: 'no-store',
-      }),
+    queryFn: () => getAffiliateReceipts(api, filters, page),
     enabled: Boolean(user?.id && !user.isAdmin),
     retry: false,
   });
@@ -50,6 +45,7 @@ export function AffiliateReceipts({
   if (
     query.isSuccess &&
     query.data.total === 0 &&
+    !query.data.hasAffiliation &&
     !query.data.affiliations?.length
   )
     return null;
