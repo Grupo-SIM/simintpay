@@ -2,7 +2,7 @@
 
 ## Estado desta entrega
 
-Interface implementada neste repositório, nos formulários de cliente e administração de links de pagamento, links de assinatura, boletos, planos e planos PIX. Configuração acessível em “Co-produção” desde a criação, com vários coprodutores e percentuais individuais. No cadastro, “Aplicar coprodutores” mantém um rascunho; salvar o produto envia produto e divisão na mesma requisição. Configuração tem salvamento próprio; descartar o formulário de produto não desfaz uma co-produção já salva.
+Interface implementada neste repositório. Na plataforma e na oferta, um único botão “Participações” abre um diálogo com as abas “Co-produção” e “Afiliados” (ver [afiliados.md](afiliados.md)); um indicador fixo nas duas abas mostra o total (coprodutores mais o maior afiliado, a mesma pessoa contada uma vez) e “Dono recebe X%”, e acima de 100% o salvar de qualquer aba é bloqueado (o servidor continua sendo a fonte da verdade). Cada aba salva a sua configuração e o diálogo permanece aberto. Na criação de uma oferta, “Participações” abre só o rascunho de coprodutores (“Aplicar coprodutores”); salvar a oferta envia oferta e divisão na mesma requisição, e os afiliados ficam disponíveis depois que ela existe. Configuração tem salvamento próprio; descartar o formulário de produto não desfaz uma co-produção já salva.
 
 Backend local `simintpay-back` implementa persistência, snapshots privados, distribuição transacional nas carteiras, renovação e reversões. Migração adiciona `CoproductionAgreement`, `CoproductionRevision` e `CoproductionAllocation`; campos financeiros existentes guardam os snapshots. Nenhum banco externo foi alterado.
 

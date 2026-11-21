@@ -88,6 +88,17 @@ Exceção por oferta (inalterada, e diferente entre os dois módulos):
 - Afiliados: plataforma e oferta **somam**, e a mesma pessoa vale pelo percentual da oferta. O
   percentual mínimo é 1 bps; 0 não exclui ninguém.
 
+## Interface
+
+O botão “Participações” (plataforma e oferta) abre um único diálogo com as abas “Co-produção” e
+“Afiliados”; os dois acordos são carregados ao abrir. A validação do cliente é conjunta e usa o
+rascunho das duas abas: total = maior percentual efetivo de uma pessoa afiliada (contada uma vez,
+mesma regra de `worstCaseBps` e `dedupOverlap`) mais os coprodutores, exibido em um indicador fixo
+com “Dono recebe X%”. Acima de 100% o salvar de qualquer aba fica bloqueado com o total e quem
+excede. O cliente não conhece as ofertas de uma plataforma ao editar a plataforma: esse caso só o
+servidor recusa (400), e o rascunho é preservado. Afiliados herdados na oferta chegam sem e-mail e
+casam com coprodutores pelo nome.
+
 ## Identificação na venda
 
 Chave `aff` (alias `ref`, normalizado para `aff`) no `tracking` do checkout (query ou corpo) e no
