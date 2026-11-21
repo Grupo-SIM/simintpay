@@ -95,8 +95,14 @@ Dono aprovado ou admin ativo; versão otimista (409); e-mails normalizados e ún
 
 - `GET|PUT /afiliados/plataformas/:platformId` e `GET|PUT /afiliados/ofertas/:id`.
 - `GET /afiliados/contas?search=&page=`: mesma busca de contas da co-produção.
-- `GET /afiliados/recebimentos?page=`: comissões do afiliado (`amountCents`, `state`, `isRenewal`,
-  `originName`) e `summary` (`creditedCents`, `lockedCents`, `reversedCents`).
+- `GET /afiliados/recebimentos?page=&startDate=&endDate=&platform=&paymentMethod=`: comissões do
+  afiliado (`amountCents`, `state`, `isRenewal`, `originName`) e `summary` (`creditedCents`,
+  `lockedCents`, `reversedCents`). Os filtros são os mesmos, com a mesma validação e semântica de
+  fuso, de `GET /coproducao/recebimentos` (`startDate`/`endDate` `YYYY-MM-DD` inclusivos em
+  America/Sao_Paulo, `platform` pela tag canônica, `paymentMethod` do enum; 400 para data, intervalo,
+  método ou filtro inválidos). `summary` e `total` respeitam os filtros; a paginação não os altera.
+  `hasAffiliation` ignora os filtros e indica que o usuário já tem alguma comissão, para o relatório
+  não esconder a seção quando o filtro não encontra nada.
 
 Corpo do PUT (ambos escopos):
 
@@ -155,7 +161,8 @@ Somente leitura e sem dados de terceiros; espelha a visibilidade da co-produçã
 - O catálogo de plataformas (`/platforms`) inclui as plataformas em que o usuário é afiliado
   (acordo da plataforma ou de oferta dela) com identificação básica e
   `afiliacao: { role: 'AFFILIATE', readOnly: true }`, sem configurações privadas.
-- Fora de escopo: filtros nos recebimentos (`/afiliados/recebimentos`), que seguem sem filtro.
+- Os recebimentos de afiliado (`/afiliados/recebimentos`) recebem do relatório os mesmos filtros de
+  período, plataforma e meio de pagamento que os recebimentos de coprodução.
 
 ## Publicação
 
