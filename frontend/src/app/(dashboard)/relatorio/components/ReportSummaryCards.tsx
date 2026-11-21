@@ -18,6 +18,8 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
   // Coproduction receipts count as sales, revenue and gross profit of the overview.
   const coSales = data.coproducao?.creditedCount ?? 0;
   const coCents = data.coproducao?.creditedCents ?? 0;
+  // Comissões de afiliado creditadas entram no lucro, nunca como receita integral da venda.
+  const affiliateCents = data.afiliacao?.creditedCents ?? 0;
   return (
     <div className="flex flex-col gap-8">
       <ReportMetricSection title="Visão Geral">
@@ -39,9 +41,9 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
         />
         <MetricCard
           label="Lucro bruto"
-          value={reportMoney(s.netCents + coCents)}
+          value={reportMoney(s.netCents + coCents + affiliateCents)}
           icon={Banknote}
-          tooltip="Líquido das vendas e participações de coprodução antes dos custos."
+          tooltip="Líquido das vendas, participações de coprodução e comissões de afiliado antes dos custos."
           valueClassName="text-cyan-600 dark:text-cyan-400"
           iconClassName="text-cyan-600 dark:text-cyan-400"
         />
@@ -91,6 +93,8 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
       <ReportMovementSections
         summary={s}
         coproducao={data.coproducao}
+        afiliacao={data.afiliacao}
+        afiliados={data.afiliados}
         hasPlatforms={data.platformsCount > 0}
       />
       {!s.historicalAttributionComplete && (

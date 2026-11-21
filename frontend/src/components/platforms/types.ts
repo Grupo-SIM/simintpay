@@ -10,6 +10,8 @@ export type Platform = PlatformOwnership & {
     readOnly: boolean;
     myPercentageBps?: number | null;
   };
+  /** Plataforma em que o usuário é afiliado: identificação básica, somente leitura. */
+  afiliacao?: { role: 'AFFILIATE'; readOnly: true } | null;
   ownerUserId: string;
   customerInterestRates: Record<string, number> | null;
   effectiveCustomerInterestRates?: Record<string, number>;

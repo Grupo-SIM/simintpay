@@ -190,6 +190,11 @@ export function PlatformPickerModal({
                           Coprodução · Somente leitura
                         </span>
                       )}
+                      {platform.afiliacao?.readOnly && (
+                        <span className="block text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                          Afiliação · Somente leitura
+                        </span>
+                      )}
                       {user?.isAdmin && (
                         <span className="mt-1 block break-words text-xs text-zinc-500 dark:text-zinc-400">
                           {owners.isLoading
@@ -204,6 +209,7 @@ export function PlatformPickerModal({
                   </button>
                   {!admin &&
                     !platform.coproducao?.readOnly &&
+                    !platform.afiliacao?.readOnly &&
                     platform.coproducao?.role !== 'COPRODUCER' && (
                       <ConfirmActionButton
                         variant="outline"

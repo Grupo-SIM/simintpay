@@ -1367,7 +1367,10 @@ export default function PainelPage() {
         query: { startDate: periodStartKey, endDate: periodEndKey },
       });
       return (
-        (res.summary.netCents + (res.coproducao?.creditedCents ?? 0)) / 100
+        (res.summary.netCents +
+          (res.coproducao?.creditedCents ?? 0) +
+          (res.afiliacao?.creditedCents ?? 0)) /
+        100
       );
     };
 

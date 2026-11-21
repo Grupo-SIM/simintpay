@@ -966,3 +966,107 @@ test('shared-only report shows filtered participation without requesting owner d
     server.stop(true);
   }
 }, 180000);
+
+test('affiliate blocks: own commissions and commissions paid by the owner stay separate from fees', async () => {
+  const build = await Bun.build({
+    entrypoints: [import.meta.dir + '/report-browser-entry.tsx'],
+    target: 'browser',
+    define: {
+      'process.env': '{}',
+      'process.env.NEXT_PUBLIC_API_BASE_URL': '"/api"',
+      'process.env.NODE_ENV': '"test"',
+    },
+  });
+  if (!build.success) throw new Error(build.logs.join('\n'));
+  const script = await build.outputs[0].text();
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: (req) =>
+      new Response(
+        new URL(req.url).pathname === '/app.js'
+          ? script
+          : '<div id="root"></div><script src="/app.js"></script>',
+        {
+          headers: {
+            'Content-Type':
+              new URL(req.url).pathname === '/app.js'
+                ? 'text/javascript'
+                : 'text/html; charset=utf-8',
+          },
+        },
+      ),
+  });
+  const browser = await chromium.launch({
+    executablePath: '/opt/google/chrome/chrome',
+    headless: true,
+    args: ['--no-sandbox'],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.route('**/api/**', (route) => {
+      const url = new URL(route.request().url());
+      if (
+        url.pathname === '/api/coproducao/recebimentos' ||
+        url.pathname === '/api/afiliados/recebimentos'
+      )
+        return route.fulfill({
+          json: {
+            data: [],
+            summary: { creditedCents: 0, lockedCents: 0, reversedCents: 0 },
+            total: 0,
+            page: 1,
+            pageSize: 10,
+          },
+        });
+      if (url.pathname === '/api/auth/me')
+        return route.fulfill({
+          json: { data: { id: 'owner', isAdmin: false, isClient: true } },
+        });
+      if (url.pathname === '/api/relatorios/financeiro')
+        return route.fulfill({
+          json: {
+            unit: 'cents',
+            platformsCount: 1,
+            afiliacao: {
+              count: 2,
+              creditedCents: 1500,
+              lockedCents: 700,
+              reversedCents: 300,
+            },
+            afiliados: { count: 3, commissionCents: 4200 },
+            summary: {
+              salesCount: 1,
+              grossCents: 10000,
+              feesCents: 500,
+              netCents: 5300,
+              refundsCents: 0,
+              refundsCount: 0,
+              withdrawalsCents: 0,
+              withdrawalFeesCents: 0,
+              interestCents: null,
+              pendingWithdrawalsCents: 0,
+              missingNetSnapshots: 0,
+              historicalAttributionComplete: true,
+            },
+          },
+        });
+      return route.fulfill({ json: { data: [] } });
+    });
+    await page.goto(`http://127.0.0.1:${server.port}`);
+    const own = page.getByText('Afiliação', { exact: true });
+    await own.waitFor();
+    await page.getByText('R$ 15,00', { exact: true }).waitFor();
+    await page.getByText(/2 comissões/).waitFor();
+    await page.getByText(/Pendente R\$\s7,00/).waitFor();
+    await page.getByText(/Revertida R\$\s3,00/).waitFor();
+    await page.getByText('Comissões de afiliados', { exact: true }).waitFor();
+    await page.getByText('R$ 42,00', { exact: true }).waitFor();
+    await page.getByText(/3 vendas com afiliado/).waitFor();
+    // fees card is untouched by the commissions
+    await page.getByText('R$ 5,00', { exact: true }).first().waitFor();
+  } finally {
+    await browser.close();
+    server.stop(true);
+  }
+}, 180000);

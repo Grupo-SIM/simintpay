@@ -22,6 +22,15 @@ export type ReportSummary = {
     creditedCount: number;
     hourly: { bucket: string; count: number; creditedCents: number }[];
   };
+  /** Comissões próprias como afiliado em vendas de terceiros; já integram a carteira. */
+  afiliacao?: {
+    count: number;
+    creditedCents: number;
+    lockedCents: number;
+    reversedCents: number;
+  };
+  /** Comissões pagas a afiliados nas vendas do dono; já descontadas do líquido. */
+  afiliados?: { count: number; commissionCents: number };
   platformsCount: number;
   summary: {
     salesCount: number;

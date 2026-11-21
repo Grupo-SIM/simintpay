@@ -21,8 +21,23 @@ export type TransacaoCoproducao = {
   state: 'AVAILABLE' | 'LOCKED' | 'REVERSED' | string | null;
 };
 
+/**
+ * Participação do usuário via afiliação. O afiliado vê só a própria comissão (somente leitura);
+ * o dono vê a comissão paga e o código do afiliado, nunca o e-mail.
+ */
+export type TransacaoAfiliacao = {
+  role: 'OWNER' | 'AFFILIATE';
+  readOnly: boolean;
+  myAmountCents: number | null;
+  state: 'AVAILABLE' | 'LOCKED' | 'REVERSED' | string | null;
+  isRenewal: boolean;
+  affiliateCommissionCents?: number | null;
+  affiliateCode?: string | null;
+};
+
 export type Transacao = {
   coproducao?: TransacaoCoproducao | null;
+  afiliacao?: TransacaoAfiliacao | null;
   id: string;
   status: TransacaoStatus | string;
   /** Decimal do transporte. Não representa centavos. */
@@ -67,6 +82,7 @@ export type TransacaoItem = {
 
 export type TransacaoDetail = {
   coproducao?: TransacaoCoproducao | null;
+  afiliacao?: TransacaoAfiliacao | null;
   platformTag?: string | null;
   status: string;
   user?: { id: string; name: string; email: string };

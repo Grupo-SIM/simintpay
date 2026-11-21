@@ -9,6 +9,16 @@ const formatPercentage = (bps: number) =>
 export function PlatformRateEditor({ platform }: { platform: Platform }) {
   const bps = platform.coproducao?.myPercentageBps;
   const percentage = bps ? formatPercentage(bps) : null;
+  if (platform.afiliacao?.readOnly && !platform.coproducao) {
+    return (
+      <section className={panel} aria-label="Plataforma compartilhada">
+        <h2 className="font-semibold">{platform.name}</h2>
+        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+          Afiliação, somente leitura. Você vê apenas as suas comissões.
+        </p>
+      </section>
+    );
+  }
   if (
     platform.coproducao?.readOnly ||
     platform.coproducao?.role === 'COPRODUCER'

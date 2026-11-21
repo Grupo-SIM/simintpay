@@ -29,6 +29,8 @@ import { ActionButton } from '../../relatorio/components/ActionButton';
 
 import { useTransacaoDetail } from '@/features/transacoes/hooks/use-transacao-detail';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { AffiliationDetailCard } from '@/components/affiliates/AffiliationDetailCard';
+import { isAffiliateOnly } from '@/features/affiliates/affiliation';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
 function formatBRL(
@@ -92,6 +94,8 @@ export default function TransacaoDetailPage() {
   const isAdmin = user?.isAdmin ?? false;
 
   const order = data?.order;
+  // Afiliado sem coprodução: só a própria comissão, sem taxas do dono nem comprador.
+  const affiliateOnly = data ? isAffiliateOnly(data) : false;
 
   if (loading || loadingUser) {
     return (
@@ -267,54 +271,60 @@ export default function TransacaoDetailPage() {
               </div>
             </div>
 
-            {/* Total Fees */}
-            <div className="flex flex-col items-center lg:items-start relative">
-              {/* Vertical divider for md only */}
-              <div className="hidden md:block absolute -left-5 top-0 bottom-0 w-px bg-zinc-200 dark:bg-white/10" />
-              <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 mb-2">
-                <Search className="h-4 w-4" />
-                <span className="text-xs font-bold uppercase tracking-wider">
-                  Total de taxas
-                </span>
-              </div>
-              <div className="text-3xl lg:text-4xl font-bold text-zinc-800 dark:text-zinc-200">
-                {formatBRL(order.fee_total_value)}
-              </div>
-              {isAdmin && (
-                <div className="mt-2 text-[10px] font-medium text-zinc-500 flex flex-wrap gap-2">
-                  <span>Taxa DOM: {formatBRL(taxaDom)}</span>
-                  <span className="opacity-50">•</span>
-                  <span>Taxa vendedor: {formatBRL(taxaVendedor)}</span>
-                  <span className="opacity-50">•</span>
-                  <span>Taxa fixa: {formatBRL(taxaFixaTransacao)}</span>
-                  <span className="opacity-50">•</span>
-                  <span>Cashback: {formatBRL(taxaCashback)}</span>
+            {!affiliateOnly && (
+              <>
+                {/* Total Fees */}
+                <div className="flex flex-col items-center lg:items-start relative">
+                  {/* Vertical divider for md only */}
+                  <div className="hidden md:block absolute -left-5 top-0 bottom-0 w-px bg-zinc-200 dark:bg-white/10" />
+                  <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 mb-2">
+                    <Search className="h-4 w-4" />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      Total de taxas
+                    </span>
+                  </div>
+                  <div className="text-3xl lg:text-4xl font-bold text-zinc-800 dark:text-zinc-200">
+                    {formatBRL(order.fee_total_value)}
+                  </div>
+                  {isAdmin && (
+                    <div className="mt-2 text-[10px] font-medium text-zinc-500 flex flex-wrap gap-2">
+                      <span>Taxa DOM: {formatBRL(taxaDom)}</span>
+                      <span className="opacity-50">•</span>
+                      <span>Taxa vendedor: {formatBRL(taxaVendedor)}</span>
+                      <span className="opacity-50">•</span>
+                      <span>Taxa fixa: {formatBRL(taxaFixaTransacao)}</span>
+                      <span className="opacity-50">•</span>
+                      <span>Cashback: {formatBRL(taxaCashback)}</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Lucro / Prejuízo (mesmo valor que líquido vendedor na API) */}
-            <div className="flex flex-col items-center lg:items-start relative">
-              <div className="hidden md:block absolute -left-5 top-0 bottom-0 w-px bg-zinc-200 dark:bg-white/10" />
-              <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 mb-2">
-                <History className="h-4 w-4" />
-                <span className="text-xs font-bold uppercase tracking-wider">
-                  Lucro/Prejuízo
-                </span>
-              </div>
-              <div
-                className={`text-3xl lg:text-4xl font-bold ${
-                  lucroMaster >= 0
-                    ? 'text-violet-600 dark:text-violet-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}
-              >
-                {formatBRL(lucroMaster)}
-              </div>
-            </div>
+                {/* Lucro / Prejuízo (mesmo valor que líquido vendedor na API) */}
+                <div className="flex flex-col items-center lg:items-start relative">
+                  <div className="hidden md:block absolute -left-5 top-0 bottom-0 w-px bg-zinc-200 dark:bg-white/10" />
+                  <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 mb-2">
+                    <History className="h-4 w-4" />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      Lucro/Prejuízo
+                    </span>
+                  </div>
+                  <div
+                    className={`text-3xl lg:text-4xl font-bold ${
+                      lucroMaster >= 0
+                        ? 'text-violet-600 dark:text-violet-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                    }`}
+                  >
+                    {formatBRL(lucroMaster)}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
+
+      {data?.afiliacao && <AffiliationDetailCard afiliacao={data.afiliacao} />}
 
       {/* Grid for details cards */}
       <div className="grid gap-6 lg:grid-cols-12">
@@ -345,7 +355,7 @@ export default function TransacaoDetailPage() {
               />
             )}
 
-            {isPix && order.pix_content && (
+            {!affiliateOnly && isPix && order.pix_content && (
               <InfoRow
                 label="Chave copia e cola"
                 value={order.pix_content}
@@ -356,63 +366,71 @@ export default function TransacaoDetailPage() {
         </div>
 
         {/* Buyer Details */}
-        <div className="lg:col-span-4 rounded-3xl border border-white/40 bg-white/70 p-6 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
-          <div className="flex items-center gap-2 border-b border-zinc-100 dark:border-white/5 pb-4 mb-6">
-            <User className="h-4 w-4 text-zinc-400" />
-            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-900 dark:text-zinc-100 px-1">
-              Detalhes do comprador
-            </h3>
-          </div>
+        {!affiliateOnly && (
+          <div className="lg:col-span-4 rounded-3xl border border-white/40 bg-white/70 p-6 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+            <div className="flex items-center gap-2 border-b border-zinc-100 dark:border-white/5 pb-4 mb-6">
+              <User className="h-4 w-4 text-zinc-400" />
+              <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-900 dark:text-zinc-100 px-1">
+                Detalhes do comprador
+              </h3>
+            </div>
 
-          <div className="space-y-6">
-            <InfoRow
-              label="Nome"
-              value={order.client_name}
-              right={
-                <CopyButton value={String(order.client_name ?? '')} iconOnly />
-              }
-            />
-            <InfoRow
-              label="Documento"
-              value={order.client_document}
-              right={
-                <CopyButton
-                  value={String(order.client_document ?? '')}
-                  iconOnly
-                />
-              }
-            />
-            <InfoRow
-              label="Telefone"
-              value={order.client_phone}
-              right={
-                <div className="flex items-center gap-1">
+            <div className="space-y-6">
+              <InfoRow
+                label="Nome"
+                value={order.client_name}
+                right={
                   <CopyButton
-                    value={String(order.client_phone ?? '')}
+                    value={String(order.client_name ?? '')}
                     iconOnly
                   />
-                  {order.client_phone && (
-                    <a
-                      href={`https://wa.me/${order.client_phone.replace(/\D/g, '')}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:text-zinc-400 transition-colors"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  )}
-                </div>
-              }
-            />
-            <InfoRow
-              label="E-mail"
-              value={order.client_email}
-              right={
-                <CopyButton value={String(order.client_email ?? '')} iconOnly />
-              }
-            />
+                }
+              />
+              <InfoRow
+                label="Documento"
+                value={order.client_document}
+                right={
+                  <CopyButton
+                    value={String(order.client_document ?? '')}
+                    iconOnly
+                  />
+                }
+              />
+              <InfoRow
+                label="Telefone"
+                value={order.client_phone}
+                right={
+                  <div className="flex items-center gap-1">
+                    <CopyButton
+                      value={String(order.client_phone ?? '')}
+                      iconOnly
+                    />
+                    {order.client_phone && (
+                      <a
+                        href={`https://wa.me/${order.client_phone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:text-zinc-400 transition-colors"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                }
+              />
+              <InfoRow
+                label="E-mail"
+                value={order.client_email}
+                right={
+                  <CopyButton
+                    value={String(order.client_email ?? '')}
+                    iconOnly
+                  />
+                }
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Order Items & Timeline */}
         <div className="lg:col-span-4 flex flex-col gap-6">

@@ -119,6 +119,7 @@ interface LedgerTransactionsResponse {
       customerEmail: string | null;
       customerDocument: string | null;
       coproducao?: Transacao['coproducao'];
+      afiliacao?: Transacao['afiliacao'];
       createdAt: string;
     }>;
     total: number;
@@ -277,6 +278,7 @@ export async function listTransacoes(
       customerEmail: transaction.customerEmail,
       customerDocument: transaction.customerDocument,
       coproducao: transaction.coproducao ?? null,
+      afiliacao: transaction.afiliacao ?? null,
       createdAt: transaction.createdAt,
     })),
     total: res.data?.total ?? 0,

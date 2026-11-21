@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Clock,
   HandCoins,
+  Handshake,
   Smartphone,
   TrendingDown,
   TrendingUp,
@@ -15,12 +16,16 @@ import { reportMoney, type ReportSummary } from './report-types';
 export function ReportMovementSections({
   summary: s,
   coproducao,
+  afiliacao,
+  afiliados,
   hasPlatforms = true,
   boletos,
   extra,
 }: {
   summary: ReportSummary['summary'];
   coproducao?: ReportSummary['coproducao'];
+  afiliacao?: ReportSummary['afiliacao'];
+  afiliados?: ReportSummary['afiliados'];
   hasPlatforms?: boolean;
   /** Card de boletos, exibido antes de estornos. */
   boletos?: ReactNode;
@@ -106,6 +111,36 @@ export function ReportMovementSections({
           valueClassName="text-emerald-600 dark:text-emerald-400"
           iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
           tooltip="Participações de coprodução creditadas na sua carteira."
+        />
+      )}
+      {afiliacao && afiliacao.count > 0 && (
+        <MetricCard
+          label="Afiliação"
+          value={reportMoney(afiliacao.creditedCents)}
+          detail={[
+            `${afiliacao.count.toLocaleString('pt-BR')} ${afiliacao.count === 1 ? 'comissão' : 'comissões'}`,
+            afiliacao.lockedCents > 0 &&
+              `Pendente ${reportMoney(afiliacao.lockedCents)}`,
+            afiliacao.reversedCents > 0 &&
+              `Revertida ${reportMoney(afiliacao.reversedCents)}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          icon={Handshake}
+          valueClassName="text-sky-600 dark:text-sky-400"
+          iconClassName="bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400"
+          tooltip="Comissões de afiliado creditadas na sua carteira, em vendas de outros proprietários."
+        />
+      )}
+      {afiliados && afiliados.count > 0 && (
+        <MetricCard
+          label="Comissões de afiliados"
+          value={reportMoney(afiliados.commissionCents)}
+          detail={`${afiliados.count.toLocaleString('pt-BR')} ${afiliados.count === 1 ? 'venda com afiliado' : 'vendas com afiliado'}`}
+          icon={Handshake}
+          valueClassName="text-amber-600 dark:text-amber-400"
+          iconClassName="bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
+          tooltip="Quanto foi pago a afiliados nas suas vendas do período. Já está descontado do seu líquido e não é taxa."
         />
       )}
       {extra}

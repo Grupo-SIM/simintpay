@@ -59,6 +59,7 @@ export function PlatformManager({
   const actions =
     selected?.id &&
     !selected.coproducao?.readOnly &&
+    !selected.afiliacao?.readOnly &&
     selected.coproducao?.role !== 'COPRODUCER' ? (
       <>
         <CoproductionButton product="plataformas" productId={selected.id} />
@@ -89,6 +90,7 @@ export function PlatformManager({
       )}
       {selected?.id &&
         !selected.coproducao?.readOnly &&
+        !selected.afiliacao?.readOnly &&
         selected.coproducao?.role !== 'COPRODUCER' &&
         settingsId === selected.id && (
           <PlatformSettingsModal

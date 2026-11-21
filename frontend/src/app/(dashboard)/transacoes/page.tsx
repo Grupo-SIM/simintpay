@@ -37,6 +37,11 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import type { Transacao } from '@/features/transacoes/types/transacoes.types';
+import {
+  affiliationAmountCents,
+  affiliationStateLabel,
+  isAffiliateOnly,
+} from '@/features/affiliates/affiliation';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import {
   formatDocument,
@@ -45,10 +50,26 @@ import {
   transacaoPlataformaUi,
 } from '@/lib/utils';
 
-/** Valor líquido que ficou com o usuário atual (parte da coprodução, quando houver). */
+/** Valor líquido que ficou com o usuário atual (parte da coprodução ou da afiliação, quando houver). */
 function userNetAmount(row: Transacao) {
   const mine = row.coproducao?.myAmountCents;
-  return mine == null ? row.netAmount : mine / 100;
+  if (mine != null) return mine / 100;
+  const affiliation = row.afiliacao;
+  if (affiliation?.role === 'AFFILIATE')
+    return affiliation.myAmountCents == null
+      ? null
+      : affiliation.myAmountCents / 100;
+  // A comissão do afiliado já saiu do líquido do dono.
+  if (
+    affiliation?.role === 'OWNER' &&
+    affiliation.affiliateCommissionCents != null &&
+    row.netAmount != null
+  )
+    return Math.max(
+      0,
+      Number(row.netAmount) - affiliation.affiliateCommissionCents / 100,
+    );
+  return row.netAmount;
 }
 
 /** Parte do líquido desviada para outros coprodutores, ou null sem coprodução. */
@@ -56,7 +77,12 @@ function coproductionDiverted(row: Transacao) {
   const mine = row.coproducao?.myAmountCents;
   const net = Number(row.netAmount ?? 0) * 100;
   if (mine == null || !(net > 0)) return null;
-  const cents = Math.max(0, net - mine);
+  // A comissão de afiliado tem coluna própria: não conta como coprodução.
+  const affiliate =
+    row.afiliacao?.role === 'OWNER'
+      ? (row.afiliacao.affiliateCommissionCents ?? 0)
+      : 0;
+  const cents = Math.max(0, net - mine - affiliate);
   return {
     amount: cents / 100,
     percentage: (cents / net) * 100,
@@ -798,12 +824,15 @@ function TransacoesContent() {
               header: 'Taxas',
               className: 'text-right whitespace-nowrap',
               headerClassName: 'text-right',
-              render: (row: Transacao) => (
-                <MoneyCell
-                  value={row.totalFee}
-                  className="text-sm text-red-500 dark:text-red-400"
-                />
-              ),
+              render: (row: Transacao) =>
+                isAffiliateOnly(row) ? (
+                  <span className="text-xs text-zinc-400">-</span>
+                ) : (
+                  <MoneyCell
+                    value={row.totalFee}
+                    className="text-sm text-red-500 dark:text-red-400"
+                  />
+                ),
             },
           ]),
       ...(isAdmin
@@ -830,6 +859,42 @@ function TransacoesContent() {
                       })}
                       %
                     </span>
+                  </div>
+                );
+              },
+            },
+            {
+              key: 'afiliacao',
+              header: 'Afiliação',
+              className: 'text-right whitespace-nowrap',
+              headerClassName: 'text-right',
+              render: (row: Transacao) => {
+                const affiliation = row.afiliacao;
+                const cents = affiliation
+                  ? affiliationAmountCents(affiliation)
+                  : null;
+                if (!affiliation || cents == null)
+                  return <span className="text-xs text-zinc-400">-</span>;
+                const mine = affiliation.role === 'AFFILIATE';
+                return (
+                  <div className="flex flex-col items-end">
+                    <MoneyCell
+                      value={cents / 100}
+                      className={`text-sm font-medium ${
+                        mine
+                          ? 'text-sky-600 dark:text-sky-300'
+                          : 'text-amber-600 dark:text-amber-300'
+                      } ${affiliation.state === 'REVERSED' ? 'line-through opacity-70' : ''}`}
+                    />
+                    <span className="text-xs text-zinc-400">
+                      {affiliationStateLabel(affiliation.state)}
+                      {affiliation.isRenewal ? ' · renovação' : ''}
+                    </span>
+                    {!mine && affiliation.affiliateCode && (
+                      <span className="font-mono text-[10px] text-zinc-400">
+                        {affiliation.affiliateCode}
+                      </span>
+                    )}
                   </div>
                 );
               },

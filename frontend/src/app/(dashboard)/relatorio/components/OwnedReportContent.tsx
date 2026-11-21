@@ -40,9 +40,9 @@ export function OwnedReportContent({
   if (query.data.participationOnly)
     return (
       <p className="rounded-xl border p-6 text-sm">
-        Plataforma compartilhada · Somente sua participação de coprodução é
-        exibida abaixo. Vendas, clientes e dados financeiros do proprietário não
-        estão disponíveis.
+        Plataforma compartilhada · Somente sua participação de coprodução e de
+        afiliação é exibida abaixo. Vendas, clientes e dados financeiros do
+        proprietário não estão disponíveis.
       </p>
     );
   const hasPlatforms = query.data.platformsCount > 0;
