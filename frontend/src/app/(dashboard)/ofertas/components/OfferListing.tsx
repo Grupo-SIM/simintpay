@@ -14,6 +14,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { ConfirmActionButton } from '@/components/ui/ConfirmActionButton';
 import { useToast } from '@/components/ui/Toast';
+import { AffiliatesButton } from '@/components/affiliates';
 import { CoproductionButton } from '@/components/coproduction';
 import { ActionButton } from '@/app/(dashboard)/relatorio/components/ActionButton';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -206,7 +207,7 @@ export function OfferListing({
     {
       key: 'actions',
       header: 'Ações',
-      defaultWidth: 136,
+      defaultWidth: 176,
       render: (row) => (
         <div className="flex items-center justify-center gap-2">
           <Button
@@ -220,6 +221,7 @@ export function OfferListing({
             <Pencil aria-hidden className="h-4 w-4" />
           </Button>
           <CoproductionButton product="ofertas" productId={row.id} iconOnly />
+          <AffiliatesButton product="ofertas" productId={row.id} iconOnly />
           {row.isActive ? (
             <ConfirmActionButton
               variant="outline"

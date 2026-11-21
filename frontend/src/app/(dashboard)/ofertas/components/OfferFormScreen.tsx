@@ -10,6 +10,7 @@ import { useTheme } from 'next-themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useToast } from '@/components/ui/Toast';
+import { AffiliatesButton } from '@/components/affiliates';
 import { CoproductionButton } from '@/components/coproduction';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
@@ -321,6 +322,11 @@ function FormBody({
           productId={id}
           draft={coproduction.participants}
           onDraftChange={coproduction.setParticipants}
+          disabled={save.isPending}
+        />
+        <AffiliatesButton
+          product="ofertas"
+          productId={id}
           disabled={save.isPending}
         />
       </div>

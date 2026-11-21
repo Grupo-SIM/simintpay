@@ -12,12 +12,14 @@ import {
 
 export function CoproductionDialogContent({
   description,
+  title = 'Co-produção',
   pending = false,
   onClose,
   children,
   ...props
 }: Omit<ComponentProps<typeof DialogContent>, 'title'> & {
   description: string;
+  title?: string;
   pending?: boolean;
   onClose: () => void;
 }) {
@@ -34,7 +36,7 @@ export function CoproductionDialogContent({
         </div>
         <div className="min-w-0 flex-1">
           <DialogTitle className="text-lg font-bold leading-6 tracking-tight">
-            Co-produção
+            {title}
           </DialogTitle>
           <DialogDescription className="mt-1 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
             {description}
@@ -45,7 +47,7 @@ export function CoproductionDialogContent({
           variant="outline"
           size="icon"
           className="shrink-0 rounded-full border-zinc-200 text-zinc-500 dark:border-white/10 bg-transparent hover:bg-zinc-100 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10"
-          aria-label="Fechar co-produção"
+          aria-label={`Fechar ${title.toLowerCase()}`}
           disabled={pending}
           onClick={onClose}
         >

@@ -1,5 +1,6 @@
 'use client';
 
+import { AffiliatesButton } from '@/components/affiliates';
 import { CoproductionButton } from '@/components/coproduction';
 
 import { Settings } from 'lucide-react';
@@ -61,6 +62,7 @@ export function PlatformManager({
     selected.coproducao?.role !== 'COPRODUCER' ? (
       <>
         <CoproductionButton product="plataformas" productId={selected.id} />
+        <AffiliatesButton product="plataformas" productId={selected.id} />
         <Button
           type="button"
           variant="outline"

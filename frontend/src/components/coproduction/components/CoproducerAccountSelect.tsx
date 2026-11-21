@@ -31,7 +31,13 @@ export function CoproducerAccountSelect({
   name,
   disabled,
   onChange,
+  endpoint = endpoints.coproduction.accounts,
+  label = 'Coprodutor',
+  queryScope = 'coproduction-accounts',
 }: {
+  endpoint?: string;
+  label?: string;
+  queryScope?: string;
   email: string;
   name?: string;
   disabled: boolean;
@@ -54,9 +60,9 @@ export function CoproducerAccountSelect({
     [],
   );
   const query = useQuery({
-    queryKey: ['coproduction-accounts', user?.id, search.trim(), page],
+    queryKey: [queryScope, user?.id, search.trim(), page],
     queryFn: ({ signal }) =>
-      api.get<Accounts>(endpoints.coproduction.accounts, {
+      api.get<Accounts>(endpoint, {
         query: { search: search.trim(), page },
         cache: 'no-store',
         signal,
@@ -67,7 +73,7 @@ export function CoproducerAccountSelect({
   });
   return (
     <CustomSelect
-      label="Coprodutor"
+      label={label}
       required
       search={{
         open,
