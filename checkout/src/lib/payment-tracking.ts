@@ -20,6 +20,14 @@ export function checkoutTracking(
     const value = query.get(key);
     if (value && value.length <= 500) tracking[key] = value;
   }
+  // `ref` is an alias; always forwarded as `aff` and never as a financial field.
+  const affiliate = query.get('aff') ?? query.get('ref');
+  if (
+    affiliate &&
+    affiliate.length <= 500 &&
+    /^[A-Za-z0-9_-]{3,40}$/.test(affiliate)
+  )
+    tracking.aff = affiliate;
   for (const key of ['fbc', 'fbp']) {
     if (tracking[key]) continue;
     const value = cookie
