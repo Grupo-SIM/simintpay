@@ -104,7 +104,9 @@ interativa. Esses dados privados não integram checkout nem callbacks da integra
 Produtos sem plataforma efetiva não herdam. Assinaturas existentes não são recalculadas.
 
 A herança vale só para a co-produção: afiliados (`docs/afiliados.md`) somam plataforma e oferta, não
-substituem. A soma afiliado efetivo + coprodutores não pode passar de 100% do líquido.
+substituem. A soma afiliado efetivo + coprodutores não pode passar de 100% do líquido, sobre a lista
+deduplicada: a mesma pessoa não recebe duas partes na venda (o nível mais específico vence; empate
+fica com o coprodutor). Ver "Deduplicação e exceções por oferta" em `docs/afiliados.md`.
 
 Vendas canônicas diretas usam acordo da plataforma; quando informam link, acordo
 próprio do link tem prioridade. Coprodutores recebem frações inteiras em centavos;

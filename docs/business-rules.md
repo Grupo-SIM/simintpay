@@ -352,7 +352,8 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
   vence para a mesma pessoa), ao contrário da coprodução, que substitui. Percentual: pessoa na oferta,
   global da oferta, pessoa na plataforma, global da plataforma.
 - Comissão = parte inteira inferior do líquido após taxas, paga pelo dono; afiliado + coprodutores
-  <= 100%. Dono ou comprador igual ao afiliado, código inválido ou removido: sem comissão e sem erro.
+  <= 100% sobre a lista deduplicada (a mesma pessoa nunca recebe duas partes na venda: vence o nível
+  mais específico, empate fica com o coprodutor). Dono ou comprador igual ao afiliado, código inválido ou removido: sem comissão e sem erro.
 - Renovação usa o snapshot da primeira venda; `commissionOnRenewals` (padrão: todas) desmarcado paga só
   a primeira compra. Estorno e chargeback revertem o valor original. Detalhes em [afiliados](afiliados.md).
 

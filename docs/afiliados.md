@@ -32,11 +32,12 @@ cadastro, `AffiliateCommission`) e da co-produção. Código e implementação: 
   nenhum nível, não há comissão.
 - Base: líquido após taxas, em centavos, parte inteira inferior (`floor`), mesma base da co-produção
   (no Delivery, os itens). Sai da parte do dono; coprodutores não mudam.
-- Soma: afiliado efetivo + coprodutores <= 10000 bps. Um código identifica uma pessoa, então o pior
-  caso é o maior percentual efetivo de qualquer pessoa listada mais os coprodutores daquela venda.
-  O PUT rejeita (400) o pior caso, inclusive contra as ofertas da plataforma (PUT da plataforma). A
-  captura revalida: se uma co-produção posterior estourar a soma, a nova venda é recusada (409) e a
-  renovação segue sem comissão.
+- Soma: afiliado efetivo + coprodutores <= 10000 bps, sobre a lista **já deduplicada** (ver abaixo).
+  Um código identifica uma pessoa, então o pior caso é o maior total, entre as pessoas listadas, de
+  esse afiliado mais os coprodutores da venda, contando a pessoa uma só vez. O PUT rejeita (400) o
+  pior caso, inclusive contra as ofertas da plataforma (PUT da plataforma). A captura revalida
+  sobre a lista deduplicada: se uma co-produção posterior estourar a soma, a nova venda é recusada
+  (409) e a renovação segue sem comissão.
 - Sem comissão, sem erro: código desconhecido, inválido ou de pessoa removida da lista; dono da
   plataforma/oferta igual ao afiliado; e-mail do comprador igual ao do afiliado.
 - Renovação: usa o snapshot da primeira venda, gravado em `BillingContract.metadata.affiliate`. Com
@@ -46,6 +47,39 @@ cadastro, `AffiliateCommission`) e da co-produção. Código e implementação: 
 - Oferta fora de qualquer plataforma ativa não aceita afiliados (PUT 400).
 - Ebook (`EBOOK_V1`): o acerto é por manifesto, com afiliados do próprio manifesto; os afiliados
   deste contrato **não** se aplicam a ele.
+
+## Deduplicação e exceções por oferta
+
+Afiliado é um coprodutor que só ganha nas vendas que trouxe: todos calculam sobre o **mesmo**
+líquido (coprodutor 5% + afiliado 5% de pessoas diferentes: cada um 5%, dono 90%).
+
+- **A mesma pessoa nunca recebe duas partes na mesma venda.** Se ela é coprodutora e afiliada da
+  venda, vale uma entrada: a mais específica vence (oferta sobre plataforma). Nível do coprodutor: da
+  oferta quando o acordo próprio (`OWN`) da oferta vale; da plataforma quando a oferta herda ou a
+  venda é da plataforma. Nível do afiliado: `level` do snapshot.
+- **Empate no mesmo nível: vale o coprodutor.** A entrada de afiliado é descartada: sem
+  `AffiliateAllocation`, sem `affiliate` no snapshot e sem `affiliate` no evento da API de vendas.
+- **Afiliado vence** (coprodutor herdado da plataforma, afiliado na oferta): o participante sai do
+  snapshot daquela venda e vale a comissão de afiliado.
+- **Auditoria:** o snapshot ganha `deduplication` (`discarded`: `coproducer` | `affiliate`,
+  `coproducerLevel`, `affiliateLevel`, `discardedPercentageBps`), sem e-mail. Quando o afiliado
+  vence, o mesmo bloco fica em `affiliate.deduplication` (e, portanto, em
+  `BillingContract.metadata.affiliate`).
+- Dono como afiliado continua sem comissão.
+- **Soma:** a regra de 100% vale sobre a lista deduplicada. No PUT usa-se o **pior caso**: para cada
+  pessoa listada, a venda em que ela é a afiliada, com a pessoa contada uma vez (vence a entrada que
+  valeria, de coprodutor ou de afiliado), comparada com a co-produção sozinha. Vale o maior total. A
+  captura aplica a mesma conta à venda real.
+- **Renovações** usam o snapshot original: quando o afiliado venceu, o participante coprodutor dessa
+  pessoa continua fora das renovações; quando perdeu, não há afiliado gravado no contrato e a
+  renovação paga só o coprodutor. `commissionOnRenewals` não muda.
+
+Exceção por oferta (inalterada, e diferente entre os dois módulos):
+
+- Co-produção: o acordo `OWN` da oferta **substitui** a lista da plataforma (inclusive vazia);
+  `INHERIT` herda. Não existe modo de união.
+- Afiliados: plataforma e oferta **somam**, e a mesma pessoa vale pelo percentual da oferta. O
+  percentual mínimo é 1 bps; 0 não exclui ninguém.
 
 ## Identificação na venda
 
