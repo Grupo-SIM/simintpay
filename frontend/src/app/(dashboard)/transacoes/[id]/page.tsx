@@ -30,6 +30,7 @@ import { ActionButton } from '../../relatorio/components/ActionButton';
 import { useTransacaoDetail } from '@/features/transacoes/hooks/use-transacao-detail';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { AffiliationDetailCard } from '@/components/affiliates/AffiliationDetailCard';
+import { ParticipationsDetailCard } from '@/components/transactions/ParticipationsDetailCard';
 import { isAffiliateOnly } from '@/features/affiliates/affiliation';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
@@ -324,6 +325,7 @@ export default function TransacaoDetailPage() {
         </div>
       </div>
 
+      {data?.coproducao && <ParticipationsDetailCard detail={data} />}
       {data?.afiliacao && <AffiliationDetailCard afiliacao={data.afiliacao} />}
 
       {/* Grid for details cards */}
