@@ -15,8 +15,15 @@ import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guar
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { AffiliateService } from './affiliate.service';
 
-/** Affiliates of a platform or offer. Session only: integration tokens never configure them. */
-@Controller('afiliados')
+/**
+ * Affiliates of a platform or offer. Session only: integration tokens never configure them.
+ *
+ * `comissoes` is the canonical prefix: ad blockers (EasyList and similar) block request paths
+ * containing "afiliado"/"affiliate" (`net::ERR_BLOCKED_BY_CLIENT`).
+ * @deprecated `afiliados` is kept only as an alias (same controller, same guards) so a backend
+ * deployed before the frontend keeps serving old clients; remove it once no client uses it.
+ */
+@Controller(['comissoes', 'afiliados'])
 @UseGuards(JwtAuthGuard, CoproductionSessionGuard)
 export class AffiliateController {
   constructor(private readonly service: AffiliateService) {}
