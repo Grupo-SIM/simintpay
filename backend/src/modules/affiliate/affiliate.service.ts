@@ -352,7 +352,7 @@ export class AffiliateService {
         ${end ? Prisma.sql`AND t."createdAt" < ${end}` : Prisma.empty}
         ${tag ? Prisma.sql`AND t."platformTag" = ${tag}` : Prisma.empty}
         ${paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${paymentMethod}` : Prisma.empty}`;
-        const [totals, rows] = await Promise.all([
+        const [totals, rows, any] = await Promise.all([
           tx.$queryRaw<
             {
               count: bigint;
@@ -380,6 +380,10 @@ export class AffiliateService {
             LEFT JOIN "Platform" pl ON pl.tag = t."platformTag"
             WHERE ${predicate}
             ORDER BY a."createdAt" DESC, a."transactionId" ASC LIMIT 10 OFFSET ${offset}`),
+          // Unfiltered: the report keeps the affiliate section when the filters match nothing.
+          tx.$queryRaw<
+            { found: boolean }[]
+          >`SELECT EXISTS (SELECT 1 FROM "AffiliateAllocation" WHERE "userId" = ${actorId}) AS found`,
         ]);
         const cents = (amount: Prisma.Decimal) =>
           new Prisma.Decimal(amount).mul(100).toNumber();
@@ -394,6 +398,7 @@ export class AffiliateService {
             reversedCents: cents(totals[0].reversed),
           },
           total: Number(totals[0].count),
+          hasAffiliation: Boolean(any[0]?.found),
           page,
           pageSize: 10,
         };
