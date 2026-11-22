@@ -189,6 +189,36 @@ export function Sidebar() {
     };
   }, [user, pathname]);
 
+  // Bolinha no item "Saques" (admin): saques PENDENTES aguardando aprovação.
+  const [saquesPendentes, setSaquesPendentes] = useState(0);
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    let ativo = true;
+    const buscar = () => {
+      const api = createApiClient({
+        baseUrl: getDefaultApiBaseUrl(),
+        getToken: () => localStorage.getItem('access_token'),
+      });
+      api
+        .get<{ total?: number; data?: unknown[] }>(
+          endpoints.admin.saques.list,
+          {
+            query: { page: 1, pageSize: 1, status: 'PENDING' },
+          },
+        )
+        .then((res) => {
+          if (ativo) setSaquesPendentes(res.total ?? res.data?.length ?? 0);
+        })
+        .catch(() => {});
+    };
+    buscar();
+    const t = setInterval(buscar, 60_000);
+    return () => {
+      ativo = false;
+      clearInterval(t);
+    };
+  }, [user, pathname]);
+
   const labelStyle: CSSProperties = {
     opacity: open ? 1 : 0,
     maxWidth: open ? 160 : 0,
@@ -454,7 +484,9 @@ export function Sidebar() {
                 badge={
                   item.href === '/admin/contas'
                     ? solicitacoesPendentes
-                    : undefined
+                    : item.href === '/admin/saques'
+                      ? saquesPendentes
+                      : undefined
                 }
               />
             ))}
