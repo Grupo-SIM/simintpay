@@ -138,3 +138,22 @@ export function isDeliveryAllocationSnapshot(snapshot: unknown): boolean {
     snapshot.contract === 'SIM_DELIVERY_ALLOCATION_V1'
   );
 }
+
+/**
+ * Unified fee-mode snapshot (`quoteFinancialCharge` with a platform fee mode): the realized acquirer cost is booked
+ * all-in in `acquirerFee`, the seller net is persisted and no legacy fixed/service fee applies.
+ */
+export function isFeeModeSnapshot(snapshot: unknown): boolean {
+  return (
+    !!snapshot &&
+    typeof snapshot === 'object' &&
+    !Array.isArray(snapshot) &&
+    'platformFeeMode' in snapshot &&
+    typeof snapshot.platformFeeMode === 'string' &&
+    'sellerFeeCents' in snapshot
+  );
+}
+
+/** Report exclusions shared by the legacy Delivery allocation and the unified fee-mode snapshots. */
+export const isAllInFeeSnapshot = (snapshot: unknown) =>
+  isDeliveryAllocationSnapshot(snapshot) || isFeeModeSnapshot(snapshot);

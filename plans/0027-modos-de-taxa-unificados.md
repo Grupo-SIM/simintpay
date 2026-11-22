@@ -19,7 +19,7 @@ Parte A do plano aprovado (SimIntPay). A Parte B (Sim Delivery) é feita no repo
 
 - [x] A1. Motor de cotação (`financial-charge.ts`): `applyFeeMode`, aditivas no comprador, itens explícitos,
       snapshot com `additiveFeeCents`/`sellerFeeCents`/`acquirerCostBorneBySimCents`, inversão POS.
-- [ ] A2. Consumidores: `simulateFinancialPolicy`, `evaluateCoverage`, caminho padrão de pagamentos
+- [x] A2. Consumidores: `simulateFinancialPolicy`, `evaluateCoverage`, caminho padrão de pagamentos
       (coprodução, idempotência, custo da adquirente), relatórios.
 - [ ] A3. Endpoint de cotação `POST /platforms/:tag/merchants/:companyId/payments/quote`,
       `expectedTotalCents` (409 `QUOTE_CHANGED`), `allocation` depreciado e opcional para o Delivery, SDK.

@@ -4,7 +4,7 @@ import {
   coproductionOwnerNet,
   snapshotFrom,
 } from '../coproduction/coproduction';
-import { isDeliveryAllocationSnapshot } from '../integrations/delivery-payment-allocation';
+import { isAllInFeeSnapshot } from '../integrations/delivery-payment-allocation';
 import {
   transactionPlatformTag,
   whereTransactionPlatform,
@@ -537,7 +537,7 @@ export class PlatformAdministrationService {
     const data = items.map((t) => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
-      const isDelivery = isDeliveryAllocationSnapshot(t.financialSnapshot);
+      const isDelivery = isAllInFeeSnapshot(t.financialSnapshot);
       const isMaquineta = isMaquinetaDescription(t.description);
       // Delivery pela DOM: o custo DOM inteiro (MDR, fixa e cashback) já está em `acquirerFee`, pago pela taxa do
       // comprador. Em outra adquirente o cashback é custo avulso da SimIntPay, como em qualquer plataforma.
@@ -858,7 +858,7 @@ export class PlatformAdministrationService {
       // transação. Ela alimenta tanto o card de taxas quanto o repasse, para
       // manter a identidade: repasse = faturamento − taxas Sim Int Pay.
       const taxaServicoSimIntDaTransacao = (t: (typeof normalTxs)[number]) =>
-        isDeliveryAllocationSnapshot(t.financialSnapshot) ||
+        isAllInFeeSnapshot(t.financialSnapshot) ||
         t.isStandalone ||
         TAXA_SERVICO_RATE <= 0 ||
         t.createdAt == null ||
@@ -875,7 +875,7 @@ export class PlatformAdministrationService {
                 t.financialSnapshot,
                 new Prisma.Decimal(Number(t.netAmount ?? 0)),
               ).toNumber()
-            : isDeliveryAllocationSnapshot(t.financialSnapshot)
+            : isAllInFeeSnapshot(t.financialSnapshot)
               ? Number(t.netAmount ?? 0)
               : Number(t.amount) -
                 taxaSimIntDaTransacao(t) -
@@ -907,8 +907,7 @@ export class PlatformAdministrationService {
         (sum, tx) =>
           sum +
           (tx.isStandalone ||
-          (isDeliveryAllocationSnapshot(tx.financialSnapshot) &&
-            tx.acquirer === 'DOM')
+          (isAllInFeeSnapshot(tx.financialSnapshot) && tx.acquirer === 'DOM')
             ? 0
             : TAXA_CASHBACK),
         0,
@@ -924,8 +923,7 @@ export class PlatformAdministrationService {
       );
       const taxaDomFixaNormal = normalTxs.reduce(
         (sum, tx) =>
-          sum +
-          (isDeliveryAllocationSnapshot(tx.financialSnapshot) ? 0 : TAXA_FIXA),
+          sum + (isAllInFeeSnapshot(tx.financialSnapshot) ? 0 : TAXA_FIXA),
         0,
       );
       const totalTaxasSimIntNormal = taxaSimInt + taxaSimIntFixa;

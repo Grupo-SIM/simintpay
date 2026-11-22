@@ -95,3 +95,56 @@ test('historical rows retain their previous report rules beside new Delivery all
   expect(details.data[0].valorLiquido).toBe(100);
   expect(details.data[1].valorLiquido).toBeLessThan(100);
 });
+
+test('unified fee-mode sales follow the same report exclusions as Delivery allocations', async () => {
+  const createdAt = new Date('2026-10-21T12:00:00Z');
+  const row = {
+    id: 'fee-mode',
+    userId: 'seller',
+    acquirer: 'DOM',
+    amount: 105.2,
+    netAmount: 100,
+    totalFee: 5.2,
+    platformFee: 5.2,
+    acquirerFee: 0,
+    status: 'COMPLETED',
+    description: '[TENANT:ZERO-GRAU]',
+    paymentMethod: 'PIX',
+    installments: 1,
+    createdAt,
+    financialSnapshot: {
+      platformFeeMode: 'ADDITIVE_ONLY',
+      originalCents: 10000,
+      buyerTotalCents: 10520,
+      netCents: 10000,
+      additiveFeeCents: 520,
+      sellerFeeCents: 0,
+      acquirerCostBorneBySimCents: 0,
+    },
+  };
+  const service = new PlatformAdministrationService(
+    {
+      platform: {
+        findUnique: async () => ({
+          id: 'p',
+          tag: 'ZERO-GRAU',
+          ownerUserId: 'owner',
+        }),
+      },
+      transaction: { count: async () => 1, findMany: async () => [row] },
+    } as never,
+    {} as any,
+  );
+  expect(
+    (await service.listPlataformaTransacoes('ZERO-GRAU')).data[0],
+  ).toMatchObject({
+    valorBruto: 105.2,
+    valorLiquido: 100,
+    taxaFixa: 0,
+    taxaCashback: 0,
+    taxaServico: 0,
+  });
+  expect(
+    await service.getPlataformaConsolidado('ZERO-GRAU', '2026-10-01'),
+  ).toMatchObject({ totalRepasse: 100, taxaDomFixa: 0, taxaDomCashback: 0 });
+});
