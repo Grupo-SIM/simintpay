@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { FinancialNumberField } from './FinancialNumberField';
-import { CollapsibleSection } from './CollapsibleSection';
 import { FormSwitch } from '@/components/ui/FormSwitch';
 
 type Settings = {
@@ -93,9 +92,9 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
       ? (globalValues.CASHBACK_DOM_ATIVO ?? 1) !== 0
       : selected === 'on';
   return (
-    <CollapsibleSection title="Cashback DOM">
+    <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">Cashback ativo</span>
+        <span className="text-sm font-medium">Cashback DOM</span>
         <div className="flex items-center gap-3">
           {!global && selected !== 'inherit' && (
             <button
@@ -106,16 +105,28 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
               Herdar do global
             </button>
           )}
+          {!global && selected === 'inherit' && (
+            <span className="text-xs opacity-70">Herdado do global</span>
+          )}
           <FormSwitch
-            aria-label="Cashback ativo"
+            aria-label="Cashback DOM"
             checked={enabled}
             onChange={(on) => setChoice(on ? 'on' : 'off')}
           />
+          <button
+            type="button"
+            className="cursor-pointer rounded border px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={
+              (choice === null && cost === null && grant === null) ||
+              invalid ||
+              save.isPending
+            }
+            onClick={() => save.mutate()}
+          >
+            Salvar
+          </button>
         </div>
       </div>
-      {!global && selected === 'inherit' && (
-        <p className="mt-1 text-xs opacity-70">Herdado do global</p>
-      )}
       {global && enabled && (
         <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
           <FinancialNumberField
@@ -134,18 +145,6 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
           />
         </div>
       )}
-      <button
-        type="button"
-        className="mt-4 cursor-pointer rounded border px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={
-          (choice === null && cost === null && grant === null) ||
-          invalid ||
-          save.isPending
-        }
-        onClick={() => save.mutate()}
-      >
-        Salvar
-      </button>
-    </CollapsibleSection>
+    </div>
   );
 }
