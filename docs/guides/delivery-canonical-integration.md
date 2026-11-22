@@ -84,14 +84,24 @@ merchants:manage e sync:run. Plataforma, perfil e titular precisam estar ativos.
 | GET /finance/withdrawals/:id          | inclui bruto, líquido em amountCents, taxa, status e referência                                                                    |
 | POST /finance/reconciliation/payments | `{ paymentIds, dryRun: true }`; conflitos sem transferência financeira                                                             |
 
+Cotação (`POST /platforms/:tag/merchants/:companyId/payments/quote`, mesmo escopo da
+cobrança, nada é gravado): corpo `{ amountCents, paymentMethod, installments?, items?,
+itemsAmountCents?, deliveryAmountCents? }`; resposta `{ feeMode, baseAmountCents,
+additiveFeeCents, buyerInterestCents, totalAmountCents, sellerFeeCents, netAmountCents,
+installments, additiveRevision }`. `amountCents` é a base do vendedor (itens com
+descontos + frete); `items` (`key`, `quantity`, `unitPriceCents`) habilitam aditivas por produto.
+
 Exemplo PIX:
 
 ```json
 {
-  "amountCents": 10537,
+  "amountCents": 11000,
   "paymentMethod": "PIX",
   "idempotencyKey": "attempt-id",
-  "allocation": { "merchantAmountCents": 10000, "platformFeeCents": 537 },
+  "items": [{ "key": "pizza", "quantity": 2, "unitPriceCents": 5000 }],
+  "itemsAmountCents": 10000,
+  "deliveryAmountCents": 1000,
+  "expectedTotalCents": 11520,
   "description": "Pedido [Unidade - Centro]",
   "customer": {
     "name": "Maria Silva",
@@ -104,11 +114,13 @@ Exemplo PIX:
 
 Cartão acrescenta `card: { token, holderName, bin, brand, installments }`. PAN/CVV
 só transitam na tokenização; não persistir nem registrar. BIN nunca deriva do token.
-Resposta pagamento: transactionId, paymentId, status, amountCents, netAmountCents,
-pixContent, qrCode, pixExpire. Todos valores monetários são centavos inteiros.
-Divisão Delivery exige total igual soma das parcelas e congela snapshot
-SIM_DELIVERY_ALLOCATION_V1. Não acrescenta juros/taxas nem desconta custos do lojista.
-API genérica não permite esse override por corpo sem credencial autorizada.
+Resposta pagamento: transactionId, paymentId, status, amountCents e totalAmountCents
+(total cobrado do comprador), netAmountCents (líquido do vendedor), pixContent, qrCode,
+pixExpire. Todos valores monetários são centavos inteiros. A SimIntPay cota e cobra
+base + juros repassados + aditivas conforme o modo de taxa; `expectedTotalCents`
+diferente do total atual retorna 409 `QUOTE_CHANGED` com o `expectedTotalCents` atual:
+recotar e confirmar com o comprador. `allocation` (snapshot SIM_DELIVERY_ALLOCATION_V1)
+está depreciado: ainda aceito durante a migração, será removido.
 
 Persistir tentativa antes do envio. Timeout não autoriza nova cobrança: consultar
 payment-attempts com mesma chave. PAYMENT_PROCESSING/IDEMPOTENCY_CONFLICT não são
@@ -147,8 +159,8 @@ empresa preserva o namespace original; múltiplos candidatos exigem revisão.
 
 ## Coprodução configurada na SimIntPay
 
-Cobranças novas detalham `allocation.itemsAmountCents` e `deliveryAmountCents`;
-soma igual a `merchantAmountCents`. Itens já descontam cupom, cashback e pontos;
+Cobranças novas detalham `itemsAmountCents` e `deliveryAmountCents` (no corpo, ou em
+`allocation` no contrato depreciado); soma igual a `amountCents`. Itens já descontam cupom, cashback e pontos;
 frete não participa dos percentuais. Payload continua sem participantes/percentuais.
 SimIntPay divide exclusivamente base de itens, credita restante e frete integral à
 empresa, preservando taxa da plataforma e total pago. Configuração e recebimentos

@@ -115,14 +115,14 @@ constar no padrão herdado, sua parcela integra residual, sem crédito duplicado
 
 ### Base dos itens no Delivery
 
-Delivery envia `allocation.itemsAmountCents` (itens após cupom/cashback/pontos) e
-`allocation.deliveryAmountCents` (frete). Ambos não negativos; soma corresponde a
-`merchantAmountCents`. São apenas valores comerciais, nunca configuração de repasse.
+Delivery envia `itemsAmountCents` (itens após cupom/cashback/pontos) e
+`deliveryAmountCents` (frete), no corpo da cobrança (ou em `allocation`, depreciado).
+Ambos não negativos; soma corresponde a `amountCents` (base do vendedor). São apenas valores comerciais, nunca configuração de repasse.
 Com acordo ativo, detalhamento é obrigatório antes de chamar adquirente. Ausência
 retorna `COPRODUCTION_BASE_REQUIRED`; inconsistência, `COPRODUCTION_BASE_INVALID`.
 
-Itens líquidos R$ 100 + frete R$ 10 + taxa R$ 5,37: comprador paga R$ 115,37;
-coprodutor a 5% recebe R$ 5; empresa recebe R$ 105; taxa permanece R$ 5,37.
+Itens líquidos R$ 100 + frete R$ 10 + aditiva R$ 5,37 (`ADDITIVE_ONLY`): comprador
+paga R$ 115,37; coprodutor a 5% recebe R$ 5; empresa recebe R$ 105; aditiva é da SimIntPay.
 Nos cinco produtos existentes, base permanece líquido após taxas. Snapshot registra
 base elegível, origem/versão e beneficiários antes da cobrança; alterações posteriores
 não afetam repetição, renovação, mediação ou reversão. `netAmount` continua líquido

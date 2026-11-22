@@ -24,7 +24,7 @@ Parte A do plano aprovado (SimIntPay). A Parte B (Sim Delivery) é feita no repo
 - [x] A3. Endpoint de cotação `POST /platforms/:tag/merchants/:companyId/payments/quote`,
       `expectedTotalCents` (409 `QUOTE_CHANGED`), `allocation` depreciado e opcional para o Delivery, SDK.
 - [x] A4. Frontend: simulação e taxa alvo desabilitada no `ADDITIVE_ONLY`.
-- [ ] A5. Docs e testes.
+- [x] A5. Docs e testes.
 
 ## Pendências
 
