@@ -12,6 +12,7 @@ import {
   type PurchasedItem,
 } from './offer-delivery';
 import { recordVoucherUsageOnce } from '../../application/use-cases/voucher/voucher-offer';
+import type { Charge, Offer, Transaction } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { StorageService } from '../../infrastructure/storage/storage.service';
@@ -26,8 +27,32 @@ import {
   type OfferSalesEventOutbox,
 } from './offer-sales-event-outbox';
 import { subscriptionActivatedPayload } from './offer-subscription-event';
+import {
+  offerWebhookUrl,
+  purchaseWebhookBody,
+  subscriptionExpiredWebhookBody,
+  subscriptionWebhookBody,
+  type LegacyWebhookEvent,
+} from './offer-legacy-webhook';
+import { OfferLegacyWebhookSender } from './offer-legacy-webhook.sender';
 
-export type DeliveryStep = 'email' | 'subscriptionActivated';
+export type DeliveryStep =
+  | 'email'
+  | 'subscriptionActivated'
+  | 'webhookApproved'
+  | 'webhookRefunded'
+  | 'webhookActivated'
+  | 'webhookRenewed'
+  | 'webhookExpired';
+
+/** Marker step of each legacy link webhook event. */
+export const WEBHOOK_STEPS: Record<LegacyWebhookEvent, DeliveryStep> = {
+  purchase_approved: 'webhookApproved',
+  purchase_refunded: 'webhookRefunded',
+  subscription_activated: 'webhookActivated',
+  subscription_renewed: 'webhookRenewed',
+  subscription_expired: 'webhookExpired',
+};
 
 /** Marcador de entrega por Charge (`Charge.snapshot.fulfillment.<step>`). */
 export interface FulfillmentMarkers {
@@ -61,7 +86,8 @@ export class PrismaFulfillmentMarkers implements FulfillmentMarkers {
 }
 
 /** Tempo para o commit de quem liquidou aparecer; depois disso desiste e registra. */
-const RETRY_DELAYS_MS = [250, 1_000, 4_000, 15_000];
+// Os últimos intervalos cobrem um receptor de webhook fora do ar por alguns minutos.
+const RETRY_DELAYS_MS = [250, 1_000, 4_000, 15_000, 60_000, 300_000];
 
 export type DeliveryOutcome = 'done' | 'retry' | 'skipped';
 
@@ -83,6 +109,7 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(OFFER_SALES_EVENT_OUTBOX)
     private readonly outbox?: OfferSalesEventOutbox,
+    @Optional() private readonly webhooks?: OfferLegacyWebhookSender,
   ) {}
 
   onModuleInit() {
@@ -104,7 +131,7 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
             this.schedule(event, attempt + 1);
           else if (outcome === 'retry')
             this.logger.warn(
-              `[OfferFulfillment] Charge da tx ${event.transactionId} não ficou visível; entrega descartada`,
+              `[OfferFulfillment] Entrega da tx ${event.transactionId} ainda pendente após as tentativas; descartada`,
             );
         })
         .catch((err: unknown) =>
@@ -180,18 +207,17 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
     // contrato suspenso (offer-renewal). Renovação de ciclo não reemite. Idempotente por
     // contrato e ativação: marcador na Charge mais o `eventId` do outbox. A liquidação do
     // líquido (netAmount) pode aparecer um instante depois; sem ele o passo tenta de novo.
-    if (
-      !refunded &&
-      this.outbox &&
-      charge.contractId &&
-      offer.renewalMode !== 'NONE'
-    ) {
+    let activated = false;
+    const recurring =
+      !refunded && Boolean(charge.contractId) && offer.renewalMode !== 'NONE';
+    if (recurring) {
       const first = await this.prisma.charge.findFirst({
-        where: { contractId: charge.contractId, status: 'PAID' },
+        where: { contractId: charge.contractId!, status: 'PAID' },
         orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true },
       });
-      if (first?.id === charge.id || isReactivationCharge(charge)) {
+      activated = first?.id === charge.id || isReactivationCharge(charge);
+      if (activated && this.outbox) {
         if (tx.netAmount === null) return 'retry';
         await this.once(charge.id, 'subscriptionActivated', () =>
           this.outbox!.enqueue({
@@ -205,7 +231,109 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    return 'done';
+    return (await this.notifyOfferWebhook({
+      offer,
+      charge,
+      tx,
+      delivery,
+      refunded,
+      recurring,
+      activated,
+    }))
+      ? 'done'
+      : 'retry';
+  }
+
+  /**
+   * Webhook do link (`Offer.metadata.webhookUrl`), no mesmo corpo do link legado. Um passo por
+   * Charge e evento (marcador + retentativa). Devolve false para tentar de novo.
+   */
+  private async notifyOfferWebhook(input: {
+    offer: Offer;
+    charge: Charge;
+    tx: Transaction;
+    delivery: LinkDelivery;
+    refunded: boolean;
+    recurring: boolean;
+    activated: boolean;
+  }): Promise<boolean> {
+    const { offer, charge, tx, delivery, refunded } = input;
+    if (!this.webhooks || !offerWebhookUrl(offer)) return true;
+    const oneOff = offer.renewalMode === 'NONE';
+    let event: LegacyWebhookEvent;
+    if (refunded) {
+      if (!oneOff) return true;
+      event = 'purchase_refunded';
+    } else if (oneOff) event = 'purchase_approved';
+    else if (input.recurring)
+      event = input.activated
+        ? 'subscription_activated'
+        : 'subscription_renewed';
+    else return true;
+
+    const body =
+      event === 'purchase_approved' || event === 'purchase_refunded'
+        ? purchaseWebhookBody({
+            event,
+            offer,
+            charge,
+            tx,
+            // O pedido principal mantém o nome da oferta; só upsell/downsell traz o título dele.
+            planName: delivery.kind === 'OFFER' ? delivery.title : offer.name,
+            items: delivery.items,
+          })
+        : subscriptionWebhookBody({ event, offer, charge, tx });
+    // Ciclo sem líquido liquidado ainda: espera (o líquido aparece logo depois da liquidação).
+    if (event !== 'purchase_approved' && event !== 'purchase_refunded')
+      if (tx.netAmount === null) return false;
+
+    let failed = false;
+    await this.once(charge.id, WEBHOOK_STEPS[event], async () => {
+      const ok = await this.webhooks!.send(offer, event, body);
+      if (!ok) failed = true;
+      return ok;
+    });
+    return !failed;
+  }
+
+  /**
+   * `subscription_expired`: contrato cancelado, suspenso ou encerrado. Marcador no último ciclo
+   * pago (uma reativação paga abre um novo ciclo e permite avisar de novo).
+   */
+  async notifyContractExpired(contractId: string): Promise<boolean> {
+    if (!this.webhooks) return true;
+    const contract = await this.prisma.billingContract.findUnique({
+      where: { id: contractId },
+      include: { offer: true },
+    });
+    if (!contract?.offer || !offerWebhookUrl(contract.offer)) return true;
+    const last = await this.prisma.charge.findFirst({
+      where: { contractId, status: 'PAID' },
+      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    });
+    if (!last) return true;
+    const tx = last.transactionId
+      ? await this.prisma.transaction.findUnique({
+          where: { id: last.transactionId },
+          select: { paymentMethod: true },
+        })
+      : null;
+    const body = subscriptionExpiredWebhookBody({
+      offer: contract.offer,
+      contract,
+      paymentMethod: tx?.paymentMethod,
+    });
+    let failed = false;
+    await this.once(last.id, WEBHOOK_STEPS.subscription_expired, async () => {
+      const ok = await this.webhooks!.send(
+        contract.offer!,
+        'subscription_expired',
+        body,
+      );
+      if (!ok) failed = true;
+      return ok;
+    });
+    return !failed;
   }
 
   private async recordVoucherUse(

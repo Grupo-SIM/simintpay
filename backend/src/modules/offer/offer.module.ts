@@ -12,6 +12,8 @@ import {
   OFFER_SALES_EVENT_OUTBOX,
   PrismaOfferSalesEventOutbox,
 } from './offer-sales-event-outbox';
+import { OfferLegacyWebhookCron } from './offer-legacy-webhook.cron';
+import { OfferLegacyWebhookSender } from './offer-legacy-webhook.sender';
 import { OfferCheckoutService } from './offer-checkout.service';
 import { OfferRenewalService } from './offer-renewal.service';
 import { OfferSubscribeService } from './offer-subscribe.service';
@@ -50,7 +52,9 @@ import { OfferSubscribersService } from './offer-subscribers.service';
       provide: OFFER_SALES_EVENT_OUTBOX,
       useClass: PrismaOfferSalesEventOutbox,
     },
+    OfferLegacyWebhookSender,
     OfferFulfillmentService,
+    OfferLegacyWebhookCron,
     OfferSubscribeService,
     OfferRenewalService,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
