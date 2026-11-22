@@ -511,7 +511,12 @@ export class PlatformPaymentsService {
     const financialFields = {
       amount: chargeAmount,
       netAmount: new Prisma.Decimal(financialQuote.netAmount),
-      totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount),
+      // Delivery: totalFee = additive surcharge (platformFee) + acquirer cost.
+      totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount).plus(
+        deliveryQuote && realizedCostCents !== undefined
+          ? realizedCostCents / 100
+          : 0,
+      ),
       acquirerFee: new Prisma.Decimal(
         deliveryQuote && realizedCostCents !== undefined
           ? realizedCostCents / 100
@@ -563,7 +568,12 @@ export class PlatformPaymentsService {
     if (coproduction && coproduction.baseCents === undefined)
       coproduction.baseCents = financialFields.netAmount.mul(100).toNumber();
     const finalSnapshot = withCoproduction(
-      financialQuote.financialSnapshot ??
+      (deliveryQuote && costSnapshot
+        ? {
+            ...financialQuote.financialSnapshot,
+            acquirerCost: costSnapshot,
+          }
+        : financialQuote.financialSnapshot) ??
         (costSnapshot
           ? { acquirerCost: costSnapshot, originalCents: input.amountCents }
           : coproduction

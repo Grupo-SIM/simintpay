@@ -326,7 +326,8 @@ export class LegacyPlatformPaymentCore {
         amount: price,
         status: TransactionStatus.DRAFT,
         netAmount: amountWithoutAllFee,
-        totalFee: totalFees,
+        // Delivery: totalFee = additive surcharge (platformFee) + acquirer cost.
+        totalFee: totalFees + (cost?.acquirerFee ?? 0),
         acquirerFee: cost?.acquirerFee ?? domFee,
         platformFee: platformFeeCalc,
         paymentMethod: PaymentMethod.PIX,
@@ -513,7 +514,8 @@ export class LegacyPlatformPaymentCore {
         amount: price,
         status: TransactionStatus.DRAFT,
         netAmount: amountWithoutAllFee,
-        totalFee: totalFeesFinal,
+        // Delivery: totalFee = additive surcharge (platformFee) + acquirer cost.
+        totalFee: totalFeesFinal + (cost?.acquirerFee ?? 0),
         acquirerFee: cost?.acquirerFee ?? domFee,
         platformFee: platformFeeCC,
         paymentMethod: PaymentMethod.CREDIT_CARD,
