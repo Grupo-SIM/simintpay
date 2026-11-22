@@ -68,7 +68,6 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { ExternalPlatformDbService } from '../../modules/external-platform-db/external-platform-db.service';
-import type { ExternalPlatformSlug } from '../../modules/external-platform-db/external-platform-db.types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -1661,37 +1660,6 @@ export class AdminController {
         cadastro: item.createdAt.toISOString().split('T')[0],
       };
     });
-  }
-
-  /**
-   * Usuários lidos DIRETO do banco de cada SaaS externo (Atlas, EbookSim,
-   * Revalida, Patrimonial, Pagatg, Areaflix) — não vêm do ExternalPlatformUser
-   * do simpay. Separa vendedor/operador de usuário comum conforme a regra de
-   * cada plataforma (ver ExternalPlatformDbService). Somente leitura.
-   */
-  @Get('plataformas-externas/usuarios')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @ApiOperation({
-    summary:
-      'Lista usuários de cada plataforma externa, separados em vendedores/usuários comuns',
-  })
-  async listExternalPlatformDbUsers() {
-    const data = await this.externalPlatformDb.listAll();
-    return { data };
-  }
-
-  @Get('plataformas-externas/:slug/usuarios')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @ApiOperation({
-    summary: 'Lista usuários de uma plataforma externa específica',
-  })
-  async listExternalPlatformDbUsersBySlug(
-    @Param('slug') slug: ExternalPlatformSlug,
-  ) {
-    const data = await this.externalPlatformDb.listUsers(slug);
-    return { data };
   }
 
   private externalPeopleCache?: {

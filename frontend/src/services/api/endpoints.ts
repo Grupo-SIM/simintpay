@@ -157,9 +157,6 @@ export const endpoints = {
       marcarEmpresa: (userId: string) =>
         `/admin/usuarios/${userId}/marcar-empresa`,
     },
-    plataformasExternasDb: {
-      listAll: '/admin/plataformas-externas/usuarios',
-    },
     afiliados: {
       list: '/admin/afiliados',
       search: '/admin/afiliados/buscar',

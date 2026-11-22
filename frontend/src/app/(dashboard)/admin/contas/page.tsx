@@ -2,15 +2,14 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { UserPlus, UsersRound, Handshake, Info, Layers } from 'lucide-react';
+import { UserPlus, UsersRound, Handshake, Info } from 'lucide-react';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { cn } from '@/lib/utils';
 import { CreateAccountDialog } from './components';
 import UsuariosTab from './_components/UsuariosTab';
 import AfiliadosTab from './_components/AfiliadosTab';
-import PlataformasExternasTab from './_components/PlataformasExternasTab';
 
-type TabKey = 'usuarios' | 'afiliados' | 'plataformas';
+type TabKey = 'usuarios' | 'afiliados';
 
 const TABS: {
   key: TabKey;
@@ -33,14 +32,6 @@ const TABS: {
     masterOnly: true,
     description:
       'Acompanhe os afiliados que já geraram comissão nas plataformas: quanto cada um ganhou e quem comprou ou se cadastrou pelo link dele.',
-  },
-  {
-    key: 'plataformas',
-    label: 'Plataformas',
-    icon: Layers,
-    masterOnly: true,
-    description:
-      'Usuários lidos direto do banco de cada SaaS externo (Atlas, EbookSim, Revalida, Patrimonial, PagaTG, Areaflix), separados em vendedores/operadores e usuários comuns.',
   },
 ];
 
@@ -133,7 +124,6 @@ function ContasContent() {
 
       {tab === 'usuarios' && <UsuariosTab refreshKey={refreshKey} />}
       {tab === 'afiliados' && <AfiliadosTab />}
-      {tab === 'plataformas' && <PlataformasExternasTab />}
       {createOpen && (
         <CreateAccountDialog
           onClose={() => setCreateOpen(false)}
