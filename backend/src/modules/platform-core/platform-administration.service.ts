@@ -564,7 +564,7 @@ export class PlatformAdministrationService {
           ? (physicalDom?.fixa ?? Number(taxaServicoFixa.toFixed(2)))
           : 0;
       const taxaCashback =
-        isCompleted && !isMaquineta && !isDelivery
+        isCompleted && !isMaquineta
           ? Number(taxaServicoCashback.toFixed(2))
           : 0;
       // Snapshot imutável salvo quando a venda foi criada. Recalcular com a
@@ -599,7 +599,7 @@ export class PlatformAdministrationService {
           ))
         : 0;
 
-      const cashbackDeduction = isMaquineta || isDelivery ? 0 : cashbackFee;
+      const cashbackDeduction = isMaquineta ? 0 : cashbackFee;
       const fallbackNet = Number(
         (valorBruto * liquidityFactor - fixedFee - cashbackDeduction).toFixed(
           2,
@@ -901,13 +901,7 @@ export class PlatformAdministrationService {
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
       const custoCashback = normalTxs.reduce(
-        (sum, tx) =>
-          sum +
-          (tx.isStandalone ||
-          (isDeliveryAllocationSnapshot(tx.financialSnapshot) &&
-            tx.acquirer === 'DOM')
-            ? 0
-            : TAXA_CASHBACK),
+        (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_CASHBACK),
         0,
       );
       // `platformFee` é a taxa percentual Sim Int Pay persistida na venda.
