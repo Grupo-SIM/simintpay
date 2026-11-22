@@ -133,7 +133,7 @@ export async function readDeliveryFees(
   );
   const policy = await loadFinancialPolicy(tx, tag);
   const lanes = policyLanes(policy.document);
-  const costs = (await acquirerCostFloor(tx)).sort(compareLanes);
+  const costs = (await acquirerCostFloor(tx, tag)).sort(compareLanes);
   const disabledLanes = [...disabledPaymentLanes].sort();
   const additiveFees = await readAdditiveFees(tx, id);
   const coverage = evaluateCoverage({

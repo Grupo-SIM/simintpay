@@ -116,8 +116,14 @@ export function orderByCost(
   );
 }
 
-/** Acquirer costs are global: the most expensive active acquirer per lane is the floor for every merchant. */
-export async function acquirerCostFloor(prisma: Client): Promise<CostFloor[]> {
+/**
+ * Acquirer costs are global: the most expensive active acquirer per lane is the floor for every merchant.
+ * DOM cashback is a separate, switchable cost, so it only counts when active for `cashbackTag`.
+ */
+export async function acquirerCostFloor(
+  prisma: Client,
+  cashbackTag = 'GLOBAL',
+): Promise<CostFloor[]> {
   const lanes: { method: Method; installments: number }[] = [
     { method: 'PIX', installments: 1 },
     { method: 'DEBIT_CARD', installments: 1 },
@@ -133,6 +139,7 @@ export async function acquirerCostFloor(prisma: Client): Promise<CostFloor[]> {
         method,
         'ONLINE',
         installments,
+        cashbackTag,
       );
       if (!fees.length) return null;
       return {

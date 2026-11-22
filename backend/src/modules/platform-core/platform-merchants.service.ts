@@ -356,7 +356,7 @@ export class PlatformMerchantsService {
   /** Custo global das adquirentes ativas (ONLINE): piso das taxas cobradas de qualquer lojista. */
   async acquirerCosts(context: PlatformContext, externalMerchantId: string) {
     await this.resolve(context, externalMerchantId);
-    return { costs: await acquirerCostFloor(this.prisma) };
+    return { costs: await acquirerCostFloor(this.prisma, context.tag) };
   }
   async quote(
     context: PlatformContext,
