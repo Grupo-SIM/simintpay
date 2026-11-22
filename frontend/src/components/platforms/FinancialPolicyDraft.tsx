@@ -144,7 +144,10 @@ export function FinancialPolicyDraft({
       { length: installments },
       (_, i) => `${acquirerFor(method)}/${method}/${channel}/${i + 1}`,
     );
-  const groups = PAYMENT_METHODS.map((item) => ({
+  // Boleto não existe na maquineta: não há custo nem simulação no canal POS.
+  const groups = PAYMENT_METHODS.filter(
+    (item) => channel !== 'POS' || item.method !== 'BOLETO',
+  ).map((item) => ({
     ...item,
     keys: methodKeys(item.method, item.installments),
   }));
