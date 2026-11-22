@@ -85,8 +85,11 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
     await page.goto(`http://127.0.0.1:${server.port}/?admin`);
     await page.getByText('Taxas do comprador', { exact: true }).waitFor();
     const card = page.getByRole('article').first();
+    // The seller keeps the SimIntPay fee; additives are shown apart, on the buyer.
     expect(await card.innerText()).toContain('Adicional do lojista');
-    expect(await card.innerText()).toContain('1,5%');
+    expect(await card.innerText()).toContain('1%');
+    expect(await card.innerText()).toContain('Taxas aditivas do comprador');
+    expect(await card.innerText()).toContain('0,5%');
     expect(await page.getByRole('alert').count()).toBe(0);
     const body = await page.locator('body').innerText();
     expect(body).not.toContain('Gerenciadas no SIM Delivery');
@@ -100,7 +103,7 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
     await page.getByLabel('Percentual (%)').first().fill('1,5');
     await page.getByLabel('Valor fixo (R$)').first().fill('1,00');
     await card.getByText('Somado ao custo da adquirente').waitFor();
-    expect(await card.innerText()).toContain('2,5%');
+    expect(await card.innerText()).toContain('1,5% + R$');
     expect(
       await page
         .getByRole('button', { name: 'Restaurar total do Delivery' })

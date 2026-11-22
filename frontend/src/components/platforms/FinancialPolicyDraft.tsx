@@ -398,7 +398,16 @@ export function FinancialPolicyDraft({
           {feeMode !== null && (
             <FeeModeField value={feeMode} onChange={setFeeMode} />
           )}
-          {(feeMode === null || feeMode !== 'SIMINTPAY_ONLY') && (
+          {/* The target only prices the seller fee, which ADDITIVE_ONLY does not charge. */}
+          {feeMode === 'ADDITIVE_ONLY' ? (
+            <p
+              role="note"
+              className="max-w-md text-sm text-zinc-500 dark:text-zinc-400"
+            >
+              Taxa alvo não se aplica no modo somente aditivas: o vendedor não
+              paga taxas e a SimIntPay cobre a adquirente com as aditivas.
+            </p>
+          ) : (
             <TargetFeeSection
               global={isGlobal}
               value={targetFeePpm}

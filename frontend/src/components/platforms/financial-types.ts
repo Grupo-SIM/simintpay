@@ -125,30 +125,36 @@ export const formatCents = (value: number) =>
   (value / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /**
- * Merchant's additional fee for a lane, charged on top of the acquirer cost: additive values (unless SIMINTPAY_ONLY) plus the
- * SimIntPay lane fee (unless ADDITIVE_ONLY), percentage and fixed summed separately.
+ * Merchant's additional fee for a lane, charged on top of the acquirer cost: the SimIntPay lane fee in
+ * SIMINTPAY_ONLY/BOTH, nothing in ADDITIVE_ONLY (the seller pays no fee there; SimIntPay pays the acquirer out of the
+ * additives). Additive fees never reach the seller: see `additiveFee`.
  * The SimIntPay part is always `lane.sim`, same as backend `evaluateCoverage` (`lane.total` is ignored).
  */
 export const effectiveFee = (
   lane: Lane | undefined,
   feeMode: FeeMode | null | undefined,
+): Addition =>
+  feeMode === 'ADDITIVE_ONLY'
+    ? { ratePpm: 0, fixedCents: 0 }
+    : {
+        ratePpm: lane?.sim.ratePpm ?? 0,
+        fixedCents: lane?.sim.fixedCents ?? 0,
+      };
+/** Additive fees added to the buyer total (SimIntPay revenue), order and product scopes summed; none in SIMINTPAY_ONLY. */
+export const additiveFee = (
+  feeMode: FeeMode | null | undefined,
   additiveTotals: AdditiveTotals = ZERO_ADDITIVE_TOTALS,
-): Addition => {
-  const mode = feeMode ?? 'SIMINTPAY_ONLY';
-  const sim = lane?.sim;
-  const additive =
-    mode === 'SIMINTPAY_ONLY'
-      ? []
-      : [additiveTotals.order, additiveTotals.product];
-  return {
-    ratePpm:
-      (mode === 'ADDITIVE_ONLY' ? 0 : (sim?.ratePpm ?? 0)) +
-      additive.reduce((sum, fee) => sum + fee.percentageValue * 100, 0),
-    fixedCents:
-      (mode === 'ADDITIVE_ONLY' ? 0 : (sim?.fixedCents ?? 0)) +
-      additive.reduce((sum, fee) => sum + fee.fixedValue, 0),
-  };
-};
+): Addition =>
+  !feeMode || feeMode === 'SIMINTPAY_ONLY'
+    ? { ratePpm: 0, fixedCents: 0 }
+    : {
+        ratePpm:
+          (additiveTotals.order.percentageValue +
+            additiveTotals.product.percentageValue) *
+          100,
+        fixedCents:
+          additiveTotals.order.fixedValue + additiveTotals.product.fixedValue,
+      };
 export const formatPpm = (ppm: number) =>
   `${(ppm / 10_000).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`;
 export const formatFeeValue = (percentageBp: number, fixedCents: number) =>

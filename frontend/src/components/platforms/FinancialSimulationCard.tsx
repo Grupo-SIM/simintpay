@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { FinancialNumberField } from './FinancialNumberField';
 import {
+  additiveFee,
   defaultOwner,
   effectiveFee,
   formatCents,
@@ -62,27 +63,19 @@ export function FinancialSimulationCard({
     result.interestRatePpm === 0 &&
     result.buyerInterestRatePpm === 0;
   const showInterest = credit && !(admin && noInterest);
-  const additiveCents =
-    result && feeMode && feeMode !== 'SIMINTPAY_ONLY'
-      ? [additiveTotals?.order, additiveTotals?.product].reduce(
-          (sum, scope) =>
-            sum +
-            Math.round(
-              (result.originalCents * (scope?.percentageValue ?? 0)) / 10_000,
-            ) +
-            (scope?.fixedValue ?? 0),
-          0,
-        )
-      : result
-        ? 0
-        : undefined;
-  const buyerTotalCents = result
-    ? result.originalCents + result.buyerInterestCents + (additiveCents ?? 0)
+  // The simulation already applies the fee mode: additives are on the buyer, never deducted from the seller.
+  const additiveOnly = feeMode === 'ADDITIVE_ONLY';
+  const additiveCents = result
+    ? feeMode && feeMode !== 'SIMINTPAY_ONLY'
+      ? result.buyerAdditionCents
+      : 0
     : undefined;
-  const sellerNetCents =
-    result && buyerTotalCents !== undefined
-      ? buyerTotalCents - result.contractedCostCents
-      : undefined;
+  const buyerTotalCents = result?.buyerTotalCents;
+  const sellerNetCents = result?.netCents;
+  /** What the seller pays out of base + passed interest (zero in ADDITIVE_ONLY). */
+  const sellerCostCents = result
+    ? result.originalCents + result.buyerInterestCents - result.netCents
+    : undefined;
   const profitCents = admin ? result?.simMarginCents : sellerNetCents;
   const lines: {
     label: string;
@@ -93,56 +86,76 @@ export function FinancialSimulationCard({
     sign?: '+' | '-';
   }[] = [
     { label: 'Valor base', value: result?.originalCents },
-    ...(admin
+    ...(admin && additiveOnly
       ? [
-          {
-            label: 'Custos da adquirente',
-            value: result
-              ? (result.acquirerProcessingCents ??
-                (result.acquirerCostCents ?? 0) -
-                  (result.acquirerInterestCents ?? 0))
-              : undefined,
-            sign: '-' as const,
-          },
-          {
-            label: 'Adicional SimIntPay',
-            value: result?.simAdditionCents ?? (result ? 0 : undefined),
-            sign: '-' as const,
-          },
           ...(showInterest
             ? [{ label: 'Juros do cliente', value: result?.buyerInterestCents }]
             : []),
-          ...(showInterest
-            ? [
-                {
-                  label: 'Juros da adquirente',
-                  value: result?.acquirerInterestCents ?? 0,
-                  sign: '-' as const,
-                },
-                {
-                  label: 'Juros SimIntPay',
-                  value: result?.simInterestCents ?? (result ? 0 : undefined),
-                  sign: '-' as const,
-                },
-              ]
-            : []),
-        ]
-      : [
           {
-            label: 'Custos SimIntPay',
-            value: result?.contractedCostCents,
-            percent:
-              result && result.originalCents > 0
-                ? `${((result.contractedCostCents / result.originalCents) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
-                : undefined,
-            sign: '-' as const,
+            label: 'Custos da adquirente (pagos pela SimIntPay)',
+            value: result?.acquirerCostCents ?? (result ? 0 : undefined),
           },
-        ]),
+        ]
+      : admin
+        ? [
+            {
+              label: 'Custos da adquirente',
+              value: result
+                ? (result.acquirerProcessingCents ??
+                  (result.acquirerCostCents ?? 0) -
+                    (result.acquirerInterestCents ?? 0))
+                : undefined,
+              sign: '-' as const,
+            },
+            {
+              label: 'Adicional SimIntPay',
+              value: result?.simAdditionCents ?? (result ? 0 : undefined),
+              sign: '-' as const,
+            },
+            ...(showInterest
+              ? [
+                  {
+                    label: 'Juros do cliente',
+                    value: result?.buyerInterestCents,
+                  },
+                ]
+              : []),
+            ...(showInterest
+              ? [
+                  {
+                    label: 'Juros da adquirente',
+                    value: result?.acquirerInterestCents ?? 0,
+                    sign: '-' as const,
+                  },
+                  {
+                    label: 'Juros SimIntPay',
+                    value: result?.simInterestCents ?? (result ? 0 : undefined),
+                    sign: '-' as const,
+                  },
+                ]
+              : []),
+          ]
+        : [
+            {
+              label: 'Custos SimIntPay',
+              value: sellerCostCents,
+              percent:
+                result && result.originalCents > 0
+                  ? `${(((sellerCostCents ?? 0) / result.originalCents) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+                  : undefined,
+              sign: '-' as const,
+            },
+          ]),
     ...(!admin && showInterest
       ? [{ label: 'Juros do cliente', value: result?.buyerInterestCents }]
       : []),
     ...(additiveCents
-      ? [{ label: 'Taxas aditivas', value: additiveCents, sign: '+' as const }]
+      ? [
+          {
+            label: 'Taxas aditivas (pagas pelo comprador)',
+            value: additiveCents,
+          },
+        ]
       : []),
     { label: 'Vendedor recebe', value: sellerNetCents, strong: true },
   ];
@@ -187,19 +200,18 @@ export function FinancialSimulationCard({
             : lane.sim,
         },
         feeMode,
-        additiveTotals,
       )
     : undefined;
-  // Total fees (acquirer + SimIntPay + additive) over the base amount; the buyer's interest is passed through, so it is netted out.
+  const additive = additiveFee(feeMode, additiveTotals);
+  // Seller fees over the base amount; passed interest and additive fees are paid by the buyer.
   const effectiveLabel = result?.originalCents
-    ? `${(
-        ((result.contractedCostCents - result.buyerInterestCents) /
-          result.originalCents) *
-        100
-      ).toLocaleString('pt-BR', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}%`
+    ? `${(((sellerCostCents ?? 0) / result.originalCents) * 100).toLocaleString(
+        'pt-BR',
+        {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        },
+      )}%`
     : '—';
   const format = (value?: number) =>
     value === undefined ? '—' : formatCents(value);
@@ -391,7 +403,23 @@ export function FinancialSimulationCard({
                     {formatCents(effective.fixedCents)}
                   </span>
                 </div>
-                <div className="mt-1">Somado ao custo da adquirente</div>
+                <div className="mt-1">
+                  {additiveOnly
+                    ? 'Modo somente aditivas: o lojista não paga taxas'
+                    : 'Somado ao custo da adquirente'}
+                </div>
+                {(additive.ratePpm > 0 || additive.fixedCents > 0) && (
+                  <>
+                    <div className="mt-2 flex justify-between gap-2">
+                      <span>Taxas aditivas do comprador</span>
+                      <span className="font-medium tabular-nums">
+                        {formatPpm(additive.ratePpm)} +{' '}
+                        {formatCents(additive.fixedCents)}
+                      </span>
+                    </div>
+                    <div className="mt-1">Somadas ao total do comprador</div>
+                  </>
+                )}
               </div>
             )}
             <div>{breakdown}</div>

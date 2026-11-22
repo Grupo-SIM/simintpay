@@ -21,9 +21,9 @@ Parte A do plano aprovado (SimIntPay). A Parte B (Sim Delivery) é feita no repo
       snapshot com `additiveFeeCents`/`sellerFeeCents`/`acquirerCostBorneBySimCents`, inversão POS.
 - [x] A2. Consumidores: `simulateFinancialPolicy`, `evaluateCoverage`, caminho padrão de pagamentos
       (coprodução, idempotência, custo da adquirente), relatórios.
-- [ ] A3. Endpoint de cotação `POST /platforms/:tag/merchants/:companyId/payments/quote`,
+- [x] A3. Endpoint de cotação `POST /platforms/:tag/merchants/:companyId/payments/quote`,
       `expectedTotalCents` (409 `QUOTE_CHANGED`), `allocation` depreciado e opcional para o Delivery, SDK.
-- [ ] A4. Frontend: simulação e taxa alvo desabilitada no `ADDITIVE_ONLY`.
+- [x] A4. Frontend: simulação e taxa alvo desabilitada no `ADDITIVE_ONLY`.
 - [ ] A5. Docs e testes.
 
 ## Pendências
