@@ -6364,8 +6364,9 @@ export class AdminController {
     const size = Math.min(Math.max(1, Number(pageSize) || 20), 100);
 
     const where: Prisma.UserWhereInput = {
-      // Todos os clientes aprovados, independentemente do saldo.
+      // Clientes aprovados que já tiveram alguma transação (venda), independentemente do saldo.
       clientStatus: 'APPROVED',
+      transactions: { some: {} },
       billingExcluded: false,
       NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } },
       ...(term
