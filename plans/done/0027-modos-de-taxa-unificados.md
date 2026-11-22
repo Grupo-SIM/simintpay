@@ -29,3 +29,4 @@ Parte A do plano aprovado (SimIntPay). A Parte B (Sim Delivery) é feita no repo
 ## Pendências
 
 - Remoção definitiva de `allocation` só depois da Parte B publicada (commit separado, fora deste plano).
+- Validação manual pendente: exemplo por modo em /admin/taxas e fluxo Delivery contra a SimIntPay local.
