@@ -93,7 +93,7 @@ describe('coverage per mode', () => {
     });
   });
 
-  it('ADDITIVE_ONLY ignores the SimIntPay fee', () => {
+  it('ADDITIVE_ONLY ignores the SimIntPay fee and flags additives below the acquirer cost', () => {
     const [result] = evaluateCoverage({
       costs,
       simintpay,
@@ -101,6 +101,20 @@ describe('coverage per mode', () => {
       mode: 'ADDITIVE_ONLY',
     });
     expect(result!.covered).toEqual({ ratePpm: 5_000, fixedCents: 50 });
+    expect(result).toMatchObject({
+      rateShortfallPpm: 4_800,
+      fixedShortfallCents: 50,
+    });
+    const [covered] = evaluateCoverage({
+      costs,
+      simintpay,
+      surcharges: { ratePpm: 10_000, fixedCents: 100 },
+      mode: 'ADDITIVE_ONLY',
+    });
+    expect(covered).toMatchObject({
+      rateShortfallPpm: 0,
+      fixedShortfallCents: 0,
+    });
   });
 
   it('BOTH sums the components charged on top of the cost', () => {

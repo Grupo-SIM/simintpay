@@ -106,9 +106,12 @@ export function surchargeComponents(
 }
 
 /**
- * Fees charged on top of the acquirer cost for each lane. The acquirer cost is always charged to the seller in
- * addition to the SimIntPay excess and the additive fees, so a lane is never under-covered: the shortfall only
- * appears if a charged component is negative. `cost` is kept for consumers that show it next to the excess.
+ * What covers the acquirer cost of each lane under the fee mode.
+ * - SIMINTPAY_ONLY / BOTH: the seller pays the acquirer cost plus the SimIntPay excess (and BOTH adds the additive
+ *   fees on the buyer), so a lane is only under-covered when a charged component is negative.
+ * - ADDITIVE_ONLY: the seller pays nothing and SimIntPay pays the acquirer cost (and any non-passed interest) out of
+ *   the additive fees, so the lane is under-covered when the additives are below the cost; the shortfall is the
+ *   SimIntPay loss per component.
  */
 export function evaluateCoverage(input: {
   costs: (FeeComponents & LaneId)[];
@@ -134,13 +137,16 @@ export function evaluateCoverage(input: {
         fixedCents: simPart.fixedCents + extraPart.fixedCents,
         ratePpm: simPart.ratePpm + extraPart.ratePpm,
       };
+      // ADDITIVE_ONLY: the additives must pay the acquirer cost themselves.
+      const owed =
+        input.mode === 'ADDITIVE_ONLY' ? cost : { fixedCents: 0, ratePpm: 0 };
       return {
         cost: { fixedCents: cost.fixedCents, ratePpm: cost.ratePpm },
         covered,
-        fixedShortfallCents: Math.max(0, -covered.fixedCents),
+        fixedShortfallCents: Math.max(0, owed.fixedCents - covered.fixedCents),
         installments: cost.installments,
         method: cost.method,
-        rateShortfallPpm: Math.max(0, -covered.ratePpm),
+        rateShortfallPpm: Math.max(0, owed.ratePpm - covered.ratePpm),
       };
     });
 }
