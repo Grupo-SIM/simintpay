@@ -405,7 +405,14 @@ export class GetTransactionDetailsUseCase {
           if (detail?.order) {
             // Cache mdr_value in domFee column for future fallbacks
             const mdrVal = Number(detail.order.mdr_value ?? 0);
-            if (mdrVal > 0) {
+            // `mdr_value` é só o percentual (sem taxa fixa): nunca sobrescreve o custo realizado no snapshot.
+            const hasRealizedCost =
+              typeof (
+                tx.financialSnapshot as {
+                  acquirerCost?: { realizedCents?: unknown };
+                } | null
+              )?.acquirerCost?.realizedCents === 'number';
+            if (mdrVal > 0 && !hasRealizedCost) {
               this.prisma.transaction
                 .update({
                   where: { id: tx.id },
