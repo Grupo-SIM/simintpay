@@ -30,6 +30,11 @@ import {
 } from '../additive-fees/additive-fees.service';
 import { listAcquirerFees } from './acquirer-fees';
 import {
+  applyFeeMode,
+  loadPlatformChargeContext,
+  quoteAdditiveFees,
+} from './financial-charge';
+import {
   calculateTargetFinancials,
   resolveTargetFee,
   validateTargetFeePpm,
@@ -566,9 +571,21 @@ export async function simulateFinancialPolicy(
       policy.version,
     );
   }
-  const targetFeePpm = tag.startsWith('USER:')
-    ? null
-    : resolveTargetFee(globalTarget, targetOverride);
+  // ADDITIVE_ONLY charges the seller nothing, so the target never applies (same as the real quote).
+  const targetFeePpm =
+    tag.startsWith('USER:') || feeMode === 'ADDITIVE_ONLY'
+      ? null
+      : resolveTargetFee(globalTarget, targetOverride);
+  // Additive fees of the platform, added to the buyer exactly as `quoteFinancialCharge` does.
+  const additiveTotals =
+    feeMode && prisma.platform
+      ? (await loadPlatformChargeContext(prisma, tag))?.additiveTotals
+      : undefined;
+  const additiveCents = (amountCents: number) =>
+    quoteAdditiveFees(feeMode ?? undefined, additiveTotals, amountCents, [
+      // A preview purchase is a single item: product-scope fees apply to it once.
+      { key: 'item', quantity: 1, unitPrice: amountCents },
+    ]);
   normalizeCurrentAdditions(policy.document);
   // Simulations show the fee actually charged under the (possibly drafted) mode: ADDITIVE_ONLY ignores the configured SimIntPay fee.
   if (feeMode === 'ADDITIVE_ONLY') {
@@ -602,6 +619,18 @@ export async function simulateFinancialPolicy(
             : [],
       })),
     );
+    const withFeeMode = (
+      result: Parameters<typeof applyFeeMode>[0],
+      n: number,
+    ) =>
+      applyFeeMode(
+        result,
+        feeMode!,
+        additiveCents(body.amountCents),
+        feeRows
+          .find((row) => row.n === n)
+          ?.fees.find((fee) => fee.acquirer === body.acquirer),
+      );
     const data = body.installments.map((n) => {
       if (!Number.isInteger(n)) throw new Error('Parcela inválida');
       const routeKey = laneKey(body.acquirer, body.method, body.channel, n);
@@ -642,6 +671,7 @@ export async function simulateFinancialPolicy(
             targetFeePpm,
             scheduled,
           );
+          if (feeMode) withFeeMode(result, n);
           return {
             installments: n,
             result: admin ? result : ownerResult(result),
@@ -654,6 +684,7 @@ export async function simulateFinancialPolicy(
           undefined,
           scheduled,
         );
+        if (feeMode) withFeeMode(result, n);
         // Unknown processor costs are never presented as realized zero profit.
         const adminResult =
           'pricingAcquirer' in result && result.pricingAcquirer === null

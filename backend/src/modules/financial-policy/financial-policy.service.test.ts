@@ -435,3 +435,40 @@ test('current PIX and boleto interpret legacy totals as SimIntPay additions with
     });
   }
 });
+
+test('fee mode simulations add the platform additives to the buyer and spare the seller in ADDITIVE_ONLY', async () => {
+  const { prisma } = fixture('ADMIN');
+  prisma.platform.findUnique = mock(async () => ({
+    ownerUserId: 'owner',
+    acquirer: 'DOM',
+    feeMode: 'BOTH',
+    targetFeePpm: null,
+    additiveFees: {
+      orderPct: 500,
+      orderFixed: 0,
+      productPct: 0,
+      productFixed: 0,
+    },
+  }));
+  const simulate = (feeMode: string) =>
+    simulateFinancialPolicy(prisma, 'SHOP', user, {
+      amountCents: 10000,
+      acquirer: 'DOM',
+      method: 'CREDIT_CARD',
+      channel: 'ONLINE',
+      installments: [2],
+      draft: { feeMode },
+    });
+  const both = await simulate('BOTH');
+  expect(both.data[0].result).toMatchObject({
+    buyerInterestCents: 300,
+    buyerTotalCents: 10800,
+    netCents: 9350,
+  });
+  const additiveOnly = await simulate('ADDITIVE_ONLY');
+  expect(additiveOnly.data[0].result).toMatchObject({
+    buyerInterestCents: 100,
+    buyerTotalCents: 10600,
+    netCents: 10000,
+  });
+});
