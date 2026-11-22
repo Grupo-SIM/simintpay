@@ -173,15 +173,17 @@ export function NewChargeForm({
             portal
           />
         )}
-        <p className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
-          {clients.isPending
-            ? 'Carregando clientes…'
-            : clients.isError
-              ? clients.error.message
-              : single
-                ? `${single.name} · Saldo disponível: ${money(single.saldoDisponivel)}`
-                : `${targets.length} clientes selecionados${valid ? ` · Total: ${money(amount * targets.length)}` : ''}`}
-        </p>
+        {clients.isPending ? (
+          <p className="text-sm text-zinc-500">Carregando clientes…</p>
+        ) : clients.isError ? (
+          <p className="text-sm text-red-500">{clients.error.message}</p>
+        ) : (
+          single && (
+            <p className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
+              Saldo disponível: {money(single.saldoDisponivel)}
+            </p>
+          )
+        )}
         {clients.isError && (
           <button
             type="button"

@@ -6364,10 +6364,8 @@ export class AdminController {
     const size = Math.min(Math.max(1, Number(pageSize) || 20), 100);
 
     const where: Prisma.UserWhereInput = {
-      // Só clientes (donos de plataforma): mesma marcação do botão "empresa" em /admin/usuarios.
-      isCompany: true,
-      // Só quem tem saldo para cobrar — positivo (débito) ou negativo (já devendo).
-      wallet: { is: { balance: { not: 0 } } },
+      // Todos os clientes aprovados, independentemente do saldo.
+      clientStatus: 'APPROVED',
       billingExcluded: false,
       NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } },
       ...(term
