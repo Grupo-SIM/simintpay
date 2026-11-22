@@ -91,10 +91,26 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
     selected === 'inherit'
       ? (globalValues.CASHBACK_DOM_ATIVO ?? 1) !== 0
       : selected === 'on';
+  const saveButton = (
+    <button
+      type="button"
+      className="cursor-pointer rounded border px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={
+        (choice === null && cost === null && grant === null) ||
+        invalid ||
+        save.isPending
+      }
+      onClick={() => save.mutate()}
+    >
+      Salvar
+    </button>
+  );
   return (
-    <div>
+    <div className="rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">Cashback DOM</span>
+        <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          Cashback DOM
+        </span>
         <div className="flex items-center gap-3">
           {!global && selected !== 'inherit' && (
             <button
@@ -113,18 +129,7 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
             checked={enabled}
             onChange={(on) => setChoice(on ? 'on' : 'off')}
           />
-          <button
-            type="button"
-            className="cursor-pointer rounded border px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={
-              (choice === null && cost === null && grant === null) ||
-              invalid ||
-              save.isPending
-            }
-            onClick={() => save.mutate()}
-          >
-            Salvar
-          </button>
+          {!global && saveButton}
         </div>
       </div>
       {global && enabled && (
@@ -145,6 +150,7 @@ export function CashbackDomSection({ tag = 'GLOBAL' }: { tag?: string }) {
           />
         </div>
       )}
+      {global && <div className="mt-4">{saveButton}</div>}
     </div>
   );
 }
