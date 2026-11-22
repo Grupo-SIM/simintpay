@@ -619,27 +619,6 @@ export async function simulateFinancialPolicy(
                 routedAcquirer: body.acquirer,
               }
             : undefined;
-        if (targetFeePpm !== null) {
-          if (!scheduled?.fees.length)
-            throw new Error('Custo da adquirente não configurado');
-          const result = calculateTargetFinancials(
-            policy,
-            pricingLaneKey(
-              policy,
-              scheduled.fees,
-              body.method,
-              body.channel,
-              n,
-            ) ?? routeKey,
-            body.amountCents,
-            targetFeePpm,
-            scheduled,
-          );
-          return {
-            installments: n,
-            result: admin ? result : ownerResult(result),
-          };
-        }
         const key = scheduled
           ? (pricingLaneKey(
               policy,
@@ -649,6 +628,25 @@ export async function simulateFinancialPolicy(
               n,
             ) ?? routeKey)
           : routeKey;
+        // A lane may opt out of the target so its manual SimIntPay additional applies.
+        if (
+          targetFeePpm !== null &&
+          !policy.document.lanes[key]?.targetFeeOff
+        ) {
+          if (!scheduled?.fees.length)
+            throw new Error('Custo da adquirente não configurado');
+          const result = calculateTargetFinancials(
+            policy,
+            key,
+            body.amountCents,
+            targetFeePpm,
+            scheduled,
+          );
+          return {
+            installments: n,
+            result: admin ? result : ownerResult(result),
+          };
+        }
         const result = calculateFinancials(
           policy,
           key,
