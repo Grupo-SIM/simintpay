@@ -395,15 +395,17 @@ export function FinancialPolicyDraft({
       </div>
       {admin && (
         <div className="space-y-4">
-          <TargetFeeSection
-            global={isGlobal}
-            value={targetFeePpm}
-            globalValue={configuration.globalTargetFeePpm ?? null}
-            onChange={setTargetFeePpm}
-            onValidityChange={validity}
-          />
           {feeMode !== null && (
             <FeeModeField value={feeMode} onChange={setFeeMode} />
+          )}
+          {(feeMode === null || feeMode !== 'SIMINTPAY_ONLY') && (
+            <TargetFeeSection
+              global={isGlobal}
+              value={targetFeePpm}
+              globalValue={configuration.globalTargetFeePpm ?? null}
+              onChange={setTargetFeePpm}
+              onValidityChange={validity}
+            />
           )}
         </div>
       )}
