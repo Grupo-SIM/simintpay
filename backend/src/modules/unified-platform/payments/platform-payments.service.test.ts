@@ -734,12 +734,13 @@ test('canonical Delivery allocation charges exact total, freezes shares and reje
   });
   expect(f.prisma.financialPolicyRevision.findMany).not.toHaveBeenCalled();
   await f.service.createForMerchant(ctx, 'company', request);
+  // Replaying the key under the standard (allocation-free) contract is a different request.
   const withoutAllocation = { ...request, allocation: undefined };
   await expect(
     f.service.createForMerchant(ctx, 'company', withoutAllocation),
   ).rejects.toMatchObject({
-    status: 422,
-    response: { code: 'DELIVERY_ALLOCATION_REQUIRED' },
+    status: 409,
+    response: { code: 'IDEMPOTENCY_CONFLICT' },
   });
   await expect(
     f.service.createForMerchant(ctx, 'company', {
@@ -748,6 +749,128 @@ test('canonical Delivery allocation charges exact total, freezes shares and reje
     }),
   ).rejects.toMatchObject({ status: 409 });
   expect(f.charge).toHaveBeenCalledTimes(1);
+});
+test('Delivery without allocation is quoted and charged by the standard engine', async () => {
+  const f = fixture();
+  const p = f.prisma as any;
+  p.platformApiCredential = {
+    findUnique: async () => ({
+      id: 'credential',
+      source: 'delivery',
+      platformId: 'platform',
+      merchantId: 'merchant',
+      externalCompanyId: 'company',
+      isActive: true,
+      profile: {
+        code: 'DELIVERY',
+        isActive: true,
+        acquirer: 'DOM',
+        encryptedCredential: encryptPlatformSecret('delivery-account'),
+      },
+    }),
+  };
+  p.integrationMerchant = {
+    findUnique: async () => ({
+      id: 'merchant',
+      userId: 'seller',
+      user: { isActive: true, isPurged: false },
+    }),
+  };
+  const additiveFees = {
+    orderPct: 500,
+    orderFixed: 0,
+    productPct: 0,
+    productFixed: 10,
+    revision: 3,
+  };
+  (f.platform as any).additiveFees = additiveFees;
+  p.platformAdditiveFees = { findUnique: async () => additiveFees };
+  const ctx = {
+    ...context,
+    delivery: {
+      credentialId: 'credential',
+      merchantId: 'merchant',
+      externalCompanyId: 'company',
+      profileId: 'profile',
+      allocate: false,
+    },
+  };
+  const pricing = {
+    amountCents: 11000,
+    items: [{ key: 'pizza', quantity: 2, unitPriceCents: 5000 }],
+    itemsAmountCents: 10000,
+    deliveryAmountCents: 1000,
+  };
+  // Order 5% of the 10000 items + 10 per product unit; the seller keeps the whole base in ADDITIVE_ONLY.
+  expect(
+    await f.service.quoteForMerchant(ctx, 'company', {
+      ...pricing,
+      paymentMethod: 'PIX',
+    }),
+  ).toEqual({
+    feeMode: 'ADDITIVE_ONLY',
+    baseAmountCents: 11000,
+    additiveFeeCents: 520,
+    buyerInterestCents: 0,
+    totalAmountCents: 11520,
+    sellerFeeCents: 0,
+    netAmountCents: 11000,
+    installments: 1,
+    additiveRevision: '3',
+  });
+  await expect(
+    f.service.createForMerchant(ctx, 'company', {
+      ...input,
+      ...pricing,
+      expectedTotalCents: 11000,
+    }),
+  ).rejects.toMatchObject({
+    status: 409,
+    response: { code: 'QUOTE_CHANGED', expectedTotalCents: 11520 },
+  });
+  await expect(
+    f.service.createForMerchant(ctx, 'company', {
+      ...input,
+      ...pricing,
+      itemsAmountCents: 9000,
+    }),
+  ).rejects.toMatchObject({
+    status: 400,
+    response: { code: 'COPRODUCTION_BASE_INVALID' },
+  });
+  expect(f.charge).not.toHaveBeenCalled();
+  expect(
+    await f.service.createForMerchant(ctx, 'company', {
+      ...input,
+      ...pricing,
+      expectedTotalCents: 11520,
+    }),
+  ).toMatchObject({
+    amountCents: 11520,
+    totalAmountCents: 11520,
+    netAmountCents: 11000,
+  });
+  expect((f.charge.mock.calls as any)[0][0]).toBe('delivery-account');
+  expect((f.charge.mock.calls as any)[0][1].amount).toBe(115.2);
+  const row = (f.prisma.transaction.create.mock.calls as any)[0][0].data;
+  expect(row.financialSnapshot).toMatchObject({
+    platformFeeMode: 'ADDITIVE_ONLY',
+    additiveFeeCents: 520,
+    sellerFeeCents: 0,
+    itemsAmountCents: 10000,
+    deliveryAmountCents: 1000,
+  });
+  await expect(
+    f.service.createForMerchant(ctx, 'company', {
+      ...input,
+      ...pricing,
+      itemsAmountCents: 9500,
+      deliveryAmountCents: 1500,
+    }),
+  ).rejects.toMatchObject({
+    status: 409,
+    response: { code: 'IDEMPOTENCY_CONFLICT' },
+  });
 });
 test('ordinary canonical callers cannot override the financial allocation', async () => {
   const f = fixture();

@@ -20,7 +20,10 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
 import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
-import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
+import {
+  CreatePlatformPaymentDto,
+  QuotePlatformPaymentDto,
+} from '../unified-platform/payments/platform-payment.dto';
 import { platformFeeSchedule } from '../financial-policy/platform-fee-schedule';
 import {
   getPlatformTaxaEffective,
@@ -84,6 +87,13 @@ export class PlatformMerchantsService {
     input: CreatePlatformPaymentDto,
   ) {
     return this.payments.createForMerchant(context, externalMerchantId, input);
+  }
+  quotePayment(
+    context: PlatformContext,
+    externalMerchantId: string,
+    input: QuotePlatformPaymentDto,
+  ) {
+    return this.payments.quoteForMerchant(context, externalMerchantId, input);
   }
   async summary(context: PlatformContext, externalMerchantId: string) {
     const merchant = await this.resolve(context, externalMerchantId);
@@ -174,6 +184,11 @@ export class PlatformMerchantsService {
       paymentId: payment.externalPaymentId,
       status: payment.status,
       amountCents: this.finance.cents(payment.amount),
+      totalAmountCents: this.finance.cents(payment.amount),
+      netAmountCents:
+        payment.netAmount == null
+          ? null
+          : this.finance.cents(payment.netAmount),
       coproductionCents: this.coproductionCents(payment),
       pixContent: payment.pixContent,
       qrCode: payment.pixQrCode,

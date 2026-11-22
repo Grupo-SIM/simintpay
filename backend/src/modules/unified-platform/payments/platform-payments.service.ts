@@ -16,8 +16,11 @@ import { loadFinancialPolicy } from '../../financial-policy/financial-policy.ser
 import { resolveTargetFee } from '../../financial-policy/target-fee';
 import {
   quoteFinancialCharge,
+  loadChargePolicy,
   loadPlatformChargeContext,
 } from '../../financial-policy/financial-charge';
+import { readAdditiveFees } from '../../additive-fees/additive-fees.service';
+import { isDeliveryAllocationSnapshot } from '../../integrations/delivery-payment-allocation';
 import {
   estimatedCost,
   listAcquirerFees,
@@ -38,6 +41,7 @@ import { ProcessWebhookUseCase } from '../../../application/use-cases/webhook/pr
 import { PlatformWebhookSettlement } from '../../platform-core/platform-webhook-settlement';
 import { createHash } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -49,7 +53,11 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { PaymentGatewayResolver } from '../../../infrastructure/http/payment-gateway.resolver';
 import { Acquirer } from '../../../core/services/acquirer.enum';
 import { decryptPlatformSecret } from '../../platform-integrations/platform-secrets';
-import { CreatePlatformPaymentDto } from './platform-payment.dto';
+import {
+  CreatePlatformPaymentDto,
+  type PlatformPaymentPricingDto,
+  QuotePlatformPaymentDto,
+} from './platform-payment.dto';
 import { resolvePaymentAdapter } from './platform-payment.adapter';
 import { resolveCardAcquirer } from './platform-card-acquirer.adapter';
 
@@ -60,6 +68,44 @@ export type PaymentPlatformContext = {
   acquirer: 'DOM' | 'FRENDZ';
   delivery?: PlatformContext['delivery'];
 };
+
+/**
+ * Validated pricing inputs: additive lines from `items` and the items/delivery breakdown (coproduction base).
+ * The breakdown is both-or-neither and must add up to `amountCents`.
+ */
+export function pricingInputs(input: PlatformPaymentPricingDto) {
+  const hasBreakdown =
+    input.itemsAmountCents !== undefined ||
+    input.deliveryAmountCents !== undefined;
+  if (
+    hasBreakdown &&
+    (!Number.isSafeInteger(input.itemsAmountCents) ||
+      !Number.isSafeInteger(input.deliveryAmountCents) ||
+      input.itemsAmountCents! < 0 ||
+      input.deliveryAmountCents! < 0 ||
+      input.itemsAmountCents! + input.deliveryAmountCents! !==
+        input.amountCents)
+  )
+    throw new BadRequestException({
+      code: 'COPRODUCTION_BASE_INVALID',
+      message: 'Detalhamento comercial inválido',
+    });
+  return {
+    lines: input.items?.length
+      ? input.items.map((item) => ({
+          key: item.key,
+          quantity: item.quantity,
+          unitPrice: item.unitPriceCents,
+        }))
+      : undefined,
+    breakdown: hasBreakdown
+      ? {
+          itemsAmountCents: input.itemsAmountCents!,
+          deliveryAmountCents: input.deliveryAmountCents!,
+        }
+      : undefined,
+  };
+}
 
 /** Sum of the beneficiaries' floored shares over the frozen base, as allocated at settlement. */
 function coproductionCents(
@@ -119,6 +165,59 @@ export class PlatformPaymentsService {
       externalMerchantId,
     );
     return this.execute(context, input, merchant);
+  }
+
+  /** Buyer total SimIntPay will charge for a merchant purchase; same engine and inputs as the charge. */
+  async quoteForMerchant(
+    context: PaymentPlatformContext,
+    externalMerchantId: string,
+    input: QuotePlatformPaymentDto,
+  ) {
+    await platformMerchant(this.prisma, context, externalMerchantId);
+    const { lines } = pricingInputs(input);
+    const installments =
+      input.paymentMethod === 'CREDIT_CARD' ? (input.installments ?? 1) : 1;
+    if (input.paymentMethod === 'PIX' || input.paymentMethod === 'CREDIT_CARD')
+      await assertPaymentLaneEnabled(
+        this.prisma,
+        context.tag,
+        input.paymentMethod,
+        installments,
+      );
+    const [chargeContext, additives] = await Promise.all([
+      loadChargePolicy(this.prisma, context.tag),
+      readAdditiveFees(this.prisma, context.id),
+    ]);
+    const quote = quoteFinancialCharge(
+      chargeContext,
+      input.amountCents / 100,
+      input.paymentMethod,
+      installments,
+      'ONLINE',
+      lines,
+    );
+    if (!quote)
+      throw new UnprocessableEntityException({
+        code: 'FINANCIAL_POLICY_MISSING',
+      });
+    const snapshot = quote.financialSnapshot as {
+      originalCents: number;
+      buyerInterestCents: number;
+      buyerTotalCents: number;
+      netCents: number;
+      additiveFeeCents?: number;
+    };
+    return {
+      feeMode: chargeContext.platformFeeMode ?? null,
+      baseAmountCents: snapshot.originalCents,
+      additiveFeeCents: snapshot.additiveFeeCents ?? 0,
+      buyerInterestCents: snapshot.buyerInterestCents,
+      totalAmountCents: snapshot.buyerTotalCents,
+      sellerFeeCents: snapshot.originalCents - snapshot.netCents,
+      netAmountCents: snapshot.netCents,
+      installments,
+      additiveRevision: additives.revision,
+    };
   }
 
   async readByKey(
@@ -210,10 +309,17 @@ export class PlatformPaymentsService {
         context.delivery.merchantId !== merchant.id)
     )
       throw new ForbiddenException('Divisão financeira não autorizada');
-    if (context.delivery && !input.allocation)
-      throw new UnprocessableEntityException({
-        code: 'DELIVERY_ALLOCATION_REQUIRED',
-      });
+    // Without the deprecated allocation, Delivery is priced by the standard quote like every platform.
+    const pricing = pricingInputs(input);
+    const breakdown = input.allocation
+      ? input.allocation.itemsAmountCents !== undefined &&
+        input.allocation.deliveryAmountCents !== undefined
+        ? {
+            itemsAmountCents: input.allocation.itemsAmountCents,
+            deliveryAmountCents: input.allocation.deliveryAmountCents,
+          }
+        : undefined
+      : pricing.breakdown;
     const acquiring = context.delivery
       ? await deliveryProfile(this.prisma, context)
       : null;
@@ -284,15 +390,14 @@ export class PlatformPaymentsService {
             existing.cardBin !== input.card!.bin ||
             existing.cardBrand !== input.card!.brand)) ||
         !!input.allocation !==
-          !!(existing.tracking as { delivery?: unknown } | null)?.delivery
+          isDeliveryAllocationSnapshot(existing.financialSnapshot)
       )
         throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (
-        input.allocation &&
-        (input.allocation.itemsAmountCents !==
+        breakdown?.itemsAmountCents !==
           (existing.financialSnapshot as any)?.itemsAmountCents ||
-          input.allocation.deliveryAmountCents !==
-            (existing.financialSnapshot as any)?.deliveryAmountCents)
+        breakdown?.deliveryAmountCents !==
+          (existing.financialSnapshot as any)?.deliveryAmountCents
       )
         throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (
@@ -340,26 +445,26 @@ export class PlatformPaymentsService {
         (row) => row.key === `${code}_TOKEN` && !!row.encryptedValue,
       ),
     );
+    // Delivery keeps its configured acquirer, but the standard path still prices its schedule.
+    const quoting = !existing && (!acquiring || !input.allocation);
     const catalogue =
       !acquiring && !existing
         ? await this.prisma.acquirerCatalogue.findMany({
             select: { code: true, active: true },
           })
         : [];
-    const fees =
-      !acquiring && !existing
-        ? await listAcquirerFees(
-            this.prisma,
-            input.paymentMethod as 'PIX' | 'CREDIT_CARD',
-            'ONLINE',
-            installments,
-            platform.tag,
-          )
-        : [];
-    const platformChargeContext =
-      !acquiring && !existing
-        ? await loadPlatformChargeContext(this.prisma, platform.tag)
-        : null;
+    const fees = quoting
+      ? await listAcquirerFees(
+          this.prisma,
+          input.paymentMethod as 'PIX' | 'CREDIT_CARD',
+          'ONLINE',
+          installments,
+          platform.tag,
+        )
+      : [];
+    const platformChargeContext = quoting
+      ? await loadPlatformChargeContext(this.prisma, platform.tag)
+      : null;
     const feeContext = {
       ...platformChargeContext,
       feesByLane: { [`${input.paymentMethod}/ONLINE/${installments}`]: fees },
@@ -386,6 +491,8 @@ export class PlatformPaymentsService {
             amount.toNumber(),
             input.paymentMethod as 'PIX' | 'CREDIT_CARD',
             installments,
+            'ONLINE',
+            pricing.lines,
           )
         : null;
     const buyerTotalCents = priced
@@ -484,6 +591,8 @@ export class PlatformPaymentsService {
           amount.toNumber(),
           input.paymentMethod as 'PIX' | 'CREDIT_CARD',
           cardAcquirer ? input.card!.installments : 1,
+          'ONLINE',
+          pricing.lines,
         );
     if (!financialQuote)
       throw new UnprocessableEntityException({
@@ -491,6 +600,15 @@ export class PlatformPaymentsService {
       });
     const chargeAmount = new Prisma.Decimal(financialQuote.totalAmount);
     const chargeCents = chargeAmount.mul(100).toNumber();
+    // The buyer saw a quoted total: never charge a different one silently.
+    if (
+      input.expectedTotalCents !== undefined &&
+      input.expectedTotalCents !== chargeCents
+    )
+      throw new ConflictException({
+        code: 'QUOTE_CHANGED',
+        expectedTotalCents: chargeCents,
+      });
     // Acquirer cost is recorded for every payment, Delivery included: it is a platform cost, never charged to the merchant.
     const realizedCostCents = selectedFee
       ? estimatedCost(selectedFee, input.amountCents, chargeCents)
@@ -541,10 +659,7 @@ export class PlatformPaymentsService {
           financialUserId,
         );
     if (coproductionOnly && context.delivery) {
-      if (
-        input.allocation?.itemsAmountCents === undefined ||
-        input.allocation.deliveryAmountCents === undefined
-      )
+      if (!breakdown)
         throw new UnprocessableEntityException({
           code: 'COPRODUCTION_BASE_REQUIRED',
           message: 'Cobrança exige detalhamento de itens e frete',
@@ -558,13 +673,9 @@ export class PlatformPaymentsService {
       tracking: input.tracking,
       buyerEmail: input.customer.email,
     });
-    if (
-      coproduction &&
-      context.delivery &&
-      input.allocation?.itemsAmountCents !== undefined &&
-      input.allocation.deliveryAmountCents !== undefined
-    )
-      coproduction.baseCents = input.allocation.itemsAmountCents;
+    // The delivery fee stays with the merchant: coproduction splits the items only.
+    if (coproduction && breakdown)
+      coproduction.baseCents = breakdown.itemsAmountCents;
     if (coproduction && coproduction.baseCents === undefined)
       coproduction.baseCents = financialFields.netAmount.mul(100).toNumber();
     const finalSnapshot = withCoproduction(
@@ -573,7 +684,9 @@ export class PlatformPaymentsService {
             ...financialQuote.financialSnapshot,
             acquirerCost: costSnapshot,
           }
-        : financialQuote.financialSnapshot) ??
+        : financialQuote.financialSnapshot && breakdown && !deliveryQuote
+          ? { ...financialQuote.financialSnapshot, ...breakdown }
+          : financialQuote.financialSnapshot) ??
         (costSnapshot
           ? { acquirerCost: costSnapshot, originalCents: input.amountCents }
           : coproduction
@@ -932,6 +1045,9 @@ export class PlatformPaymentsService {
       paymentId: transaction.externalPaymentId,
       status: transaction.status,
       amountCents: transaction.amount.mul(100).toNumber(),
+      /** Buyer total charged (base + passed interest + additive fees); same as `amountCents`. */
+      totalAmountCents: transaction.amount.mul(100).toNumber(),
+      /** Seller net. */
       netAmountCents: transaction.netAmount?.mul(100).toNumber() ?? null,
       // Coproducers' share frozen with the charge (everything except the owner's residual); zero without agreement.
       coproductionCents: coproductionCents(

@@ -47,13 +47,40 @@ export class PlatformPaymentAllocationDto {
   @IsInt() @Min(0) merchantAmountCents!: number;
   @IsInt() @Min(0) platformFeeCents!: number;
 }
-export class CreatePlatformPaymentDto {
+/**
+ * Pricing inputs shared by the quote and the charge. `amountCents` is the seller base (items after discounts plus
+ * delivery); SimIntPay adds passed interest and additive fees on top. `items` enable product-scope additive fees;
+ * `itemsAmountCents` + `deliveryAmountCents` (both or neither) must add up to `amountCents`.
+ */
+export class PlatformPaymentPricingDto {
+  @IsInt() @Min(1) @Max(999999999999) amountCents!: number;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => DeliveryAllocationItemDto)
+  items?: DeliveryAllocationItemDto[];
+  @IsOptional() @IsInt() @Min(0) itemsAmountCents?: number;
+  @IsOptional() @IsInt() @Min(0) deliveryAmountCents?: number;
+}
+
+export class QuotePlatformPaymentDto extends PlatformPaymentPricingDto {
+  @IsIn(['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'])
+  paymentMethod!: 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
+  @IsOptional() @IsInt() @Min(1) @Max(12) installments?: number;
+}
+
+export class CreatePlatformPaymentDto extends PlatformPaymentPricingDto {
+  /** @deprecated Delivery's legacy pre-priced split; send the pricing fields and `expectedTotalCents` instead. */
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformPaymentAllocationDto)
   allocation?: PlatformPaymentAllocationDto;
   @IsOptional() @IsString() @MaxLength(128) linkId?: string;
-  @IsInt() @Min(1) @Max(999999999999) amountCents!: number;
+  /** Buyer total shown from the quote; a different current quote fails with 409 `QUOTE_CHANGED`. */
+  @IsOptional() @IsInt() @Min(1) expectedTotalCents?: number;
+  /** Informational; card charges use `card.installments`. */
+  @IsOptional() @IsInt() @Min(1) @Max(12) installments?: number;
   @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';
   @IsString() @MinLength(1) @MaxLength(128) idempotencyKey!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;

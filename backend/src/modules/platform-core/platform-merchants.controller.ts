@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   Put,
@@ -16,7 +17,10 @@ import type { MerchantProvisionInput } from './platform-merchant-provisioning';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PlatformMerchantsService } from './platform-merchants.service';
-import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
+import {
+  CreatePlatformPaymentDto,
+  QuotePlatformPaymentDto,
+} from '../unified-platform/payments/platform-payment.dto';
 
 const Operation = (operation: string) =>
   SetMetadata('platform-operation', operation);
@@ -49,6 +53,24 @@ export class PlatformMerchantsController {
     @Body() body: CreatePlatformPaymentDto,
   ) {
     return this.merchants.createPayment(request.platformContext, id, body);
+  }
+  /** Buyer total, additive fees, interest and seller net the charge will use; nothing is persisted. */
+  @Post('payments/quote')
+  @HttpCode(200)
+  @Operation('payments:create')
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
+  quotePayment(
+    @Req() request: PlatformRequest,
+    @Param('externalMerchantId') id: string,
+    @Body() body: QuotePlatformPaymentDto,
+  ) {
+    return this.merchants.quotePayment(request.platformContext, id, body);
   }
   @Get('payment-attempts/:key')
   @Operation('payments:read')
