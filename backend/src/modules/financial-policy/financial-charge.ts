@@ -3,6 +3,7 @@ import {
   totalsToFees,
   type FeeMode,
   type AdditiveTotals,
+  type FeeItemInput,
 } from '../additive-fees/additive-fee-calculation';
 import { BadRequestException } from '@nestjs/common';
 import {
@@ -21,7 +22,11 @@ import {
   type ResolvedPolicy,
   type ScheduledFee,
 } from './financial-policy';
-import { listAcquirerFees, type AcquirerCost } from './acquirer-fees';
+import {
+  estimatedCost,
+  listAcquirerFees,
+  type AcquirerCost,
+} from './acquirer-fees';
 import { loadFinancialPolicy } from './financial-policy.service';
 import { calculateTargetFinancials, resolveTargetFee } from './target-fee';
 import {
@@ -128,8 +133,8 @@ export function quoteFinancialCharge(
   method: Method,
   installments = 1,
   channel: Channel = 'ONLINE',
-  /** Platform fee modes treat the amount as the buyer total; offers set the buyer total themselves. */
-  buyerTotalAsInput = !!context.platformFeeMode,
+  /** Explicit priced lines (cents) for product-scope additive fees; without them, one order line over the amount. */
+  items?: FeeItemInput[],
 ) {
   const routeKey = laneKey(context.acquirer, method, channel, installments);
   try {
@@ -148,9 +153,11 @@ export function quoteFinancialCharge(
         routedAcquirer: context.acquirer,
       }
     : undefined;
+  const additiveOnly = context.platformFeeMode === 'ADDITIVE_ONLY';
   // The global target (policy document) is the default; platform charges only, never frozen-snapshot requotes.
+  // ADDITIVE_ONLY charges the seller nothing, so the target fee never applies there.
   let targetFeePpm =
-    context.targetFeePpm === undefined
+    context.targetFeePpm === undefined || additiveOnly
       ? null
       : resolveTargetFee(
           context.policy.document.targetFeePpm,
@@ -163,12 +170,16 @@ export function quoteFinancialCharge(
         method,
         channel,
         installments,
-      ) ?? (targetFeePpm !== null ? routeKey : undefined))
+      ) ?? (targetFeePpm !== null || additiveOnly ? routeKey : undefined))
     : routeKey;
   // A lane may opt out of the target so its manual SimIntPay additional is honored.
   if (key && context.policy.document.lanes[key]?.targetFeeOff)
     targetFeePpm = null;
-  if (targetFeePpm === null && (!key || !context.policy.document.lanes[key])) {
+  if (
+    targetFeePpm === null &&
+    !(additiveOnly && key && fees.length) &&
+    (!key || !context.policy.document.lanes[key])
+  ) {
     if (context.platformFeeMode)
       throw new BadRequestException(
         'Taxas da plataforma não configuradas para esta modalidade',
@@ -180,26 +191,22 @@ export function quoteFinancialCharge(
     throw new BadRequestException('Custo da adquirente não configurado');
   if ((context.platformFeeMode || targetFeePpm !== null) && !fees.length)
     throw new BadRequestException('Custo da adquirente não configurado');
-  let policy = context.policy;
-  let additiveCents = 0;
-  // Additive fees are independent of the target fee: they follow the platform fee mode either way.
-  if (
-    context.platformFeeMode &&
-    context.platformFeeMode !== 'SIMINTPAY_ONLY' &&
-    context.additiveTotals
-  ) {
-    const totals = context.additiveTotals;
-    if (totals.product.fixedValue || totals.product.percentageValue)
-      throw new BadRequestException(
-        'Taxas por produto exigem uma base explícita de itens',
-      );
-    additiveCents = calculatePlatformFees(
-      totalsToFees(totals).filter((fee) => fee.applicationScope === 'order'),
-      [{ key: 'order', quantity: 1, unitPrice: cents(amount) }],
-    ).feeTotalCents;
-  }
-  // ADDITIVE_ONLY drops the manual SimIntPay fee; the target fee replaces that fee itself.
-  if (targetFeePpm === null && context.platformFeeMode === 'ADDITIVE_ONLY') {
+  let policy = context.platformFeeMode
+    ? // Platform modes never charge the buyer the processing fees: only passed interest (and additives).
+      {
+        ...context.policy,
+        document: { ...context.policy.document, interestOnly: true },
+      }
+    : context.policy;
+  const additiveCents = quoteAdditiveFees(
+    context.platformFeeMode,
+    context.additiveTotals,
+    cents(amount),
+    items,
+  );
+  // ADDITIVE_ONLY drops the SimIntPay fee (the lane may not even exist): the seller pays nothing.
+  if (additiveOnly) {
+    const stored = policy.document.lanes[key];
     policy = {
       ...policy,
       document: {
@@ -207,8 +214,24 @@ export function quoteFinancialCharge(
         lanes: {
           ...policy.document.lanes,
           [key]: {
-            ...policy.document.lanes[key]!,
+            ...stored,
+            active: true,
+            contract: stored?.contract ?? {
+              fixedCents: 0,
+              ratePpm: 0,
+              cashbackCents: 0,
+              interestPpm: 0,
+              base: 'ORIGINAL',
+              reference: '',
+            },
             sim: { ratePpm: 0, fixedCents: 0, interestPpm: 0 },
+          },
+        },
+        owner: {
+          ...policy.document.owner,
+          [key]: policy.document.owner[key] ?? {
+            ...defaultOwner(),
+            passInterestPpm: key.includes('/CREDIT_CARD/') ? 1_000_000 : 0,
           },
         },
       },
@@ -225,26 +248,15 @@ export function quoteFinancialCharge(
           // Buyer interest is charged normally on top of the amount; only the seller's fees change.
           false,
         )
-      : calculateFinancials(
-          policy,
-          key,
-          cents(amount),
-          undefined,
-          scheduled,
-          buyerTotalAsInput,
-        );
-  if (additiveCents) {
-    r.contractedCostCents += additiveCents;
-    r.processingCostCents += additiveCents;
-    r.netCents -= additiveCents;
-    r.simMarginCents += additiveCents;
-    r.differenceCents -= additiveCents;
-  }
+      : calculateFinancials(policy, key, cents(amount), undefined, scheduled);
+  const routed = fees.find((fee) => fee.acquirer === context.acquirer);
+  const acquirerCostBorneBySimCents = context.platformFeeMode
+    ? applyFeeMode(r, context.platformFeeMode, additiveCents, routed)
+    : 0;
   if (context.platformFeeMode && r.netCents < 0)
     throw new BadRequestException(
       'Valor insuficiente para as taxas da plataforma',
     );
-  const routed = fees.find((fee) => fee.acquirer === context.acquirer);
   return {
     financialSnapshot: {
       ...ownerResult(r),
@@ -252,6 +264,8 @@ export function quoteFinancialCharge(
         ? {
             platformFeeMode: context.platformFeeMode,
             additiveFeeCents: additiveCents,
+            sellerFeeCents: r.originalCents - r.netCents,
+            acquirerCostBorneBySimCents,
             ...(targetFeePpm !== null ? { targetFeePpm } : {}),
             processingCostCents: r.processingCostCents,
             interestCostCents: r.interestCostCents,
@@ -274,7 +288,7 @@ export function quoteFinancialCharge(
               },
             }
           : {}),
-      ...(context.policy.document.interestOnly ? { interestOnly: true } : {}),
+      ...(policy.document.interestOnly ? { interestOnly: true } : {}),
       ...(context.policy.document.owner[key]?.passInterestPpm === 1_000_000 &&
       !context.policy.global.owner[key] &&
       !context.policy.own.owner[key]
@@ -286,7 +300,10 @@ export function quoteFinancialCharge(
     totalAmount: r.buyerTotalCents / 100,
     netAmount: r.netCents / 100,
     domFeeAmount: r.acquirerCostCents / 100,
-    sellerFee: (r.simAdditionCents + r.simInterestCents) / 100,
+    sellerFee: context.platformFeeMode
+      ? (r.originalCents - r.netCents) / 100
+      : (r.simAdditionCents + r.simInterestCents) / 100,
+    additiveFeeAmount: additiveCents / 100,
     platformFeeRate: (r.buyerInterestCents / r.originalCents) * 100,
     interestAmount: r.buyerInterestCents / 100,
     installmentAmount: r.installmentCents / 100,
@@ -303,6 +320,78 @@ export function quoteFinancialCharge(
   };
 }
 
+/**
+ * Platform additive fees: SimIntPay revenue added to the buyer total, never deducted from the seller. Product-scope
+ * fees need explicit item lines; without them the amount is a single order line.
+ */
+export function quoteAdditiveFees(
+  mode: FeeMode | undefined,
+  totals: AdditiveTotals | undefined,
+  amountCents: number,
+  items?: FeeItemInput[],
+) {
+  if (!mode || mode === 'SIMINTPAY_ONLY' || !totals) return 0;
+  const product = totals.product.fixedValue || totals.product.percentageValue;
+  if (product && !items?.length)
+    throw new BadRequestException(
+      'Taxas por produto exigem uma base explícita de itens',
+    );
+  return calculatePlatformFees(
+    totalsToFees(totals).filter(
+      (fee) => fee.applicationScope === 'order' || items?.length,
+    ),
+    items?.length
+      ? items
+      : [{ key: 'order', quantity: 1, unitPrice: amountCents }],
+  ).feeTotalCents;
+}
+
+type QuoteResult = ReturnType<typeof calculateFinancials>;
+
+/**
+ * Applies the platform fee mode to a seller-side quote (buyer pays base + passed interest):
+ * - additive fees are added to the buyer total and to SimIntPay's margin, never to the seller's fees;
+ * - ADDITIVE_ONLY: the seller keeps the whole base; SimIntPay bears the acquirer cost and the non-passed
+ *   interest out of the additive fees (margin = additives - borne cost, possibly negative).
+ * The acquirer cost is re-estimated on the final buyer total; the extra caused by additives is SimIntPay's.
+ * Keeps `buyerTotalCents - netCents === contractedCostCents`. Returns the acquirer cost and non-passed interest
+ * borne by SimIntPay in ADDITIVE_ONLY (0 in the seller-paying modes).
+ */
+export function applyFeeMode(
+  r: QuoteResult,
+  mode: FeeMode,
+  additiveCents: number,
+  routed?: AcquirerCost,
+) {
+  let extra = 0;
+  if (additiveCents) {
+    r.buyerTotalCents += additiveCents;
+    r.buyerAdditionCents += additiveCents;
+    r.contractedCostCents += additiveCents;
+    r.processingCostCents += additiveCents;
+    r.simMarginCents += additiveCents;
+    r.installmentCents = Math.floor(r.buyerTotalCents / r.installments);
+    r.lastInstallmentCents =
+      r.buyerTotalCents - r.installmentCents * (r.installments - 1);
+    if (routed) {
+      const cost = estimatedCost(routed, r.originalCents, r.buyerTotalCents);
+      extra = cost - r.acquirerCostCents;
+      r.acquirerCostCents += extra;
+      r.acquirerProcessingCents += extra;
+      r.simMarginCents -= extra;
+    }
+  }
+  // Seller-paying modes keep the seller's fees; the additive-caused acquirer extra is SimIntPay's margin cost.
+  if (mode !== 'ADDITIVE_ONLY') return 0;
+  const borne = r.originalCents - r.netCents;
+  r.netCents += borne;
+  r.contractedCostCents -= borne;
+  r.processingCostCents = r.contractedCostCents - r.interestCostCents;
+  r.simMarginCents -= borne;
+  r.differenceCents += borne;
+  return borne + extra;
+}
+
 /** Terminal reports buyer total. Invert the same monotonic cent function; never charge its costs twice. */
 export function quoteReportedPos(
   context: Awaited<ReturnType<typeof loadChargePolicy>>,
@@ -310,8 +399,28 @@ export function quoteReportedPos(
   method: Method,
   n = 1,
 ) {
-  if (context.platformFeeMode)
-    return quoteFinancialCharge(context, buyerTotal, method, n, 'POS');
+  // Platform modes add passed interest and additive fees on top of the base: invert the buyer total.
+  if (context.platformFeeMode) {
+    const target = cents(buyerTotal);
+    let low = 1,
+      high = Math.min(target, 1_000_000_000);
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const quote = quoteFinancialCharge(
+        context,
+        middle / 100,
+        method,
+        n,
+        'POS',
+      );
+      if (!quote) return null;
+      const total = cents(quote.totalAmount);
+      if (total === target) return quote;
+      if (total < target) low = middle + 1;
+      else high = middle - 1;
+    }
+    throw new Error('Total POS não corresponde à política financeira');
+  }
   const routeKey = laneKey(context.acquirer, method, 'POS', n);
   const fees = context.feesByLane?.[`${method}/POS/${n}`] ?? [];
   const key = context.feesByLane
@@ -375,6 +484,10 @@ export async function restoreFinancialCharge(
     buyerTotalCents: number;
     netCents: number;
     contractedCostCents?: number;
+    /** Unified fee-mode snapshots: additives on the buyer, seller fee and SimIntPay-borne cost. */
+    additiveFeeCents?: number;
+    sellerFeeCents?: number;
+    acquirerCostBorneBySimCents?: number;
   };
   if (typeof saved.version !== 'string' || typeof saved.policyTag !== 'string')
     throw new Error('Snapshot financeiro inválido');
@@ -432,7 +545,9 @@ export async function restoreFinancialCharge(
       ? {}
       : {
           domFeeAmount: realizedCents! / 100,
-          sellerFee: ((saved.contractedCostCents ?? 0) - realizedCents!) / 100,
+          sellerFee:
+            (saved.sellerFeeCents ??
+              (saved.contractedCostCents ?? 0) - realizedCents!) / 100,
           platformFeeAmount:
             ((saved.contractedCostCents ?? 0) - realizedCents!) / 100,
           platformProfit:
@@ -446,6 +561,9 @@ export async function restoreFinancialCharge(
       ...knownCost,
       platformFeeRate: 0,
       interestAmount: 0,
+      ...(saved.additiveFeeCents !== undefined
+        ? { additiveFeeAmount: saved.additiveFeeCents / 100 }
+        : {}),
       installmentAmount: saved.buyerTotalCents / (100 * Number(n)),
       domFeeRate: 0,
       platformFeePercent: 0,

@@ -26,12 +26,15 @@ const input = {
   },
 };
 
-function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
+function fixture(
+  acquirer: 'DOM' | 'FRENDZ' = 'DOM',
+  feeMode: 'ADDITIVE_ONLY' | 'SIMINTPAY_ONLY' = 'ADDITIVE_ONLY',
+) {
   process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'a'.repeat(64);
   const platform = {
     ...context,
     acquirer,
-    feeMode: 'ADDITIVE_ONLY',
+    feeMode,
     isActive: true,
     owner: { isActive: true, isPurged: false },
     integrations: [
@@ -202,7 +205,8 @@ function allowFallback(f: ReturnType<typeof fixture>) {
 
 describe('platform payment core', () => {
   test('missing editable policy blocks the draft, reservation and gateway', async () => {
-    const f = fixture();
+    // ADDITIVE_ONLY needs no SimIntPay lane (the seller pays nothing); seller-paying modes do.
+    const f = fixture('DOM', 'SIMINTPAY_ONLY');
     f.prisma.financialPolicyRevision.findMany.mockResolvedValue([]);
     await expect(f.service.create(context, input)).rejects.toThrow(
       'não configuradas',
