@@ -54,3 +54,16 @@ export function pickLegacyOrigin(metadata: Metadata): Record<string, unknown> {
     ...(m.legacyId !== undefined ? { legacyId: m.legacyId } : {}),
   };
 }
+
+/** The stored link webhook (`metadata.webhookUrl`), carried over an update that omits it. */
+export function pickWebhookUrl(metadata: Metadata): Record<string, unknown> {
+  const value = metadata?.webhookUrl;
+  return value === undefined ? {} : { webhookUrl: value };
+}
+
+export function offerWebhookUrl(offer: { metadata: unknown }): string | null {
+  const meta = offer.metadata;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+  const value = (meta as Record<string, unknown>).webhookUrl;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}

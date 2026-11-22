@@ -10,7 +10,8 @@ import {
   type StoredPaymentMethods,
 } from '../../application/helpers/accepted-payment-methods.helper';
 import { intervalForFrequency } from './offer-interval';
-import { readOfferFulfillment } from './offer-fulfillment';
+import { readOfferFulfillment, unsafeUrlReason } from './offer-fulfillment';
+import { offerWebhookUrl } from './offer-legacy-origin';
 import type { CreateOfferDto, UpdateOfferDto } from './offer.dto';
 
 /**
@@ -65,6 +66,33 @@ function mergedFulfillment(
   };
 }
 
+/** Validated `metadata.webhookUrl` for a create body; undefined when none was sent. */
+function webhookMetadata(
+  webhookUrl: string | undefined | null,
+): Record<string, unknown> | undefined {
+  const url = present(webhookUrl);
+  if (!url) return undefined;
+  const reason = unsafeUrlReason(url);
+  if (reason) throw new BadRequestException(`webhookUrl: ${reason}`);
+  return { webhookUrl: url };
+}
+
+/** Update body: an empty string clears the webhook; omitted keeps it. Other metadata is kept. */
+function mergedWebhookMetadata(
+  current: unknown,
+  webhookUrl: string | undefined | null,
+): Record<string, unknown> | undefined {
+  if (webhookUrl === undefined) return undefined;
+  const base =
+    current && typeof current === 'object' && !Array.isArray(current)
+      ? (current as Record<string, unknown>)
+      : {};
+  return {
+    ...base,
+    webhookUrl: webhookMetadata(webhookUrl)?.webhookUrl ?? null,
+  };
+}
+
 // ── Payment links ───────────────────────────────────────────────────────────
 
 export function paymentMethodsOf(flags: {
@@ -99,6 +127,7 @@ export function paymentLinkToCreateOffer(
     expiresAt: dto.dataExpiracao,
     maxUses: dto.maxUses,
     fulfillment: Object.keys(fulfillment).length ? fulfillment : undefined,
+    metadata: webhookMetadata(dto.webhookUrl),
     ownerUserId,
     platformTag: singlePlatformTag(dto.plataformas ?? []),
   } as CreateOfferDto;
@@ -135,6 +164,7 @@ export function paymentLinkToUpdateOffer(
     expiresAt: dto.dataExpiracao,
     maxUses: dto.maxUses,
     fulfillment: mergedFulfillment(existing.fulfillment, dto),
+    metadata: mergedWebhookMetadata(existing.metadata, dto.webhookUrl),
     // Read by OfferService.update through assertOwnershipPreserved (platform is immutable).
     ...(dto.plataformas !== undefined
       ? { platformTag: singlePlatformTag(dto.plataformas) ?? '' }
@@ -186,7 +216,7 @@ export function paymentLinkDetail(offer: Offer) {
     aceitaDebito: methods.includes('DEBIT_CARD'),
     aceitaPix: methods.includes('PIX'),
     redirectUrl: fulfillment.redirectUrl,
-    webhookUrl: null,
+    webhookUrl: offerWebhookUrl(offer),
     emailBody: fulfillment.emailBody,
     plataformas: plataformasOf(offer),
     files: fulfillment.files.map((file) => ({
@@ -291,6 +321,7 @@ export function subscriptionLinkToCreateOffer(
     ...scheduleFor(dto.frequencia),
     maxUses: dto.maxUses,
     fulfillment: Object.keys(fulfillment).length ? fulfillment : undefined,
+    metadata: webhookMetadata(dto.webhookUrl),
     ownerUserId,
     platformTag: singlePlatformTag([
       ...(dto.plataformas ?? []),
@@ -323,6 +354,7 @@ export function subscriptionLinkToUpdateOffer(
     isActive: dto.isActive,
     maxUses: dto.maxUses,
     fulfillment: mergedFulfillment(existing.fulfillment, dto),
+    metadata: mergedWebhookMetadata(existing.metadata, dto.webhookUrl),
     ...(platformProvided
       ? {
           platformTag:
@@ -383,7 +415,7 @@ export function subscriptionLinkDetail(
     usos: offer.usedCount,
     maxUsos: offer.maxUses ?? null,
     redirectUrl: fulfillment.redirectUrl,
-    webhookUrl: null,
+    webhookUrl: offerWebhookUrl(offer),
     platformTag: offer.platformTag ?? null,
     emailBody: fulfillment.emailBody,
     plataformas: plataformasOf(offer),

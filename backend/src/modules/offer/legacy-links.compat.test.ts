@@ -97,7 +97,36 @@ describe('request translation', () => {
       platformTag: 'AREAFLIX',
       fulfillment: { redirectUrl: 'https://x.com/ok', emailBody: 'hi' },
     });
-    expect(JSON.stringify(dto)).not.toContain('hook.example.com');
+    expect(dto.metadata).toEqual({ webhookUrl: 'https://hook.example.com' });
+    expect(JSON.stringify(dto.fulfillment)).not.toContain('hook.example.com');
+  });
+
+  test('webhookUrl is validated on create and an update keeps, replaces or clears it', () => {
+    expect(() =>
+      paymentLinkToCreateOffer({
+        titulo: 'T',
+        valor: 20,
+        webhookUrl: 'http://127.0.0.1/x',
+      } as any),
+    ).toThrow('webhookUrl');
+    const existing = {
+      metadata: { webhookUrl: 'https://a.example/h', boletoDueDays: 3 },
+      fulfillment: null,
+      acceptedMethods: ['PIX'],
+      maxInstallments: 1,
+    } as any;
+    expect(
+      paymentLinkToUpdateOffer({ titulo: 'N' } as any, existing).metadata,
+    ).toBeUndefined();
+    expect(
+      paymentLinkToUpdateOffer(
+        { webhookUrl: 'https://b.example/h' } as any,
+        existing,
+      ).metadata,
+    ).toEqual({ webhookUrl: 'https://b.example/h', boletoDueDays: 3 });
+    expect(
+      paymentLinkToUpdateOffer({ webhookUrl: '' } as any, existing).metadata,
+    ).toEqual({ webhookUrl: null, boletoDueDays: 3 });
   });
 
   test('two different platforms are refused like the native rule', () => {

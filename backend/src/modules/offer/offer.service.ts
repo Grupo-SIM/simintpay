@@ -43,7 +43,11 @@ import {
   loadCyclePolicyContext,
   quoteOfferCycle,
 } from '../billing-core/cycle-pricing';
-import { pickLegacyOrigin, withoutLegacyOrigin } from './offer-legacy-origin';
+import {
+  pickLegacyOrigin,
+  pickWebhookUrl,
+  withoutLegacyOrigin,
+} from './offer-legacy-origin';
 import {
   OfferValidationError,
   validateOfferInput,
@@ -315,6 +319,10 @@ export class OfferService {
         dto.graceDays === undefined ? existing.graceDays : dto.graceDays,
       metadata: dto.metadata
         ? {
+            // O webhook do link só muda quando o corpo traz a chave (null limpa).
+            ...pickWebhookUrl(
+              existing.metadata as Record<string, unknown> | null,
+            ),
             ...withoutLegacyOrigin(dto.metadata),
             ...pickLegacyOrigin(
               existing.metadata as Record<string, unknown> | null,
