@@ -12,6 +12,7 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import { getAffiliates } from '@/features/affiliates/affiliates.service';
+import { getMarginAffiliates } from '@/features/margin-affiliates/margin-affiliates.service';
 import { getCoproduction } from '@/features/coproduction/coproduction.service';
 import type { CoproductionProduct } from '@/features/coproduction/types';
 import { ParticipationsEditor } from './ParticipationsEditor';
@@ -67,11 +68,20 @@ export function ParticipationsDialog({
     enabled: Boolean(user?.id),
     ...queryOptions,
   });
+  const isAdmin = Boolean(user?.isAdmin);
+  const margin = useQuery({
+    queryKey: ['margin-affiliates', user?.id, product, productId],
+    queryFn: () => getMarginAffiliates(api, product, productId),
+    enabled: Boolean(user?.id) && isAdmin,
+    ...queryOptions,
+  });
   const failed = coproduction.isError
     ? `Não foi possível carregar a co-produção. ${coproduction.error.message}`
     : affiliates.isError
       ? `Não foi possível carregar os afiliados. ${affiliates.error.message}`
-      : null;
+      : margin.isError
+        ? `Não foi possível carregar os afiliados da margem. ${margin.error.message}`
+        : null;
   const ready = coproduction.data && affiliates.data;
   const shell = (children: ReactNode) => (
     <CoproductionDialogContent
@@ -108,6 +118,7 @@ export function ParticipationsDialog({
             onClick={() => {
               if (coproduction.isError) void coproduction.refetch();
               if (affiliates.isError) void affiliates.refetch();
+              if (margin.isError) void margin.refetch();
             }}
           >
             Tentar novamente
@@ -118,7 +129,12 @@ export function ParticipationsDialog({
         </div>
       </div>,
     );
-  else if (!coproduction.data || !affiliates.data || !user)
+  else if (
+    !coproduction.data ||
+    !affiliates.data ||
+    !user ||
+    (isAdmin && !margin.data)
+  )
     content = shell(
       <div
         aria-label="Carregando participações"
@@ -141,9 +157,11 @@ export function ParticipationsDialog({
         ownerEmail={!user.isAdmin ? user.email : undefined}
         coproduction={coproduction.data}
         affiliates={affiliates.data}
+        margin={isAdmin ? margin.data : undefined}
         description={DESCRIPTION[product]}
         refetchCoproduction={() => coproduction.refetch()}
         refetchAffiliates={() => affiliates.refetch()}
+        refetchMargin={isAdmin ? () => margin.refetch() : undefined}
         onClose={close}
       />
     );

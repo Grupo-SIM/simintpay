@@ -63,12 +63,20 @@ async function mock(page, state) {
     const url = new URL(req.url());
     if (url.hostname !== '127.0.0.1') return route.abort();
     if (!url.pathname.startsWith('/api')) return route.continue();
-    if (url.pathname === '/api/auth/me') return route.fulfill({ json: me });
+    if (url.pathname === '/api/auth/me')
+      return route.fulfill({
+        json: { data: { ...me.data, isAdmin: Boolean(state.isAdmin) } },
+      });
     if (url.pathname.endsWith('/contas'))
       return route.fulfill({
         json: { data: accounts, total: 2, page: 1, pageSize: 20 },
       });
-    const key = url.pathname.startsWith('/api/coproducao/') ? 'co' : 'aff';
+    const key = url.pathname.startsWith('/api/coproducao/')
+      ? 'co'
+      : url.pathname.startsWith('/api/comissoes/margem/')
+        ? 'margin'
+        : 'aff';
+    (state.requests ??= []).push(`${req.method()} ${url.pathname}`);
     if (state.loadError?.[key])
       return route.fulfill({
         status: state.loadError[key],
@@ -89,7 +97,7 @@ async function mock(page, state) {
         key === 'co'
           ? { ...state.co, ...body, version: body.version + 1 }
           : {
-              ...state.aff,
+              ...state[key],
               ...body,
               version: body.version + 1,
               affiliates: body.affiliates.map((row) => ({
@@ -476,6 +484,58 @@ test('platform: link base, copyable code and joint total without inheritance con
     // fechar pelo histórico
     await page.goBack();
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    await page.close();
+  } finally {
+    await browser.close();
+    server.stop(true);
+  }
+}, 180000);
+
+test('margin affiliates tab is admin-only, outside the joint total, and saves without link base', async () => {
+  const { server, browser } = await serve();
+  try {
+    const make = () => ({
+      co: baseCo([ana(1000)], { mode: 'OWN' }),
+      aff: baseAff([bruno(2000)]),
+      margin: baseAff([anaAff(3000)], { commissionOnRenewals: true }),
+    });
+    const plain = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+    });
+    plain.setDefaultTimeout(30000);
+    const regular = { ...make(), isAdmin: false };
+    await mock(plain, regular);
+    await open(plain, server, 'plataformas');
+    expect(
+      await plain.getByRole('tab', { name: 'Afiliado SimIntPay' }).count(),
+    ).toBe(0);
+    expect(regular.requests.some((item) => item.includes('/margem/'))).toBe(
+      false,
+    );
+    await plain.close();
+
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+    });
+    page.setDefaultTimeout(30000);
+    const state = { ...make(), isAdmin: true };
+    await mock(page, state);
+    await open(page, server, 'plataformas');
+    const joint = await total(page);
+    await page.getByRole('tab', { name: 'Afiliado SimIntPay' }).click();
+    await page.getByText('Margem SimIntPay:').waitFor();
+    expect(await page.getByTestId('margin-affiliate-total').innerText()).toBe(
+      '30%',
+    );
+    expect(await page.getByLabel('Link base').count()).toBe(0);
+    await page
+      .getByRole('button', { name: 'Salvar afiliados da margem' })
+      .click();
+    await page.getByText('Afiliados da margem salvos').waitFor();
+    expect(state.writes.at(-1).key).toBe('margin');
+    expect('linkBaseUrl' in state.writes.at(-1).body).toBe(false);
+    await page.getByRole('tab', { name: 'Co-produção' }).click();
+    expect(await total(page)).toBe(joint);
     await page.close();
   } finally {
     await browser.close();

@@ -3,6 +3,8 @@ export const endpoints = {
     accounts: '/comissoes/contas',
     configuration: (product: 'plataformas' | 'ofertas', id: string) =>
       `/comissoes/${product}/${encodeURIComponent(id)}`,
+    marginConfiguration: (product: 'plataformas' | 'ofertas', id: string) =>
+      `/comissoes/margem/${product}/${encodeURIComponent(id)}`,
     receipts: '/comissoes/recebimentos',
   },
   coproduction: {

@@ -43,7 +43,9 @@ export async function getAffiliates(
   return parseAffiliates(response?.data);
 }
 
-const canonical = (rows: { email: string; percentageBps: number | null }[]) =>
+export const canonical = (
+  rows: { email: string; percentageBps: number | null }[],
+) =>
   JSON.stringify(
     rows
       .map((row) => ({

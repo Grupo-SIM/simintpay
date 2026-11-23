@@ -14,6 +14,7 @@ import {
   serializeAffiliates,
   validateAffiliates,
 } from '@/features/affiliates/affiliates';
+import { serializeMarginAffiliates } from '@/features/margin-affiliates/margin-affiliates';
 import type {
   AffiliateAgreement,
   AffiliateSaveInput,
@@ -31,6 +32,7 @@ export function AffiliatesForm({
   closeLabel = 'Descartar',
   notice,
   platform,
+  margin = false,
   pending,
   blocked,
   ownerEmail,
@@ -45,6 +47,8 @@ export function AffiliatesForm({
   /** Erro do servidor e recarga, logo acima dos botões. */
   notice?: ReactNode;
   platform: boolean;
+  /** Afiliado pago da margem SimIntPay: sem link base e com textos próprios. */
+  margin?: boolean;
   pending: boolean;
   blocked: boolean;
   ownerEmail?: string;
@@ -58,7 +62,7 @@ export function AffiliatesForm({
   const inherited = initial.inherited;
   const error = validateAffiliates(draft, {
     ownerEmail,
-    platform,
+    platform: platform && !margin,
     inheritedDefaultBps: inherited?.defaultPercentageBps,
   });
   const disabled = pending || blocked;
@@ -102,7 +106,7 @@ export function AffiliatesForm({
             Vale para quem não tem percentual próprio.
           </p>
         </div>
-        {platform && (
+        {platform && !margin && (
           <div className="space-y-1.5">
             <label htmlFor={linkId} className="text-sm font-medium">
               Link base
@@ -175,7 +179,7 @@ export function AffiliatesForm({
                 key={row.id}
                 row={row}
                 disabled={disabled}
-                linkBaseUrl={initial.linkBaseUrl}
+                linkBaseUrl={margin ? undefined : initial.linkBaseUrl}
                 onChange={updateRow}
                 onRemove={() => {
                   removeRow(row.id);
@@ -253,9 +257,19 @@ export function AffiliatesForm({
           type="button"
           className="h-11 cursor-pointer rounded-xl border border-[#7c3aed] bg-[#7c3aed] text-white hover:bg-[#6d28d9] disabled:cursor-not-allowed"
           disabled={disabled || Boolean(error ?? extraError)}
-          onClick={() => onSave(serializeAffiliates(draft, platform))}
+          onClick={() =>
+            onSave(
+              margin
+                ? serializeMarginAffiliates(draft, platform)
+                : serializeAffiliates(draft, platform),
+            )
+          }
         >
-          {pending ? 'Salvando...' : 'Salvar afiliados'}
+          {pending
+            ? 'Salvando...'
+            : margin
+              ? 'Salvar afiliados da margem'
+              : 'Salvar afiliados'}
         </Button>
       </DialogFooter>
     </>

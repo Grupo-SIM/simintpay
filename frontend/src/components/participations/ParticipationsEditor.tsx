@@ -30,14 +30,16 @@ import {
 } from '@/features/participations/joint';
 import type { ApiClient } from '@/services/api/api.client';
 import { ApiError } from '@/services/api/types';
+import { MarginAffiliatesPanel } from './MarginAffiliatesPanel';
 import { ParticipationTotals } from './ParticipationTotals';
 import type { ParticipationsProduct } from './ParticipationsDialog';
 
-type Tab = 'coproduction' | 'affiliates';
+type Tab = 'coproduction' | 'affiliates' | 'margin';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'coproduction', label: 'Co-produção' },
   { id: 'affiliates', label: 'Afiliados' },
 ];
+const MARGIN_TAB = { id: 'margin', label: 'Afiliado SimIntPay' } as const;
 
 const isConflict = (
   error: unknown,
@@ -61,9 +63,11 @@ export function ParticipationsEditor({
   ownerEmail,
   coproduction,
   affiliates,
+  margin,
   description,
   refetchCoproduction,
   refetchAffiliates,
+  refetchMargin,
   onClose,
 }: {
   api: ApiClient;
@@ -73,9 +77,12 @@ export function ParticipationsEditor({
   ownerEmail?: string;
   coproduction: Coproduction;
   affiliates: AffiliateAgreement;
+  /** Só para admin: afiliados pagos da margem SimIntPay. */
+  margin?: AffiliateAgreement;
   description: string;
   refetchCoproduction: () => Promise<{ data?: Coproduction }>;
   refetchAffiliates: () => Promise<{ data?: AffiliateAgreement }>;
+  refetchMargin?: () => Promise<{ data?: AffiliateAgreement }>;
   onClose: () => void;
 }) {
   const platform = product === 'plataformas';
@@ -144,7 +151,9 @@ export function ParticipationsEditor({
       toast({ type: 'success', title: 'Afiliados salvos' });
     },
   });
-  const pending = coSave.isPending || affSave.isPending;
+  const [marginPending, setMarginPending] = useState(false);
+  const tabs = margin ? [...TABS, MARGIN_TAB] : TABS;
+  const pending = coSave.isPending || affSave.isPending || marginPending;
   const coConflict = isConflict(coSave.error, CoproductionConfirmationError);
   const affConflict = isConflict(affSave.error, AffiliateConfirmationError);
 
@@ -190,9 +199,12 @@ export function ParticipationsEditor({
           <div
             role="tablist"
             aria-label="Tipo de participação"
-            className="grid shrink-0 grid-cols-2 gap-1 border-b border-zinc-200 px-6 pt-3 dark:border-white/10"
+            className="grid shrink-0 gap-1 border-b border-zinc-200 px-6 pt-3 dark:border-white/10"
+            style={{
+              gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+            }}
           >
-            {TABS.map(({ id, label }) => (
+            {tabs.map(({ id, label }) => (
               <button
                 key={id}
                 id={`participations-tab-${id}`}
@@ -211,7 +223,7 @@ export function ParticipationsEditor({
               </button>
             ))}
           </div>
-          <ParticipationTotals result={joint} />
+          {tab !== 'margin' && <ParticipationTotals result={joint} />}
         </>
       }
     >
@@ -282,6 +294,26 @@ export function ParticipationsEditor({
           )}
         />
       </div>
+      {margin && refetchMargin && (
+        <div
+          role="tabpanel"
+          id="participations-panel-margin"
+          aria-labelledby="participations-tab-margin"
+          hidden={tab !== 'margin'}
+          className="space-y-5"
+        >
+          <MarginAffiliatesPanel
+            api={api}
+            product={product}
+            productId={productId}
+            userId={userId}
+            margin={margin}
+            refetch={refetchMargin}
+            onPendingChange={setMarginPending}
+            onClose={onClose}
+          />
+        </div>
+      )}
     </CoproductionDialogContent>
   );
 }
