@@ -3,6 +3,10 @@ import {
   isRenewalCharge,
   renewalAffiliate,
 } from '../affiliate/affiliate-capture';
+import {
+  contractMarginAffiliate,
+  renewalMarginAffiliate,
+} from '../affiliate/margin-affiliate-capture';
 import { ConflictException } from '@nestjs/common';
 import { coproductionKeyFor } from '../offer/offer-coproduction';
 import { Prisma, type Charge, type Offer } from '@prisma/client';
@@ -75,16 +79,24 @@ export async function recordCyclePayment(
         select: { metadata: true },
       })
     : null;
-  const coproduction = renewalAffiliate(
-    await captureCoproduction(
-      tx,
+  const renewal = await isRenewalCharge(tx, charge.contractId, charge.id);
+  const coproduction = renewalMarginAffiliate(
+    renewalAffiliate(
+      await captureCoproduction(
+        tx,
+        key.product,
+        key.productId,
+        charge.ownerUserId,
+        offer.platformTag ? platformTag : undefined,
+      ),
+      contractAffiliate(contract?.metadata),
+      renewal,
       key.product,
       key.productId,
       charge.ownerUserId,
-      offer.platformTag ? platformTag : undefined,
     ),
-    contractAffiliate(contract?.metadata),
-    await isRenewalCharge(tx, charge.contractId, charge.id),
+    contractMarginAffiliate(contract?.metadata),
+    renewal,
     key.product,
     key.productId,
     charge.ownerUserId,

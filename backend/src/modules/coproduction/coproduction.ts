@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AffiliateSnapshot, Deduplication } from '../affiliate/affiliate';
+import type { MarginAffiliateSnapshot } from '../affiliate/margin-affiliate';
 
 export const productTables = {
   plataformas: 'Platform',
@@ -58,6 +59,8 @@ export type Snapshot = {
   participants: { userId: string; percentageBps: number }[];
   /** Platform/offer affiliate of this sale; paid out of the owner's share, never a participant. */
   affiliate?: AffiliateSnapshot;
+  /** Affiliate paid from the SimIntPay margin; independent of the net-based shares above. */
+  marginAffiliate?: MarginAffiliateSnapshot;
   /** Audit: the same person was coproducer and affiliate; which entry was dropped. */
   deduplication?: Deduplication;
 };
@@ -194,6 +197,17 @@ export function snapshotFrom(
     )
       throw new BadRequestException('Snapshot de afiliado inválido');
     total += a.percentageBps;
+  }
+  if (s.marginAffiliate) {
+    const m = s.marginAffiliate;
+    if (
+      !m.userId ||
+      m.userId === s.ownerUserId ||
+      !Number.isInteger(m.percentageBps) ||
+      m.percentageBps < 1 ||
+      m.percentageBps > 10000
+    )
+      throw new BadRequestException('Snapshot de afiliado inválido');
   }
   if (total > 10000)
     throw new BadRequestException('Snapshot de co-produção inválido');

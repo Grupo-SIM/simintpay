@@ -4,11 +4,14 @@ import { CoproductionService } from '../coproduction/coproduction.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { AffiliateController } from './affiliate.controller';
 import { AffiliateService } from './affiliate.service';
+import { MarginAffiliateController } from './margin-affiliate.controller';
+import { MarginAffiliateService } from './margin-affiliate.service';
 
 @Module({
-  controllers: [AffiliateController],
+  controllers: [AffiliateController, MarginAffiliateController],
   providers: [
     AffiliateService,
+    MarginAffiliateService,
     CoproductionService,
     JwtAuthGuard,
     CoproductionSessionGuard,

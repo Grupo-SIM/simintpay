@@ -470,12 +470,17 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
             acquirer,
             description: offer.name.slice(0, 120),
             // The first sale's affiliate is frozen here; renewals pay from this snapshot.
-            ...(pendingCard || coproduction?.affiliate
+            ...(pendingCard ||
+            coproduction?.affiliate ||
+            coproduction?.marginAffiliate
               ? {
                   metadata: {
                     ...(pendingCard ? { pendingCard } : {}),
                     ...(coproduction?.affiliate
                       ? { affiliate: coproduction.affiliate }
+                      : {}),
+                    ...(coproduction?.marginAffiliate
+                      ? { marginAffiliate: coproduction.marginAffiliate }
                       : {}),
                   } as unknown as Prisma.InputJsonValue,
                 }
@@ -758,16 +763,16 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const trialKey = coproductionKeyFor(offer);
-      const trialAffiliate = (
-        await captureAffiliate(this.prisma, null, {
-          product: trialKey.product,
-          productId: trialKey.productId,
-          ownerUserId: offer.ownerUserId,
-          platformTag: offer.platformTag?.toUpperCase(),
-          tracking: input.tracking,
-          buyerEmail: email,
-        })
-      )?.affiliate;
+      const trialCapture = await captureAffiliate(this.prisma, null, {
+        product: trialKey.product,
+        productId: trialKey.productId,
+        ownerUserId: offer.ownerUserId,
+        platformTag: offer.platformTag?.toUpperCase(),
+        tracking: input.tracking,
+        buyerEmail: email,
+      });
+      const trialAffiliate = trialCapture?.affiliate;
+      const trialMargin = trialCapture?.marginAffiliate;
       await this.prisma.billingContract.update({
         where: { id: contract.id },
         data: {
@@ -776,6 +781,7 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
           metadata: {
             pendingCard,
             ...(trialAffiliate ? { affiliate: trialAffiliate } : {}),
+            ...(trialMargin ? { marginAffiliate: trialMargin } : {}),
           } as unknown as Prisma.InputJsonValue,
         },
       });

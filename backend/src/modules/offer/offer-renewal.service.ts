@@ -37,6 +37,10 @@ import {
   renewalAffiliate,
 } from '../affiliate/affiliate-capture';
 import {
+  contractMarginAffiliate,
+  renewalMarginAffiliate,
+} from '../affiliate/margin-affiliate-capture';
+import {
   captureCoproduction,
   withCoproduction,
 } from '../coproduction/coproduction.service';
@@ -510,16 +514,24 @@ export class OfferRenewalService {
     const document = contract.customerDocument.replace(/\D/g, '');
     const amount = charge.amountCents / 100;
     const key = coproductionKeyFor(offer);
-    const coproduction = renewalAffiliate(
-      await captureCoproduction(
-        tx,
+    const renewal = await isRenewalCharge(tx, contract.id, charge.id);
+    const coproduction = renewalMarginAffiliate(
+      renewalAffiliate(
+        await captureCoproduction(
+          tx,
+          key.product,
+          key.productId,
+          offer.ownerUserId,
+          offer.platformTag ? ctx.platformTag : undefined,
+        ),
+        contractAffiliate(contract.metadata),
+        renewal,
         key.product,
         key.productId,
         offer.ownerUserId,
-        offer.platformTag ? ctx.platformTag : undefined,
       ),
-      contractAffiliate(contract.metadata),
-      await isRenewalCharge(tx, contract.id, charge.id),
+      contractMarginAffiliate(contract.metadata),
+      renewal,
       key.product,
       key.productId,
       offer.ownerUserId,

@@ -361,6 +361,14 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
   separados de taxas e coprodutores, e o líquido dele já desconta a comissão. Quem tem co-produção e
   afiliação na mesma venda vê as duas linhas separadas.
 
+### Afiliado SimIntPay (margem)
+
+- Afiliado configurado só por administrador, por plataforma e oferta, com as mesmas regras de lista,
+  código e renovação do afiliado comum, mas pago sobre a margem SimIntPay (valor pago pelo comprador −
+  líquido do vendedor − custo realizado da adquirente), nunca sobre o líquido do dono. Margem
+  desconhecida ou negativa não gera comissão. Não soma nem deduplica com coprodutores/afiliados comuns.
+  Detalhes em [afiliados](afiliados.md).
+
 ### Coprodução por plataforma
 
 - Plataforma define padrão versionado, gerido por proprietário aprovado ou admin.

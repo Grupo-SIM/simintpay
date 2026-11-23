@@ -14,6 +14,10 @@ import {
   type AffiliateSnapshot,
 } from './affiliate';
 
+import { platformIdOfOffer } from './affiliate-platform';
+import { captureMarginAffiliate } from './margin-affiliate-capture';
+
+export { platformIdOfOffer };
 type Db = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
 type StoredConfig = {
@@ -34,29 +38,6 @@ export async function readAffiliateConfig(
     StoredConfig[]
   >`SELECT version, "defaultPercentageBps", "commissionOnRenewals", "linkBaseUrl", affiliates FROM "AffiliateAgreement" WHERE product = ${product} AND "productId" = ${productId}`;
   return rows[0] ?? null;
-}
-
-/** Same platform resolution as the coproduction capture: the offer's tag, else its owner's platform. */
-export async function platformIdOfOffer(
-  db: Db,
-  offerId: string,
-  platformTag?: string,
-): Promise<string | null> {
-  if (!platformTag) {
-    const rows = await db.$queryRaw<
-      { tag: string | null }[]
-    >`SELECT coalesce(p."platformTag", fallback.tag) AS tag FROM "Offer" p JOIN "User" u ON u.id = p."ownerUserId" LEFT JOIN "Platform" fallback ON fallback.id = u."platformId" WHERE p.id = ${offerId}`;
-    platformTag = rows[0]?.tag ?? undefined;
-  }
-  if (
-    !platformTag ||
-    ['GLOBAL', 'SIMINTPAY'].includes(platformTag.toUpperCase())
-  )
-    return null;
-  const platforms = await db.$queryRaw<
-    { id: string }[]
-  >`SELECT id FROM "Platform" WHERE tag = ${platformTag.toUpperCase()} AND "isActive" = true`;
-  return platforms[0]?.id ?? null;
 }
 
 function participantsTotal(snapshot: Snapshot | null): number {
@@ -133,6 +114,18 @@ export type CaptureContext = {
  * the owner and the buyer himself yield no commission and no error.
  */
 export async function captureAffiliate(
+  db: Db,
+  snapshot: Snapshot | null,
+  ctx: CaptureContext,
+): Promise<Snapshot | null> {
+  return captureMarginAffiliate(
+    db,
+    await captureNetAffiliate(db, snapshot, ctx),
+    ctx,
+  );
+}
+
+async function captureNetAffiliate(
   db: Db,
   snapshot: Snapshot | null,
   ctx: CaptureContext,

@@ -197,3 +197,28 @@ Somente leitura e sem dados de terceiros; espelha a visibilidade da co-produçã
 
 Aplicar a migration `20261122090000_affiliates` (aditiva) antes do backend; depois frontend/checkout.
 Nada é retroativo: vendas e assinaturas existentes não ganham afiliado.
+
+## Afiliado SimIntPay (margem)
+
+Mesmo mecanismo de afiliado (código `aff`, lista por plataforma e oferta, soma plataforma + oferta,
+percentual por pessoa ou global, `commissionOnRenewals`), mas a comissão sai da **margem da
+SimIntPay**, nunca do líquido do dono nem dos coprodutores. Só administrador ativo configura.
+
+- Tabelas próprias: `MarginAffiliateAgreement`, `MarginAffiliateRevision`,
+  `MarginAffiliateAllocation` (migration `20261123090000_margin_affiliates`, aditiva). O código
+  (`AffiliateCode`) é o mesmo da pessoa na plataforma; o snapshot da venda ganha
+  `financialSnapshot.coproduction.marginAffiliate`, independente de `affiliate`.
+- Margem da venda em centavos: `buyerTotalCents − líquido do vendedor − acquirerCost.realizedCents`
+  (mesma conta do lucro Simpay). Custo realizado desconhecido ou margem negativa: margem zero, sem
+  alocação. Comissão = `floor(margem × bps / 10000)`, congelada no primeiro crédito (`COMPLETED`);
+  mediação bloqueia e estorno/chargeback revertem o valor original.
+- Sem deduplicação nem limite conjunto com coprodutores/afiliados comuns: a mesma pessoa pode estar
+  nas duas listas e recebe de duas bases distintas. Limite próprio: cada percentual efetivo <= 100%
+  da margem.
+- Carteira: `nature: AFFILIATE`, ação `AFFILIATE_MARGIN_<status>`, metadado `basis: SIMINTPAY_MARGIN`.
+- Renovação usa `BillingContract.metadata.marginAffiliate` da primeira venda.
+- Endpoints (sessão admin): `GET|PUT /comissoes/margem/plataformas/:platformId` e
+  `/comissoes/margem/ofertas/:id`; corpo e resposta como o afiliado comum, sem `linkBaseUrl`.
+- Interface: aba "Afiliado SimIntPay" no diálogo Participações, visível só para admin.
+- Pendente: relatórios de lucro Simpay ainda não abatem essa comissão; o afiliado ainda não a vê em
+  `/comissoes/recebimentos` (aparece na carteira/extrato).

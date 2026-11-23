@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -17,13 +16,13 @@ import {
 import { productTables } from '../coproduction/coproduction';
 import {
   emptyConfig,
-  generateAffiliateCode,
   validateAffiliateInput,
   type AffiliateConfig,
   type AffiliateProduct,
 } from './affiliate';
 import { assertJointLimit } from './affiliate-limit';
 import { platformIdOfOffer, readAffiliateConfig } from './affiliate-capture';
+import { ensureAffiliateCode } from './affiliate-code';
 
 type Tx = Prisma.TransactionClient;
 type Scope = {
@@ -229,7 +228,7 @@ export class AffiliateService {
         affiliates,
       };
       for (const a of affiliates)
-        await this.ensureCode(tx, scope.platformId, a.userId);
+        await ensureAffiliateCode(tx, scope.platformId, a.userId);
       const list = JSON.stringify(affiliates);
       await tx.$executeRaw`INSERT INTO "AffiliateAgreement" (product, "productId", version, "defaultPercentageBps", "commissionOnRenewals", "linkBaseUrl", affiliates, "actorId")
         VALUES (${product}, ${id}, ${next.version}, ${next.defaultPercentageBps}, ${next.commissionOnRenewals}, ${next.linkBaseUrl}, ${list}::jsonb, ${actorId})
@@ -250,21 +249,6 @@ export class AffiliateService {
           : null;
       return this.present(tx, product, scope, next, platform);
     });
-  }
-
-  /** Stable per (platform, person); created the first time the person joins any list. */
-  private async ensureCode(tx: Tx, platformId: string, userId: string) {
-    const existing = await tx.$queryRaw<
-      { code: string }[]
-    >`SELECT code FROM "AffiliateCode" WHERE "platformId" = ${platformId} AND "userId" = ${userId}`;
-    if (existing.length) return existing[0].code;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const code = generateAffiliateCode(randomBytes);
-      const inserted =
-        await tx.$executeRaw`INSERT INTO "AffiliateCode" ("platformId", "userId", code) VALUES (${platformId}, ${userId}, ${code}) ON CONFLICT DO NOTHING`;
-      if (inserted) return code;
-    }
-    throw new ConflictException('Não foi possível gerar o código do afiliado');
   }
 
   async receipts(

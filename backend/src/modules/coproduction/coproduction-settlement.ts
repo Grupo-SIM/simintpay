@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { allocateNet, snapshotFrom } from './coproduction';
 import { settleAffiliate } from '../affiliate/affiliate-settlement';
+import { settleMarginAffiliate } from '../affiliate/margin-affiliate-settlement';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 import { canonicalTransactionPlatformTag } from '../platform-core/transaction-platform';
 
@@ -31,6 +32,7 @@ export async function settleCoproduction(
       'Proprietário ou líquido incompatível com snapshot',
     );
   await settleAffiliate(tx, row, snapshot, status, source);
+  await settleMarginAffiliate(tx, row, snapshot, status, source);
   // Affiliate-only sale: the owner is credited by the regular path (net minus the commission).
   if (!snapshot.participants.length) return false;
   const target =
