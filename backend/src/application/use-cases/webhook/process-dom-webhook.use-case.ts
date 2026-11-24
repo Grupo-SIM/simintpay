@@ -210,6 +210,14 @@ export class ProcessDomWebhookUseCase {
           event.data.cod_external ?? event.data.external_reference,
         );
         if (!handled) throw new Error('EBOOK_ENROLLMENT_BINDING_REQUIRED');
+        // A liquidação EBOOK_V1 não passa pelo caminho abaixo, então avisa o back-ebook aqui
+        // (senão o pedido fica 'pending' lá e a biblioteca do cliente fica vazia).
+        await this.tryNotifyBackEbookOrderPaidFromDomWebhook(event.data).catch(
+          (err) =>
+            this.logger.error(
+              `[DomWebhook][ebook] falha ao notificar back-ebook (EBOOK_V1) domPaymentId=${event.data.id}: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+        );
         await this.prisma.webhookEvent.update({
           where: { id: wh.id },
           data: { status: 'PROCESSED', processedAt: new Date() },
