@@ -217,6 +217,8 @@ model Transaction {
   customerEmail    String?
   customerDocument String?
   customerPhone    String?
+  /// CPF/CNPJ (digits) the merchant issued the sale under, informed by the integrating platform (e.g. a Delivery unit CNPJ).
+  merchantDocument String?
   tracking         Json?
   /// Canonical platform tag (hyphenated, e.g. ZERO-GRAU). Filled from the [TENANT:x] marker of the
   /// description on insert and by the migration backfill; editable afterwards.

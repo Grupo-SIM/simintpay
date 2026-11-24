@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  Matches,
   MaxLength,
   Min,
   MinLength,
@@ -84,6 +85,8 @@ export class CreatePlatformPaymentDto extends PlatformPaymentPricingDto {
   @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';
   @IsString() @MinLength(1) @MaxLength(128) idempotencyKey!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  /** CPF/CNPJ (digits) the sale is issued under; stored on the transaction for the merchant's records. */
+  @IsOptional() @Matches(/^(\d{11}|\d{14})$/) merchantDocument?: string;
   /** Attribution (utm_*, src, aff...); `aff` names an affiliate of the platform, never a financial input. */
   @IsOptional() @IsObject() tracking?: Record<string, unknown>;
   @IsDefined()

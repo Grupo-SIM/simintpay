@@ -728,6 +728,9 @@ export class PlatformPaymentsService {
         customerEmail: input.customer.email,
         customerDocument: input.customer.document,
         customerPhone: input.customer.phone ?? '',
+        ...(input.merchantDocument
+          ? { merchantDocument: input.merchantDocument }
+          : {}),
         installments: cardAcquirer ? input.card!.installments : 1,
         ...(cardAcquirer
           ? { cardBin: input.card!.bin, cardBrand: input.card!.brand }
