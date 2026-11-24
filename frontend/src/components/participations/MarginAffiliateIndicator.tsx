@@ -24,8 +24,7 @@ export function MarginAffiliateIndicator({ result }: { result: MarginResult }) {
       </p>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
         Coprodutores {formatPercentage(result.coproducersBps)}% · Afiliado{' '}
-        {formatPercentage(result.affiliateBps)}% (pior caso). Pago da margem
-        (taxas menos custo do adquirente), fora da divisão do líquido.
+        {formatPercentage(result.affiliateBps)}% (pior caso)
       </p>
       {result.exceeds && (
         <p className="text-xs font-medium text-red-700 dark:text-red-400">
