@@ -8,18 +8,26 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { productTables } from '../coproduction/coproduction';
-import {
-  emptyConfig,
-  validateAffiliateInput,
-  type AffiliateProduct,
-} from './affiliate';
+import { emptyConfig, type AffiliateProduct } from './affiliate';
 import { ensureAffiliateCode } from './affiliate-code';
 import { platformIdOfOffer } from './affiliate-platform';
 import { readMarginConfig } from './margin-affiliate-capture';
-import type { MarginAffiliateConfig } from './margin-affiliate';
+import {
+  marginWorstCaseBps,
+  validateMarginInput,
+  type MarginAffiliateConfig,
+} from './margin-affiliate';
 
 type Tx = Prisma.TransactionClient;
 type Scope = { ownerId: string; platformId: string | null };
+
+const emptyMargin = (product: AffiliateProduct): MarginAffiliateConfig => ({
+  ...emptyConfig(product),
+  coproducers: [],
+});
+
+const percent = (bps: number) =>
+  `${(bps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 
 /** Affiliates paid from the SimIntPay margin. Only an active admin configures them. */
 @Injectable()
@@ -63,6 +71,8 @@ export class MarginAffiliateService {
     const ids = [
       ...saved.affiliates.map((a) => a.userId),
       ...(platform?.affiliates ?? []).map((a) => a.userId),
+      ...saved.coproducers.map((c) => c.userId),
+      ...(platform?.coproducers ?? []).map((c) => c.userId),
     ];
     const users = await tx.user.findMany({
       where: { id: { in: ids } },
@@ -91,6 +101,11 @@ export class MarginAffiliateService {
           code: codes.get(a.userId) ?? null,
           percentageBps: a.percentageBps,
         })),
+        coproducers: saved.coproducers.map((c) => ({
+          email: person(c.userId).email,
+          name: person(c.userId).name,
+          percentageBps: c.percentageBps,
+        })),
         ...(product === 'ofertas'
           ? {
               inherited: {
@@ -100,6 +115,10 @@ export class MarginAffiliateService {
                   name: person(a.userId).name,
                   code: codes.get(a.userId) ?? null,
                   percentageBps: a.percentageBps,
+                })),
+                coproducers: (platform?.coproducers ?? []).map((c) => ({
+                  name: person(c.userId).name,
+                  percentageBps: c.percentageBps,
                 })),
               },
             }
@@ -112,7 +131,7 @@ export class MarginAffiliateService {
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.authorize(tx, actorId, product, id);
       const saved =
-        (await readMarginConfig(tx, product, id)) ?? emptyConfig(product);
+        (await readMarginConfig(tx, product, id)) ?? emptyMargin(product);
       const platform =
         product === 'ofertas' && scope.platformId
           ? await readMarginConfig(tx, 'plataformas', scope.platformId)
@@ -131,7 +150,7 @@ export class MarginAffiliateService {
       throw new BadRequestException(
         'Afiliado SimIntPay não possui link base próprio',
       );
-    const input = validateAffiliateInput(body, product);
+    const input = validateMarginInput(body, product);
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.authorize(tx, actorId, product, id);
       if (!scope.platformId)
@@ -140,15 +159,14 @@ export class MarginAffiliateService {
         );
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`margin-affiliate:${scope.platformId}`}, 0))::text`;
       const previous =
-        (await readMarginConfig(tx, product, id)) ?? emptyConfig(product);
+        (await readMarginConfig(tx, product, id)) ?? emptyMargin(product);
       if (previous.version !== input.version)
         throw new ConflictException(
           'Configuração alterada por outra sessão. Recarregue antes de salvar.',
         );
-      const affiliates: MarginAffiliateConfig['affiliates'] = [];
-      for (const entry of input.affiliates) {
+      const resolve = async (email: string) => {
         const users = await tx.user.findMany({
-          where: { email: { equals: entry.email, mode: 'insensitive' } },
+          where: { email: { equals: email, mode: 'insensitive' } },
           select: {
             id: true,
             isActive: true,
@@ -166,17 +184,25 @@ export class MarginAffiliateService {
           user.role !== 'USER'
         )
           throw new BadRequestException(
-            'Afiliado deve ter uma conta cliente ativa e aprovada',
+            'Participante deve ter uma conta cliente ativa e aprovada',
           );
-        if (
-          user.id === scope.ownerId ||
-          affiliates.some((a) => a.userId === user.id)
-        )
-          throw new BadRequestException('Proprietário ou afiliado duplicado');
-        affiliates.push({
-          userId: user.id,
-          percentageBps: entry.percentageBps,
-        });
+        if (user.id === scope.ownerId)
+          throw new BadRequestException('Proprietário não pode participar');
+        return user.id;
+      };
+      const affiliates: MarginAffiliateConfig['affiliates'] = [];
+      for (const entry of input.affiliates) {
+        const userId = await resolve(entry.email);
+        if (affiliates.some((a) => a.userId === userId))
+          throw new BadRequestException('Afiliado duplicado');
+        affiliates.push({ userId, percentageBps: entry.percentageBps });
+      }
+      const coproducers: MarginAffiliateConfig['coproducers'] = [];
+      for (const entry of input.coproducers) {
+        const userId = await resolve(entry.email);
+        if (coproducers.some((c) => c.userId === userId))
+          throw new BadRequestException('Coprodutor duplicado');
+        coproducers.push({ userId, percentageBps: entry.percentageBps });
       }
       const next: MarginAffiliateConfig = {
         version: previous.version + 1,
@@ -184,20 +210,56 @@ export class MarginAffiliateService {
         commissionOnRenewals: input.commissionOnRenewals,
         linkBaseUrl: null,
         affiliates,
+        coproducers,
       };
       for (const a of affiliates)
         await ensureAffiliateCode(tx, scope.platformId, a.userId);
       const list = JSON.stringify(affiliates);
-      await tx.$executeRaw`INSERT INTO "MarginAffiliateAgreement" (product, "productId", version, "defaultPercentageBps", "commissionOnRenewals", affiliates, "actorId")
-        VALUES (${product}, ${id}, ${next.version}, ${next.defaultPercentageBps}, ${next.commissionOnRenewals}, ${list}::jsonb, ${actorId})
-        ON CONFLICT (product, "productId") DO UPDATE SET version = EXCLUDED.version, "defaultPercentageBps" = EXCLUDED."defaultPercentageBps", "commissionOnRenewals" = EXCLUDED."commissionOnRenewals", affiliates = EXCLUDED.affiliates, "actorId" = EXCLUDED."actorId", "updatedAt" = now()`;
-      await tx.$executeRaw`INSERT INTO "MarginAffiliateRevision" (product, "productId", version, "defaultPercentageBps", "commissionOnRenewals", affiliates, "actorId")
-        VALUES (${product}, ${id}, ${next.version}, ${next.defaultPercentageBps}, ${next.commissionOnRenewals}, ${list}::jsonb, ${actorId})`;
+      const shares = JSON.stringify(coproducers);
+      await tx.$executeRaw`INSERT INTO "MarginAffiliateAgreement" (product, "productId", version, "defaultPercentageBps", "commissionOnRenewals", affiliates, coproducers, "actorId")
+        VALUES (${product}, ${id}, ${next.version}, ${next.defaultPercentageBps}, ${next.commissionOnRenewals}, ${list}::jsonb, ${shares}::jsonb, ${actorId})
+        ON CONFLICT (product, "productId") DO UPDATE SET version = EXCLUDED.version, "defaultPercentageBps" = EXCLUDED."defaultPercentageBps", "commissionOnRenewals" = EXCLUDED."commissionOnRenewals", affiliates = EXCLUDED.affiliates, coproducers = EXCLUDED.coproducers, "actorId" = EXCLUDED."actorId", "updatedAt" = now()`;
+      await tx.$executeRaw`INSERT INTO "MarginAffiliateRevision" (product, "productId", version, "defaultPercentageBps", "commissionOnRenewals", affiliates, coproducers, "actorId")
+        VALUES (${product}, ${id}, ${next.version}, ${next.defaultPercentageBps}, ${next.commissionOnRenewals}, ${list}::jsonb, ${shares}::jsonb, ${actorId})`;
+      await this.assertLimit(tx, product, id, scope.platformId);
       const platform =
         product === 'ofertas'
           ? await readMarginConfig(tx, 'plataformas', scope.platformId)
           : null;
       return this.present(tx, product, scope.platformId, next, platform);
     });
+  }
+
+  /** Margin shares of a sale never exceed 100% of the margin; a platform save rechecks its offers. */
+  private async assertLimit(
+    tx: Tx,
+    product: AffiliateProduct,
+    id: string,
+    platformId: string,
+  ) {
+    const platform = await readMarginConfig(
+      tx,
+      'plataformas',
+      product === 'plataformas' ? id : platformId,
+    );
+    const offers =
+      product === 'ofertas'
+        ? [id]
+        : (
+            await tx.$queryRaw<{ productId: string }[]>`
+              SELECT a."productId" FROM "MarginAffiliateAgreement" a JOIN "Offer" o ON o.id = a."productId"
+              JOIN "Platform" p ON p.tag = o."platformTag" WHERE a.product = 'ofertas' AND p.id = ${platformId}`
+          ).map((row) => row.productId);
+    const scopes = product === 'ofertas' ? offers : [null, ...offers];
+    for (const offerId of scopes) {
+      const offer = offerId
+        ? await readMarginConfig(tx, 'ofertas', offerId)
+        : null;
+      const worst = marginWorstCaseBps(offer, platform);
+      if (worst > 10000)
+        throw new BadRequestException(
+          `A soma de coprodutores e afiliados da margem chegaria a ${percent(worst)}, ${percent(worst - 10000)} acima do limite de 100% da margem.`,
+        );
+    }
   }
 }

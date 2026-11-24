@@ -16,8 +16,8 @@ type Allocation = {
 };
 
 /**
- * Status CAS is held by the caller. The commission is a percentage of the SimIntPay margin frozen at
- * the first credit (COMPLETED); later states reuse the stored amount. A sale without positive
+ * Status CAS is held by the caller. Each margin coproducer and the margin affiliate gets a
+ * percentage of the SimIntPay margin frozen at the first credit (COMPLETED); later states reuse the stored amount. A sale without positive
  * margin creates no allocation and every later status is a no-op. Idempotent per (transaction, user).
  */
 export async function settleMarginAffiliate(
@@ -35,8 +35,23 @@ export async function settleMarginAffiliate(
         : ['REFUNDED', 'CHARGEBACK'].includes(status)
           ? 'REVERSED'
           : null;
-  if (!target || !snapshot.marginAffiliate) return;
-  const affiliate = snapshot.marginAffiliate;
+  const shares = [
+    ...(snapshot.marginParticipants ?? []).map((p) => ({
+      userId: p.userId,
+      percentageBps: p.percentageBps,
+      isRenewal: false,
+    })),
+    ...(snapshot.marginAffiliate
+      ? [
+          {
+            userId: snapshot.marginAffiliate.userId,
+            percentageBps: snapshot.marginAffiliate.percentageBps,
+            isRenewal: !!snapshot.marginAffiliate.isRenewal,
+          },
+        ]
+      : []),
+  ];
+  if (!target || !shares.length) return;
   let allocations = await tx.$queryRaw<
     Allocation[]
   >`SELECT "userId", amount, state FROM "MarginAffiliateAllocation" WHERE "transactionId" = ${row.id} ORDER BY "userId" FOR UPDATE`;
@@ -44,13 +59,20 @@ export async function settleMarginAffiliate(
     if (row.status !== 'PENDING' && row.status !== 'DRAFT') return;
     if (target !== 'AVAILABLE')
       throw new ConflictException('Cobrança ainda não creditada');
-    const amount = marginCommission(
-      marginCents(row.financialSnapshot, row.amount, row.netAmount),
-      affiliate.percentageBps,
+    const margin = marginCents(
+      row.financialSnapshot,
+      row.amount,
+      row.netAmount,
     );
-    if (amount.lte(0)) return;
-    await tx.$executeRaw`INSERT INTO "MarginAffiliateAllocation" ("transactionId", "userId", amount, state, "isRenewal") VALUES (${row.id}, ${affiliate.userId}, ${amount}, 'REVERSED', ${!!affiliate.isRenewal})`;
-    allocations = [{ userId: affiliate.userId, amount, state: 'REVERSED' }];
+    allocations = [];
+    for (const share of [...shares].sort((a, b) =>
+      a.userId.localeCompare(b.userId),
+    )) {
+      const amount = marginCommission(margin, share.percentageBps);
+      if (amount.lte(0)) continue;
+      await tx.$executeRaw`INSERT INTO "MarginAffiliateAllocation" ("transactionId", "userId", amount, state, "isRenewal") VALUES (${row.id}, ${share.userId}, ${amount}, 'REVERSED', ${share.isRenewal})`;
+      allocations.push({ userId: share.userId, amount, state: 'REVERSED' });
+    }
   }
   for (const share of allocations) {
     if (share.state === target) continue;
@@ -77,7 +99,7 @@ export async function settleMarginAffiliate(
         basis: 'SIMINTPAY_MARGIN',
         ownerUserId: snapshot.ownerUserId,
         productId: snapshot.productId,
-        platformId: affiliate.platformId,
+        platformId: snapshot.marginAffiliate?.platformId ?? null,
       },
     });
     await tx.$executeRaw`UPDATE "MarginAffiliateAllocation" SET state = ${target} WHERE "transactionId" = ${row.id} AND "userId" = ${share.userId}`;

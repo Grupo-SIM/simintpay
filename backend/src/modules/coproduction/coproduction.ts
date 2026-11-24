@@ -61,6 +61,8 @@ export type Snapshot = {
   affiliate?: AffiliateSnapshot;
   /** Affiliate paid from the SimIntPay margin; independent of the net-based shares above. */
   marginAffiliate?: MarginAffiliateSnapshot;
+  /** Fixed coproducers paid from the SimIntPay margin (never from the owner's net). */
+  marginParticipants?: { userId: string; percentageBps: number }[];
   /** Audit: the same person was coproducer and affiliate; which entry was dropped. */
   deduplication?: Deduplication;
 };
@@ -198,17 +200,27 @@ export function snapshotFrom(
       throw new BadRequestException('Snapshot de afiliado inválido');
     total += a.percentageBps;
   }
-  if (s.marginAffiliate) {
-    const m = s.marginAffiliate;
+  const marginShares = [
+    ...(s.marginParticipants ?? []),
+    ...(s.marginAffiliate ? [s.marginAffiliate] : []),
+  ];
+  const marginIds = new Set<string>();
+  let marginTotal = 0;
+  for (const m of marginShares) {
     if (
       !m.userId ||
       m.userId === s.ownerUserId ||
+      marginIds.has(m.userId) ||
       !Number.isInteger(m.percentageBps) ||
       m.percentageBps < 1 ||
       m.percentageBps > 10000
     )
-      throw new BadRequestException('Snapshot de afiliado inválido');
+      throw new BadRequestException('Snapshot de margem inválido');
+    marginIds.add(m.userId);
+    marginTotal += m.percentageBps;
   }
+  if (marginTotal > 10000)
+    throw new BadRequestException('Snapshot de margem inválido');
   if (total > 10000)
     throw new BadRequestException('Snapshot de co-produção inválido');
   return s;

@@ -515,7 +515,8 @@ export class OfferRenewalService {
     const amount = charge.amountCents / 100;
     const key = coproductionKeyFor(offer);
     const renewal = await isRenewalCharge(tx, contract.id, charge.id);
-    const coproduction = renewalMarginAffiliate(
+    const coproduction = await renewalMarginAffiliate(
+      tx,
       renewalAffiliate(
         await captureCoproduction(
           tx,
@@ -535,6 +536,7 @@ export class OfferRenewalService {
       key.product,
       key.productId,
       offer.ownerUserId,
+      offer.platformTag ? ctx.platformTag : undefined,
     );
     const base =
       kind === 'REACTIVATION'

@@ -198,27 +198,34 @@ Somente leitura e sem dados de terceiros; espelha a visibilidade da co-produçã
 Aplicar a migration `20261122090000_affiliates` (aditiva) antes do backend; depois frontend/checkout.
 Nada é retroativo: vendas e assinaturas existentes não ganham afiliado.
 
-## Afiliado SimIntPay (margem)
+## Participações sobre a margem SimIntPay (afiliado e coprodutor)
 
-Mesmo mecanismo de afiliado (código `aff`, lista por plataforma e oferta, soma plataforma + oferta,
-percentual por pessoa ou global, `commissionOnRenewals`), mas a comissão sai da **margem da
-SimIntPay**, nunca do líquido do dono nem dos coprodutores. Só administrador ativo configura.
+Duas participações pagas da **margem da SimIntPay**, nunca do líquido do dono. Só administrador
+ativo configura, no mesmo acordo versionado por plataforma e oferta (`MarginAffiliateAgreement`,
+migrations `20261123090000_margin_affiliates` e `20261124090000_margin_coproducers`, aditivas).
 
-- Tabelas próprias: `MarginAffiliateAgreement`, `MarginAffiliateRevision`,
-  `MarginAffiliateAllocation` (migration `20261123090000_margin_affiliates`, aditiva). O código
-  (`AffiliateCode`) é o mesmo da pessoa na plataforma; o snapshot da venda ganha
-  `financialSnapshot.coproduction.marginAffiliate`, independente de `affiliate`.
+- **Afiliado de margem:** mesmo mecanismo do afiliado comum (código `aff` da pessoa na plataforma,
+  plataforma + oferta somam, oferta vence para a mesma pessoa, percentual por pessoa ou global,
+  `commissionOnRenewals`). Só paga nas vendas que trazem o código.
+- **Coprodutor de margem:** lista fixa (`coproducers`), paga em **toda** venda da plataforma ou
+  oferta, sem código. Plataforma e oferta somam; o percentual da oferta vence para a mesma pessoa.
+  Vale também nas renovações (lido ao vivo, como a coprodução comum).
+- Uma pessoa pode ter, ao mesmo tempo, as quatro combinações (coprodutor/afiliado × produto/margem).
+  Na base de produto vale a deduplicação já descrita acima; na margem a mesma pessoa nunca recebe
+  duas partes na venda: o coprodutor vence o afiliado.
 - Margem da venda em centavos: `buyerTotalCents − líquido do vendedor − acquirerCost.realizedCents`
   (mesma conta do lucro Simpay). Custo realizado desconhecido ou margem negativa: margem zero, sem
-  alocação. Comissão = `floor(margem × bps / 10000)`, congelada no primeiro crédito (`COMPLETED`);
+  alocação. Cada parte = `floor(margem × bps / 10000)`, congelada no primeiro crédito (`COMPLETED`);
   mediação bloqueia e estorno/chargeback revertem o valor original.
-- Sem deduplicação nem limite conjunto com coprodutores/afiliados comuns: a mesma pessoa pode estar
-  nas duas listas e recebe de duas bases distintas. Limite próprio: cada percentual efetivo <= 100%
-  da margem.
-- Carteira: `nature: AFFILIATE`, ação `AFFILIATE_MARGIN_<status>`, metadado `basis: SIMINTPAY_MARGIN`.
-- Renovação usa `BillingContract.metadata.marginAffiliate` da primeira venda.
+- Limite próprio: coprodutores + o afiliado mais bem pago que não seja coprodutor <= 100% da margem
+  (PUT recusa com 400; a plataforma também revalida as ofertas com acordo de margem). Sem limite
+  conjunto com as partes de produto.
+- Snapshot da venda: `financialSnapshot.coproduction.marginParticipants` e `.marginAffiliate`.
+  Tabela `MarginAffiliateAllocation`; carteira `nature: AFFILIATE`, ação `AFFILIATE_MARGIN_<status>`,
+  metadado `basis: SIMINTPAY_MARGIN`. Renovação usa `BillingContract.metadata.marginAffiliate`.
 - Endpoints (sessão admin): `GET|PUT /comissoes/margem/plataformas/:platformId` e
-  `/comissoes/margem/ofertas/:id`; corpo e resposta como o afiliado comum, sem `linkBaseUrl`.
-- Interface: aba "Afiliado SimIntPay" no diálogo Participações, visível só para admin.
-- Pendente: relatórios de lucro Simpay ainda não abatem essa comissão; o afiliado ainda não a vê em
-  `/comissoes/recebimentos` (aparece na carteira/extrato).
+  `/comissoes/margem/ofertas/:id`. Corpo: `{ version, defaultPercentageBps, commissionOnRenewals,
+affiliates: [{ email, percentageBps }], coproducers: [{ email, percentageBps }] }`, sem `linkBaseUrl`.
+- Interface: diálogo único Participações; cada pessoa tem um submodal de edição com as combinações.
+- Pendente: relatórios de lucro Simpay ainda não abatem essas comissões; a pessoa ainda não as vê em
+  `/comissoes/recebimentos` (aparecem na carteira/extrato).

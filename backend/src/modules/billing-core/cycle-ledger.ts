@@ -80,7 +80,8 @@ export async function recordCyclePayment(
       })
     : null;
   const renewal = await isRenewalCharge(tx, charge.contractId, charge.id);
-  const coproduction = renewalMarginAffiliate(
+  const coproduction = await renewalMarginAffiliate(
+    tx,
     renewalAffiliate(
       await captureCoproduction(
         tx,
@@ -100,6 +101,7 @@ export async function recordCyclePayment(
     key.product,
     key.productId,
     charge.ownerUserId,
+    offer.platformTag ? platformTag : undefined,
   );
   const financialSnapshot = withCoproduction(
     (quote.financialSnapshot ?? null) as Prisma.InputJsonValue,

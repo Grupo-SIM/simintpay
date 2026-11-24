@@ -1402,6 +1402,8 @@ model MarginAffiliateAgreement {
   defaultPercentageBps Int?
   commissionOnRenewals Boolean?
   affiliates Json
+  /// Fixed participants of every sale of the scope, paid from the margin (no code needed).
+  coproducers Json @default("[]")
   actorId String
   updatedAt DateTime @default(now())
   @@id([product, productId])
@@ -1416,6 +1418,7 @@ model MarginAffiliateRevision {
   defaultPercentageBps Int?
   commissionOnRenewals Boolean?
   affiliates Json
+  coproducers Json @default("[]")
   actorId String
   createdAt DateTime @default(now())
   @@id([product, productId, version])

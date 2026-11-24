@@ -1,6 +1,13 @@
 import { expect, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
-import { marginCents, marginCommission } from './margin-affiliate';
+import {
+  effectiveCoproducers,
+  marginCents,
+  marginCommission,
+  marginWorstCaseBps,
+  validateMarginInput,
+  type MarginAffiliateConfig,
+} from './margin-affiliate';
 import { snapshotFrom } from '../coproduction/coproduction';
 
 const sale = (realizedCents?: number) => ({
@@ -56,5 +63,79 @@ test('snapshot accepts a margin affiliate alongside the full net split', () => {
         marginAffiliate: { userId: 'owner', percentageBps: 100 },
       },
     }),
+  ).toThrow();
+});
+
+const config = (
+  partial: Partial<MarginAffiliateConfig>,
+): MarginAffiliateConfig => ({
+  version: 1,
+  defaultPercentageBps: null,
+  commissionOnRenewals: true,
+  linkBaseUrl: null,
+  affiliates: [],
+  coproducers: [],
+  ...partial,
+});
+
+test('offer coproducer percentage wins over the platform one for the same person', () => {
+  const platform = config({
+    coproducers: [
+      { userId: 'a', percentageBps: 1000 },
+      { userId: 'b', percentageBps: 500 },
+    ],
+  });
+  const offer = config({ coproducers: [{ userId: 'a', percentageBps: 2000 }] });
+  expect(effectiveCoproducers(offer, platform)).toEqual([
+    { userId: 'a', percentageBps: 2000 },
+    { userId: 'b', percentageBps: 500 },
+  ]);
+});
+
+test('worst case adds coproducers and the best affiliate who is not a coproducer', () => {
+  const platform = config({
+    coproducers: [{ userId: 'co', percentageBps: 6000 }],
+    affiliates: [
+      { userId: 'co', percentageBps: 9000 },
+      { userId: 'x', percentageBps: 3000 },
+    ],
+  });
+  expect(marginWorstCaseBps(null, platform)).toBe(9000);
+  expect(
+    marginWorstCaseBps(
+      null,
+      config({
+        coproducers: [{ userId: 'co', percentageBps: 8000 }],
+        affiliates: [{ userId: 'x', percentageBps: 3000 }],
+      }),
+    ),
+  ).toBe(11000);
+});
+
+test('margin input validates coproducers and keeps the affiliate rules', () => {
+  const ok = validateMarginInput(
+    {
+      version: 0,
+      defaultPercentageBps: 1000,
+      commissionOnRenewals: true,
+      affiliates: [{ email: 'A@x.com', percentageBps: null }],
+      coproducers: [{ email: 'B@x.com', percentageBps: 2500 }],
+    },
+    'plataformas',
+  );
+  expect(ok.coproducers).toEqual([{ email: 'b@x.com', percentageBps: 2500 }]);
+  expect(() =>
+    validateMarginInput(
+      {
+        version: 0,
+        commissionOnRenewals: true,
+        affiliates: [],
+        coproducers: [
+          { email: 'a@x.com', percentageBps: 6000 },
+          { email: 'b@x.com', percentageBps: 4001 },
+        ],
+      },
+      'plataformas',
+    ),
   ).toThrow();
 });
