@@ -363,7 +363,7 @@ export class PlatformOverviewReports {
       'TAXA_FIXA_TRANSACAO',
       1.0,
     );
-    const cashbackFee = domCashbackReais();
+    const cashbackFee = domCashbackReais(upperTag);
     const adminMargin = 1 - liquidityFactor;
 
     const getProfit = (txs: any[]) => {

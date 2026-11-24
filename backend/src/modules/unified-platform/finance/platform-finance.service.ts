@@ -690,7 +690,7 @@ export class PlatformFinanceService {
           PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
         ),
       ),
-      cashbackAmountCents: this.cents(domCashbackReais()),
+      cashbackAmountCents: this.cents(domCashbackReais('EBOOK')),
       affiliateCommissionRate: getPlatformTaxaEffective(
         'EBOOK',
         'TAXA_COMISSAO_AFILIADO',

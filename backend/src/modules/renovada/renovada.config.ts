@@ -44,7 +44,7 @@ export const RenovadaConfig: ModuleConfig = {
       return getPlatformTaxaEffective(TAG, 'TAXA_FIXA_TRANSACAO', 1.0);
     },
     get taxaCashback() {
-      return domCashbackReais();
+      return domCashbackReais(TAG);
     },
   },
 

@@ -151,7 +151,7 @@ export class PlatformAdministrationService {
       'TAXA_FIXA_TRANSACAO',
       1.0,
     );
-    const taxaCashback = domCashbackReais();
+    const taxaCashback = domCashbackReais('ATLAS');
 
     const isDomain = (desc: string | null | undefined) =>
       getAtlasProductType(desc) === 'DOMAIN';

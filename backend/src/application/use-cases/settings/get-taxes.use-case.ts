@@ -29,7 +29,7 @@ export class GetTaxesUseCase {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashback = domCashbackReais();
+    const taxaCashback = domCashbackReais(platformTag);
     const liquidez = getPlatformTaxaEffective(
       platformTag,
       'LIQUIDEZ',

@@ -283,7 +283,7 @@ export class PlatformMerchantsService {
             PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
           ),
         ),
-        cashbackCents: this.finance.cents(domCashbackReais()),
+        cashbackCents: this.finance.cents(domCashbackReais(context.tag)),
       },
       ...schedule,
     };

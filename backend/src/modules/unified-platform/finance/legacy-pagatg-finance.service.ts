@@ -115,7 +115,7 @@ export class InternalPagatgFinanceService {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashbackSummary = domCashbackReais();
+    const taxaCashbackSummary = domCashbackReais('PAGATG');
     const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
@@ -213,7 +213,7 @@ export class InternalPagatgFinanceService {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashback = domCashbackReais();
+    const taxaCashback = domCashbackReais('PAGATG');
     const taxaServico = taxaFixa + taxaCashback;
 
     return {

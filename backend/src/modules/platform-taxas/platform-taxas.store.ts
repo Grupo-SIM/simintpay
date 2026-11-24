@@ -272,7 +272,7 @@ export function isDomCashbackActive(tag = 'GLOBAL'): boolean {
 export function domCashbackReais(tag = 'GLOBAL'): number {
   return isDomCashbackActive(tag)
     ? getPlatformTaxaEffective(
-        'GLOBAL',
+        tag,
         'CASHBACK_DOM_CUSTO',
         PLATFORM_TAXA_DEFAULTS.CASHBACK_DOM_CUSTO,
       )
@@ -284,7 +284,7 @@ export function domCashbackGrantCents(tag = 'GLOBAL'): number {
   return isDomCashbackActive(tag)
     ? Math.round(
         getPlatformTaxaEffective(
-          'GLOBAL',
+          tag,
           'CASHBACK_DOM_VALOR',
           PLATFORM_TAXA_DEFAULTS.CASHBACK_DOM_VALOR,
         ) * 100,

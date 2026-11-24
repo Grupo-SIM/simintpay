@@ -32,7 +32,7 @@ export function platformDashboardRules(tag: string): PlatformDashboardRules {
                 PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
               ),
             )
-            .minus(domCashbackReais())
+            .minus(domCashbackReais(tag))
             .toDecimalPlaces(2)
             .toNumber()
         : net,

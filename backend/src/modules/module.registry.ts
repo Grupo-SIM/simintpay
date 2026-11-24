@@ -125,7 +125,7 @@ export function getModuleConfig(
         return effective('TAXA_FIXA_TRANSACAO');
       },
       get taxaCashback() {
-        return domCashbackReais();
+        return domCashbackReais(platform.tag);
       },
     },
     limites: { saldoMaximo: null, saqueMaximo: null, saquesPendentesMax: 1 },
