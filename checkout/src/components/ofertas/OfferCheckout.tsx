@@ -95,7 +95,7 @@ import {
   type SubscribeOutcome,
   type SubscribeResponse,
 } from '@/lib/offer-subscribe-model';
-import { DOM_PUBLIC_KEY } from '@/lib/dom-public-key';
+import { fetchDomPublicKey } from '@/lib/dom-public-key';
 
 const Cards = dynamic(() => import('react-credit-cards-2'), {
   ssr: false,
@@ -477,7 +477,7 @@ export default function OfferCheckout({
       if (isCard) {
         const chosen = method === 'debit_card' ? 1 : installments;
         const tokenRes = await getTokenCard(
-          DOM_PUBLIC_KEY,
+          await fetchDomPublicKey(),
           {
             name: holderName,
             document: holderDigits,

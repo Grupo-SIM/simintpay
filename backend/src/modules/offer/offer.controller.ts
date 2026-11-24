@@ -17,6 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { resolveDomPublicKey } from '../billing-core/dom-public-key';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -51,6 +52,16 @@ export class OfferController {
   ) {}
 
   // ── Rota pública (sem autenticação): somente campos seguros ───────────────
+
+  @Get('public/card-public-key')
+  @ApiOperation({
+    summary:
+      'Chave pública do adquirente para tokenizar o cartão no navegador (nunca o token privado)',
+  })
+  @ApiResponse({ status: 200 })
+  cardPublicKey() {
+    return { publicKey: resolveDomPublicKey(null) };
+  }
 
   @Get('public/:code')
   @ApiOperation({ summary: 'Detalhes públicos de uma oferta (checkout)' })

@@ -1,5 +1,5 @@
 import { getTokenCard } from '@/components/sdk';
-import { DOM_PUBLIC_KEY } from '@/lib/dom-public-key';
+import { fetchDomPublicKey } from '@/lib/dom-public-key';
 
 export type TypedCard = {
   holderName: string;
@@ -16,7 +16,7 @@ export async function tokenizeTypedCard(
 ): Promise<{ card?: Record<string, string | undefined>; error?: string }> {
   const number = card.number.replace(/\s/g, '');
   const tokenRes = await getTokenCard(
-    DOM_PUBLIC_KEY,
+    await fetchDomPublicKey(),
     {
       name: card.holderName,
       document: card.holderDocument,
