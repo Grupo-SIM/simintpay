@@ -48,7 +48,7 @@ export function ParticipationTotals({
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
         Coprodutores {formatPercentage(result.coproducersBps)}%
         {showAffiliate &&
-          ` · Afiliado${result.affiliate ? ` ${result.affiliate.label} ${formatPercentage(result.affiliate.bps)}%` : ' 0%'}`}
+          ` · Afiliado ${formatPercentage(result.affiliate?.bps ?? 0)}%`}
         {showAffiliate && ' (pior caso)'}
       </p>
       {result.overlaps.length > 0 && (
