@@ -202,6 +202,8 @@ export type SubscribeOutcome =
       qrCode: string | null;
       pixExpire: string | null;
     }
+  | { kind: 'pending' }
+  | { kind: 'declined' }
   | ({ kind: 'trial' } & Done)
   | ({ kind: 'paid' } & Done);
 
@@ -211,6 +213,11 @@ export function mapSubscribeResponse(
 ): SubscribeOutcome {
   if (data.pix && data.chargeStatus === 'PENDING')
     return { kind: 'pix', transactionId: data.transactionId, ...data.pix };
+  // Só uma cobrança liquidada (ou o teste grátis) confirma a assinatura.
+  if (data.chargeStatus === 'PENDING' && !data.existing)
+    return { kind: 'pending' };
+  if (data.chargeStatus === 'FAILED' || data.chargeStatus === 'CANCELLED')
+    return { kind: 'declined' };
   const common = {
     amount: Number(data.amount) || 0,
     nextChargeAt: data.nextChargeAt,

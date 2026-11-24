@@ -391,6 +391,16 @@ export default function OfferCheckout({
       else setError('Não foi possível gerar o PIX agora. Tente novamente.');
       return;
     }
+    if (outcome.kind === 'declined') {
+      setError('Pagamento recusado. Confira os dados ou use outro cartão.');
+      return;
+    }
+    if (outcome.kind === 'pending') {
+      setError(
+        'Seu pagamento ainda está sendo processado. Aguarde a confirmação por e-mail antes de tentar novamente.',
+      );
+      return;
+    }
     setRedirectUrl(outcome.redirectUrl);
     setDone(outcome);
     setPaidAmount(outcome.amount);
