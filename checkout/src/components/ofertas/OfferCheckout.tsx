@@ -95,6 +95,7 @@ import {
   type SubscribeOutcome,
   type SubscribeResponse,
 } from '@/lib/offer-subscribe-model';
+import { DOM_PUBLIC_KEY } from '@/lib/dom-public-key';
 
 const Cards = dynamic(() => import('react-credit-cards-2'), {
   ssr: false,
@@ -102,7 +103,6 @@ const Cards = dynamic(() => import('react-credit-cards-2'), {
 });
 
 /** Chave pública do gateway (tokenização de cartão) */
-const GATEWAY_PUBLIC_KEY = 'pk_4ce776b5-0d68-4fbe-b1eb-be10c94ca4e6';
 
 type InstallmentOption = {
   installments: number;
@@ -477,7 +477,7 @@ export default function OfferCheckout({
       if (isCard) {
         const chosen = method === 'debit_card' ? 1 : installments;
         const tokenRes = await getTokenCard(
-          GATEWAY_PUBLIC_KEY,
+          DOM_PUBLIC_KEY,
           {
             name: holderName,
             document: holderDigits,

@@ -34,6 +34,7 @@ import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import { buildInstallmentLabel } from '@/lib/installment-label';
 import { checkoutTracking } from '@/lib/payment-tracking';
+import { DOM_PUBLIC_KEY } from '@/lib/dom-public-key';
 
 const SIMPAY_API_BASE_URL = SIM_API_URL;
 const BACK_EBOOK_API_BASE_URL = EBOOK_API_URL;
@@ -371,7 +372,7 @@ const CheckoutForm = () => {
 
     // PAGAMENTO ÚNICO - CARTÃO
     try {
-      const public_key = 'pk_4ce776b5-0d68-4fbe-b1eb-be10c94ca4e6';
+      const public_key = DOM_PUBLIC_KEY;
       const data_card = formatCardData({
         name: formData.holder_name,
         document: formData.holder_document,

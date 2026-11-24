@@ -1,7 +1,5 @@
 import { getTokenCard } from '@/components/sdk';
-
-/** Chave pública do gateway (tokenização de cartão). */
-const GATEWAY_PUBLIC_KEY = 'pk_4ce776b5-0d68-4fbe-b1eb-be10c94ca4e6';
+import { DOM_PUBLIC_KEY } from '@/lib/dom-public-key';
 
 export type TypedCard = {
   holderName: string;
@@ -18,7 +16,7 @@ export async function tokenizeTypedCard(
 ): Promise<{ card?: Record<string, string | undefined>; error?: string }> {
   const number = card.number.replace(/\s/g, '');
   const tokenRes = await getTokenCard(
-    GATEWAY_PUBLIC_KEY,
+    DOM_PUBLIC_KEY,
     {
       name: card.holderName,
       document: card.holderDocument,

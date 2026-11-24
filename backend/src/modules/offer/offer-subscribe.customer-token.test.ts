@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { BadRequestException } from '@nestjs/common';
-import { GLOBAL_DOM_PUBLIC_KEY } from '../billing-core/dom-public-key';
 import { OfferSubscribeService } from './offer-subscribe.service';
 
 beforeAll(() => {
@@ -110,7 +109,7 @@ describe('cardCustomer', () => {
     const out = await service.cardCustomer('CODE', body);
     expect(out).toEqual({
       customerId: 'cus-77',
-      publicKey: process.env.DOM_PUBLIC_KEY || GLOBAL_DOM_PUBLIC_KEY,
+      publicKey: process.env.DOM_PUBLIC_KEY,
     });
     expect(JSON.stringify(out)).not.toContain('private-api-token');
     expect(calls[0].token).toBe('private-api-token');
