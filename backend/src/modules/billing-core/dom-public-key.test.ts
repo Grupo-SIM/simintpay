@@ -9,7 +9,9 @@ describe('resolveDomPublicKey', () => {
     );
   });
 
-  test('an unregistered platform never gets the global key', () => {
-    expect(() => resolveDomPublicKey('NOPE-PLATFORM', {})).toThrow();
+  test('a platform without its own key falls back to the global account key', () => {
+    expect(resolveDomPublicKey('NOPE-PLATFORM', {})).toBe(
+      GLOBAL_DOM_PUBLIC_KEY,
+    );
   });
 });
