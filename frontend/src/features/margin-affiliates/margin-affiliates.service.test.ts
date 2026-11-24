@@ -1,8 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createApiClient } from '@/services/api/api.client';
 import { AffiliateConfirmationError } from '@/features/affiliates/affiliates.service';
-import { draftFromAgreement } from '@/features/affiliates/affiliates';
-import { marginWorstBps, serializeMarginAffiliates } from './margin-affiliates';
+import { parseMarginAgreement } from './margin-affiliates';
 import {
   getMarginAffiliates,
   saveMarginAffiliates,
@@ -13,6 +12,7 @@ const input = {
   defaultPercentageBps: 1000,
   commissionOnRenewals: true,
   affiliates: [{ email: 'a@example.test', percentageBps: null }],
+  coproducers: [{ email: 'c@example.test', percentageBps: 2000 }],
 };
 const saved = {
   version: 2,
@@ -21,9 +21,10 @@ const saved = {
   affiliates: [
     { email: 'a@example.test', name: 'A', code: 'ABC123', percentageBps: null },
   ],
+  coproducers: [{ email: 'c@example.test', name: 'C', percentageBps: 2000 }],
 };
 
-test('uses margin endpoints and sends no link base', async () => {
+test('uses margin endpoints and sends affiliates and coproducers only', async () => {
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const api = {
     ...base,
@@ -37,16 +38,13 @@ test('uses margin endpoints and sends no link base', async () => {
     },
   } as unknown as typeof base;
   await getMarginAffiliates(api, 'ofertas', 'o 1');
-  await saveMarginAffiliates(api, 'plataformas', 'p1', 1, {
-    ...input,
-    linkBaseUrl: 'https://x.test',
-  });
+  await saveMarginAffiliates(api, 'plataformas', 'p1', 1, input);
   expect(calls[0].path).toBe('/comissoes/margem/ofertas/o%201');
   expect(calls[1].path).toBe('/comissoes/margem/plataformas/p1');
   expect(calls[1].body).toEqual({ version: 1, ...input });
 });
 
-test('save requires persisted affiliates and an incremented version', async () => {
+test('save requires persisted people and an incremented version', async () => {
   const apiWith = (put: unknown) =>
     ({ ...base, put: async () => put }) as typeof base;
   expect(
@@ -63,6 +61,7 @@ test('save requires persisted affiliates and an incremented version', async () =
   for (const data of [
     { ...saved, version: 1 },
     { ...saved, affiliates: [] },
+    { ...saved, coproducers: [] },
     { ...saved, commissionOnRenewals: false },
     {},
     null,
@@ -82,19 +81,21 @@ test('failed GET never becomes an empty agreement', async () => {
   await expect(getMarginAffiliates(api, 'plataformas', 'id')).rejects.toThrow();
 });
 
-test('serialize drops link base; worst bps follows own then global limits', () => {
-  const draft = draftFromAgreement(
-    {
-      ...saved,
-      linkBaseUrl: 'https://x.test',
-      affiliates: [
-        { email: 'a@example.test', percentageBps: 2500 },
-        { email: 'b@example.test', percentageBps: null },
-      ],
+test('parse keeps inherited coproducers and rejects a missing coproducers list', () => {
+  const parsed = parseMarginAgreement({
+    ...saved,
+    inherited: {
+      defaultPercentageBps: 500,
+      commissionOnRenewals: true,
+      affiliates: [{ name: 'X', code: 'X1', percentageBps: 300 }],
+      coproducers: [{ name: 'Y', percentageBps: 400 }],
     },
-    true,
-  );
-  expect('linkBaseUrl' in serializeMarginAffiliates(draft, true)).toBe(false);
-  expect(marginWorstBps(draft)).toBe(2500);
-  expect(marginWorstBps({ ...draft, rows: [] })).toBe(0);
+  });
+  expect(parsed.inherited?.coproducers).toEqual([
+    { name: 'Y', percentageBps: 400 },
+  ]);
+  expect('linkBaseUrl' in parsed).toBe(false);
+  const { coproducers: _omit, ...legacy } = saved;
+  void _omit;
+  expect(() => parseMarginAgreement(legacy)).toThrow();
 });

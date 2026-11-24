@@ -99,7 +99,7 @@ export function jointMessage(result: JointResult): string | null {
 export const SERVER_JOINT_MESSAGE =
   'Afiliado somado à co-produção não pode ultrapassar 100% do líquido';
 
-const validRowBps = (text: string) => {
+export const validRowBps = (text: string) => {
   const bps = text.trim() ? percentageBps(text.trim()) : NaN;
   return Number.isInteger(bps) && bps > 0 && bps <= TOTAL_BPS ? bps : null;
 };

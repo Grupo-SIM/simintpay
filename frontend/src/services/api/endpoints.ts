@@ -159,15 +159,6 @@ export const endpoints = {
       marcarEmpresa: (userId: string) =>
         `/admin/usuarios/${userId}/marcar-empresa`,
     },
-    afiliados: {
-      list: '/admin/afiliados',
-      search: '/admin/afiliados/buscar',
-      detail: (id: string) => `/admin/afiliados/${id}`,
-      referrals: (id: string, platform: string) =>
-        `/admin/afiliados/${id}/indicados?platform=${platform}`,
-      setAffiliate: (id: string) => `/admin/afiliados/${id}`,
-      setReferredBy: (id: string) => `/admin/afiliados/indicacao/${id}`,
-    },
     clientes: {
       list: '/admin/clientes',
     },

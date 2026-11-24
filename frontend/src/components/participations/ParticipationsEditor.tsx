@@ -1,58 +1,86 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CoproductionDialogContent } from '@/components/coproduction/components';
-import { CoproductionForm } from '@/components/coproduction/components/CoproductionForm';
-import { AffiliatesForm } from '@/components/affiliates/components/AffiliatesForm';
 import { Button } from '@/components/ui/Button';
+import { DialogFooter } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toast';
 import {
   AffiliateConfirmationError,
   saveAffiliates,
 } from '@/features/affiliates/affiliates.service';
-import type {
-  AffiliateAgreement,
-  AffiliateSaveInput,
-} from '@/features/affiliates/types';
-import { useAffiliatesDraft } from '@/features/affiliates/use-affiliates-draft';
+import type { AffiliateAgreement } from '@/features/affiliates/types';
 import {
   CoproductionConfirmationError,
   saveCoproduction,
 } from '@/features/coproduction/coproduction.service';
-import type { Coproducer, Coproduction } from '@/features/coproduction/types';
-import { useCoproductionRows } from '@/features/coproduction/use-coproduction-rows';
+import type { Coproduction } from '@/features/coproduction/types';
+import { saveMarginAffiliates } from '@/features/margin-affiliates/margin-affiliates.service';
+import type { MarginAgreement } from '@/features/margin-affiliates/types';
 import {
-  affiliatesFromDraft,
-  coproducersFromRows,
-  jointMessage,
-  jointTotal,
-} from '@/features/participations/joint';
+  buildDraft,
+  changedParts,
+  newPerson,
+  splitDraft,
+  visiblePeople,
+} from '@/features/participations/people';
+import type {
+  Agreements,
+  ParticipationsContext,
+  PersonDraft,
+} from '@/features/participations/types';
+import { useParticipationsDraft } from '@/features/participations/use-participations-draft';
+import {
+  computeTotals,
+  validateDraft,
+} from '@/features/participations/validate';
 import type { ApiClient } from '@/services/api/api.client';
 import { ApiError } from '@/services/api/types';
-import { MarginAffiliatesPanel } from './MarginAffiliatesPanel';
+import { GeneralSettings } from './components/GeneralSettings';
+import { InheritedList } from './components/InheritedList';
+import { PeopleList } from './components/PeopleList';
+import { PersonEditorDialog } from './components/PersonEditorDialog';
+import { MarginAffiliateIndicator } from './MarginAffiliateIndicator';
 import { ParticipationTotals } from './ParticipationTotals';
 import type { ParticipationsProduct } from './ParticipationsDialog';
 
-type Tab = 'coproduction' | 'affiliates' | 'margin';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'coproduction', label: 'Co-produção' },
-  { id: 'affiliates', label: 'Afiliados' },
-];
-const MARGIN_TAB = { id: 'margin', label: 'Afiliado SimIntPay' } as const;
+const LABELS = {
+  co: 'Co-produção',
+  aff: 'Afiliados',
+  margin: 'Margem SimIntPay',
+} as const;
 
-const isConflict = (
-  error: unknown,
-  confirmation: abstract new (...args: never[]) => Error,
-) =>
-  (error instanceof ApiError && error.status === 409) ||
-  error instanceof confirmation;
+/** Falha numa das gravações sequenciais; guarda o que já foi salvo. */
+class PartialSaveError extends Error {
+  constructor(
+    readonly failed: keyof typeof LABELS,
+    readonly done: (keyof typeof LABELS)[],
+    readonly original: unknown,
+  ) {
+    super(original instanceof Error ? original.message : 'Erro ao salvar.');
+  }
+}
 
-const serverMessage = (message: string, platform: boolean) => {
-  const text = /[.!?]$/.test(message) ? message : `${message}.`;
-  return platform && /100%/.test(message)
-    ? `${text} Na plataforma, a soma também vale para as ofertas que já têm co-produção ou afiliados.`
-    : text;
+const isConflict = (error: unknown) => {
+  const original = error instanceof PartialSaveError ? error.original : error;
+  return (
+    (original instanceof ApiError && original.status === 409) ||
+    original instanceof CoproductionConfirmationError ||
+    original instanceof AffiliateConfirmationError
+  );
+};
+
+const serverMessage = (error: Error, platform: boolean) => {
+  const base = error.message;
+  const text = /[.!?]$/.test(base) ? base : `${base}.`;
+  const hint =
+    platform && /100%/.test(base)
+      ? ' Na plataforma, a soma também vale para as ofertas que já têm co-produção ou afiliados.'
+      : '';
+  return error instanceof PartialSaveError
+    ? `${error.done.length ? `Já salvo: ${error.done.map((key) => LABELS[key]).join(', ')}. ` : ''}Falhou em ${LABELS[error.failed]}: ${text}${hint}`
+    : `${text}${hint}`;
 };
 
 export function ParticipationsEditor({
@@ -77,95 +105,205 @@ export function ParticipationsEditor({
   ownerEmail?: string;
   coproduction: Coproduction;
   affiliates: AffiliateAgreement;
-  /** Só para admin: afiliados pagos da margem SimIntPay. */
-  margin?: AffiliateAgreement;
+  /** Só para admin: coprodutores e afiliados da margem SimIntPay. */
+  margin?: MarginAgreement;
   description: string;
   refetchCoproduction: () => Promise<{ data?: Coproduction }>;
   refetchAffiliates: () => Promise<{ data?: AffiliateAgreement }>;
-  refetchMargin?: () => Promise<{ data?: AffiliateAgreement }>;
+  refetchMargin?: () => Promise<{ data?: MarginAgreement }>;
   onClose: () => void;
 }) {
   const platform = product === 'plataformas';
-  const allowInheritance = !platform && coproduction.mode !== undefined;
-  const [tab, setTab] = useState<Tab>('coproduction');
+  const admin = Boolean(margin);
+  const context = useMemo<ParticipationsContext>(
+    () => ({
+      platform,
+      admin,
+      allowInheritance: !platform && coproduction.mode !== undefined,
+      ownerEmail,
+    }),
+    [platform, admin, coproduction.mode, ownerEmail],
+  );
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const coRows = useCoproductionRows(coproduction, allowInheritance);
-  const affDraft = useAffiliatesDraft(affiliates, platform);
-
-  const inheritsCo = allowInheritance && coRows.mode === 'INHERIT';
-  const joint = jointTotal({
-    coproducers: inheritsCo
-      ? (coproduction.effective?.source
-          ? coproduction.effective.participants
-          : []
-        ).map((row) => ({
-          email: row.email,
-          name: row.name,
-          bps: row.percentageBps,
-        }))
-      : coproducersFromRows(coRows.rows),
-    coproducerLevel: platform || inheritsCo ? 'platform' : 'offer',
-    affiliates: affiliatesFromDraft(
-      affDraft.draft,
-      affiliates.inherited,
-      platform,
-    ),
+  const [agreements, setAgreements] = useState<Agreements>({
+    co: coproduction,
+    aff: affiliates,
+    margin,
   });
-  const jointError = jointMessage(joint);
+  const state = useParticipationsDraft(agreements, context);
+  const { draft } = state;
+  const [editing, setEditing] = useState<PersonDraft | null>(null);
 
-  const coSave = useMutation({
-    mutationFn: ({
-      participants,
-      mode,
-    }: {
-      participants: Coproducer[];
-      mode?: 'OWN' | 'INHERIT';
-    }) =>
-      saveCoproduction(
-        api,
-        product,
-        productId,
-        coproduction.version,
-        participants,
-        mode,
-      ),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(
-        ['coproduction', userId, product, productId],
-        saved,
+  const totals = computeTotals(draft, agreements, context);
+  const error = validateDraft(draft, agreements, context);
+  const changed = useMemo(() => {
+    if (error) return true;
+    return (
+      changedParts(
+        splitDraft(draft, context),
+        splitDraft(buildDraft(agreements, context), context),
+      ).length > 0
+    );
+  }, [draft, agreements, context, error]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const plan = splitDraft(draft, context);
+      const parts = changedParts(
+        plan,
+        splitDraft(buildDraft(agreements, context), context),
       );
-      coRows.reset(saved);
-      toast({ type: 'success', title: 'Co-produção salva' });
+      let current = agreements;
+      const done: (keyof typeof LABELS)[] = [];
+      for (const part of parts) {
+        try {
+          if (part === 'co') {
+            const saved = await saveCoproduction(
+              api,
+              product,
+              productId,
+              current.co.version,
+              plan.co.participants,
+              plan.co.mode,
+            );
+            current = { ...current, co: saved };
+            queryClient.setQueryData(
+              ['coproduction', userId, product, productId],
+              saved,
+            );
+          } else if (part === 'aff') {
+            const saved = await saveAffiliates(
+              api,
+              product,
+              productId,
+              current.aff.version,
+              plan.aff,
+            );
+            current = { ...current, aff: saved };
+            queryClient.setQueryData(
+              ['affiliates', userId, product, productId],
+              saved,
+            );
+          } else if (plan.margin && current.margin) {
+            const saved = await saveMarginAffiliates(
+              api,
+              product,
+              productId,
+              current.margin.version,
+              plan.margin,
+            );
+            current = { ...current, margin: saved };
+            queryClient.setQueryData(
+              ['margin-affiliates', userId, product, productId],
+              saved,
+            );
+          }
+        } catch (failure) {
+          setAgreements(current);
+          throw new PartialSaveError(part, done, failure);
+        }
+        done.push(part);
+      }
+      setAgreements(current);
+      return current;
+    },
+    onSuccess: (saved) => {
+      state.reset(saved);
+      toast({ type: 'success', title: 'Participações salvas' });
     },
   });
-  const affSave = useMutation({
-    mutationFn: (input: AffiliateSaveInput) =>
-      saveAffiliates(api, product, productId, affiliates.version, input),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(
-        ['affiliates', userId, product, productId],
-        saved,
-      );
-      affDraft.reset(saved);
-      toast({ type: 'success', title: 'Afiliados salvos' });
-    },
-  });
-  const [marginPending, setMarginPending] = useState(false);
-  const tabs = margin ? [...TABS, MARGIN_TAB] : TABS;
-  const pending = coSave.isPending || affSave.isPending || marginPending;
-  const coConflict = isConflict(coSave.error, CoproductionConfirmationError);
-  const affConflict = isConflict(affSave.error, AffiliateConfirmationError);
+  const pending = save.isPending;
+  const conflict = save.isError && isConflict(save.error);
 
-  const status = (
-    mutation: { isError: boolean; error: Error | null },
-    reload: () => Promise<void>,
-    conflict: boolean,
-  ) => (
-    <>
-      {mutation.isError && (
+  const reload = async () => {
+    const [co, aff, marginResult] = await Promise.all([
+      refetchCoproduction(),
+      refetchAffiliates(),
+      refetchMargin?.(),
+    ]);
+    if (!co.data || !aff.data || (refetchMargin && !marginResult?.data)) return;
+    const next = { co: co.data, aff: aff.data, margin: marginResult?.data };
+    setAgreements(next);
+    state.reset(next);
+    save.reset();
+    toast({
+      type: 'info',
+      title: 'Configuração recarregada',
+      description:
+        'O rascunho foi substituído pela versão do servidor. Revise antes de salvar.',
+    });
+  };
+
+  const people = visiblePeople(draft, admin);
+  const inheritsWithShares =
+    context.allowInheritance &&
+    draft.settings.mode === 'INHERIT' &&
+    people.some((person) => person.coProduct.on);
+  return (
+    <CoproductionDialogContent
+      title="Participações"
+      description={description}
+      onClose={onClose}
+      pending={pending}
+      onEscapeKeyDown={(event) => {
+        if (pending || editing) event.preventDefault();
+      }}
+      onInteractOutside={(event) => {
+        if (pending) event.preventDefault();
+      }}
+      toolbar={
+        <>
+          <ParticipationTotals result={totals.joint} />
+          {totals.margin && <MarginAffiliateIndicator result={totals.margin} />}
+        </>
+      }
+    >
+      <PeopleList
+        people={people}
+        admin={admin}
+        disabled={pending}
+        defaults={{
+          affiliate: draft.settings.defaultPercentage,
+          margin: draft.settings.marginDefaultPercentage,
+        }}
+        onAdd={() => setEditing(newPerson())}
+        onEdit={setEditing}
+        onRemove={(person) => {
+          state.removePerson(person.id);
+          toast({
+            type: 'info',
+            title: 'Pessoa removida do rascunho',
+            description: 'Salve as participações para aplicar.',
+          });
+        }}
+      />
+      {inheritsWithShares && (
+        <p role="note" className="text-xs text-amber-700 dark:text-amber-400">
+          Co-produção herdada da plataforma: os percentuais de coprodutor do
+          rascunho não serão aplicados.
+        </p>
+      )}
+      <InheritedList
+        agreements={agreements}
+        admin={admin}
+        platform={platform}
+      />
+      <GeneralSettings
+        settings={draft.settings}
+        agreements={agreements}
+        context={context}
+        disabled={pending || conflict}
+        onChange={state.patchSettings}
+      />
+      {error && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {serverMessage(mutation.error?.message ?? '', platform)}
+          {error}
+        </p>
+      )}
+      {save.isError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {serverMessage(save.error, platform)}
         </p>
       )}
       {conflict && (
@@ -177,142 +315,43 @@ export function ParticipationsEditor({
           Recarregar configuração
         </Button>
       )}
-    </>
-  );
-  const reloaded = (description: string) =>
-    toast({ type: 'info', title: 'Configuração recarregada', description });
-
-  return (
-    <CoproductionDialogContent
-      title="Participações"
-      description={description}
-      onClose={onClose}
-      pending={pending}
-      onEscapeKeyDown={(event) => {
-        if (pending) event.preventDefault();
-      }}
-      onInteractOutside={(event) => {
-        if (pending) event.preventDefault();
-      }}
-      toolbar={
-        <>
-          <div
-            role="tablist"
-            aria-label="Tipo de participação"
-            className="grid shrink-0 gap-1 border-b border-zinc-200 px-6 pt-3 dark:border-white/10"
-            style={{
-              gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
-            }}
-          >
-            {tabs.map(({ id, label }) => (
-              <button
-                key={id}
-                id={`participations-tab-${id}`}
-                type="button"
-                role="tab"
-                aria-selected={tab === id}
-                aria-controls={`participations-panel-${id}`}
-                className={`-mb-px cursor-pointer rounded-t-lg border-b-2 px-3 py-2 text-sm font-semibold ${
-                  tab === id
-                    ? 'border-[#7c3aed] text-[#7c3aed] dark:text-[#a78bfa]'
-                    : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-                }`}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {tab !== 'margin' && <ParticipationTotals result={joint} />}
-        </>
-      }
-    >
-      <div
-        role="tabpanel"
-        id="participations-panel-coproduction"
-        aria-labelledby="participations-tab-coproduction"
-        hidden={tab !== 'coproduction'}
-        className="space-y-5"
-      >
-        <CoproductionForm
-          initial={coproduction}
-          draft={coRows}
-          extraError={jointError}
-          closeLabel="Fechar"
-          platform={platform}
-          allowInheritance={allowInheritance}
-          ownerEmail={ownerEmail}
-          pending={coSave.isPending}
-          blocked={coConflict}
-          onSave={(participants, mode) => coSave.mutate({ participants, mode })}
-          onClose={onClose}
-          notice={status(
-            coSave,
-            async () => {
-              const result = await refetchCoproduction();
-              if (result.data) {
-                coRows.reset(result.data);
-                coSave.reset();
-                reloaded('Revise as participações antes de salvar.');
-              }
-            },
-            coConflict,
-          )}
-        />
-      </div>
-      <div
-        role="tabpanel"
-        id="participations-panel-affiliates"
-        aria-labelledby="participations-tab-affiliates"
-        hidden={tab !== 'affiliates'}
-        className="space-y-5"
-      >
-        <AffiliatesForm
-          initial={affiliates}
-          draftState={affDraft}
-          extraError={jointError}
-          closeLabel="Fechar"
-          platform={platform}
-          ownerEmail={ownerEmail}
-          pending={affSave.isPending}
-          blocked={affConflict}
-          onSave={(input) => affSave.mutate(input)}
-          onClose={onClose}
-          notice={status(
-            affSave,
-            async () => {
-              const result = await refetchAffiliates();
-              if (result.data) {
-                affDraft.reset(result.data);
-                affSave.reset();
-                reloaded(
-                  'O rascunho foi substituído pela versão do servidor. Revise antes de salvar.',
-                );
-              }
-            },
-            affConflict,
-          )}
-        />
-      </div>
-      {margin && refetchMargin && (
-        <div
-          role="tabpanel"
-          id="participations-panel-margin"
-          aria-labelledby="participations-tab-margin"
-          hidden={tab !== 'margin'}
-          className="space-y-5"
+      <DialogFooter className="border-t border-zinc-200 pt-5 dark:border-white/10">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 cursor-pointer rounded-xl border-zinc-200 disabled:cursor-not-allowed dark:border-white/10"
+          disabled={pending}
+          onClick={onClose}
         >
-          <MarginAffiliatesPanel
-            api={api}
-            product={product}
-            productId={productId}
-            userId={userId}
-            margin={margin}
-            refetch={refetchMargin}
-            onPendingChange={setMarginPending}
-            onClose={onClose}
-          />
-        </div>
+          Fechar
+        </Button>
+        <Button
+          type="button"
+          className="h-11 cursor-pointer rounded-xl border border-[#7c3aed] bg-[#7c3aed] text-white hover:bg-[#6d28d9] disabled:cursor-not-allowed"
+          disabled={pending || conflict || Boolean(error) || !changed}
+          onClick={() => save.mutate()}
+        >
+          {pending ? 'Salvando...' : 'Salvar'}
+        </Button>
+      </DialogFooter>
+      {editing && (
+        <PersonEditorDialog
+          key={editing.id}
+          initial={editing}
+          draft={draft}
+          agreements={agreements}
+          context={context}
+          linkBaseUrl={agreements.aff.linkBaseUrl}
+          onSave={(person) => {
+            state.savePerson(person);
+            toast({
+              type: 'success',
+              title: 'Pessoa atualizada no rascunho',
+              description: 'Salve as participações para aplicar.',
+            });
+          }}
+          onClose={() => setEditing(null)}
+        />
       )}
     </CoproductionDialogContent>
   );

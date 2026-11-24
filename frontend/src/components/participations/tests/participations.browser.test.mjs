@@ -96,16 +96,31 @@ async function mock(page, state) {
       state[key] =
         key === 'co'
           ? { ...state.co, ...body, version: body.version + 1 }
-          : {
-              ...state[key],
-              ...body,
-              version: body.version + 1,
-              affiliates: body.affiliates.map((row) => ({
-                ...row,
-                name: row.email,
-                code: 'N' + row.email.length,
-              })),
-            };
+          : key === 'margin'
+            ? {
+                ...state.margin,
+                ...body,
+                version: body.version + 1,
+                affiliates: body.affiliates.map((row) => ({
+                  ...row,
+                  name: row.email,
+                  code: 'M' + row.email.length,
+                })),
+                coproducers: body.coproducers.map((row) => ({
+                  ...row,
+                  name: row.email,
+                })),
+              }
+            : {
+                ...state[key],
+                ...body,
+                version: body.version + 1,
+                affiliates: body.affiliates.map((row) => ({
+                  ...row,
+                  name: row.email,
+                  code: 'N' + row.email.length,
+                })),
+              };
       return route.fulfill({ json: { data: state[key] } });
     }
     return route.fulfill({ json: { data: state[key] } });
@@ -137,6 +152,14 @@ const bruno = (bps) => ({
   code: 'BRU456',
   percentageBps: bps,
 });
+const baseMargin = (extra = {}) => ({
+  version: 1,
+  defaultPercentageBps: null,
+  commissionOnRenewals: true,
+  affiliates: [],
+  coproducers: [],
+  ...extra,
+});
 const total = (page) => page.getByTestId('participation-total').innerText();
 const owner = (page) => page.getByTestId('participation-owner').innerText();
 const open = async (page, server, kind) => {
@@ -144,401 +167,250 @@ const open = async (page, server, kind) => {
   await page
     .getByRole('button', { name: 'Participações', exact: true })
     .click();
-  await page.getByRole('tab', { name: 'Co-produção' }).waitFor();
+  await page.getByRole('button', { name: 'Adicionar pessoa' }).waitFor();
   await page.getByTestId('participation-total').waitFor();
 };
-
-test('one dialog with tabs, no explanatory notice, joint total visible in both tabs and blocking above 100%', async () => {
+const newPage = async (
+  browser,
+  state,
+  viewport = { width: 390, height: 844 },
+) => {
+  const page = await browser.newPage({ viewport });
+  page.setDefaultTimeout(30000);
+  await mock(page, state);
+  return page;
+};
+const run = async (fn) => {
   const { server, browser } = await serve();
   try {
-    for (const viewport of [
-      { width: 1280, height: 900 },
-      { width: 390, height: 844 },
-    ]) {
-      const page = await browser.newPage({ viewport });
-      page.setDefaultTimeout(30000);
-      const state = {
-        co: baseCo([ana(4000)], { mode: 'OWN', effective: null }),
-        aff: baseAff([bruno(3000)], {
-          inherited: {
-            defaultPercentageBps: null,
-            commissionOnRenewals: true,
-            affiliates: [{ name: 'Caio', code: 'CAIO99', percentageBps: 500 }],
-          },
-        }),
-      };
-      await mock(page, state);
-      await open(page, server, 'ofertas');
-      expect(new URL(page.url()).searchParams.get('modal')).toBe(
-        'participations',
-      );
-      // um único botão: os antigos saíram
-      expect(
-        await page
-          .getByRole('button', { name: 'Afiliados', exact: true })
-          .count(),
-      ).toBe(0);
-      expect(await page.getByRole('tab').count()).toBe(2);
-      // avisos removidos
-      for (const text of [
-        'Afiliados valem em toda compra',
-        'Afiliados desta oferta somam aos da plataforma',
-        'sai da parte do proprietário',
-        'Alterações valem para novas cobranças',
-        'Adicione vários coprodutores',
-        'Assinaturas já criadas seguem',
-      ])
-        expect(await page.getByText(text, { exact: false }).count()).toBe(0);
-      // pior caso: 40% de coprodutores + maior afiliado (Bruno 30%; Caio 5%)
-      expect(await total(page)).toBe('70%');
-      expect(await owner(page)).toBe('30%');
-      if (process.env.PARTICIPATIONS_SCREENSHOT_CSS)
-        await page.screenshot({
-          path: `/tmp/participations-offer-co-${viewport.width}.png`,
-        });
-      await page.getByRole('tab', { name: 'Afiliados' }).click();
-      expect(await total(page)).toBe('70%');
-      await page
-        .getByText('Afiliados da plataforma (somente leitura)')
-        .waitFor();
-      await page.getByText('Caio — 5%').waitFor();
-      expect(
-        await page.getByRole('button', { name: 'Copiar código' }).count(),
-      ).toBeGreaterThan(0);
-      if (process.env.PARTICIPATIONS_SCREENSHOT_CSS)
-        await page.screenshot({
-          path: `/tmp/participations-offer-aff-${viewport.width}.png`,
-        });
-      // excede: Bruno 70% + Ana 40% = 110%
-      await page
-        .getByRole('textbox', { name: 'Percentual', exact: true })
-        .fill('70');
-      await page
-        .getByRole('textbox', { name: 'Percentual', exact: true })
-        .blur();
-      await page
-        .getByRole('alert')
-        .filter({ hasText: '110%' })
-        .first()
-        .waitFor();
-      expect(await total(page)).toBe('110%');
-      expect(
-        await page
-          .getByRole('button', { name: 'Salvar afiliados' })
-          .isDisabled(),
-      ).toBe(true);
-      const message = await page
-        .getByRole('alert')
-        .filter({ hasText: '110%' })
-        .first()
-        .innerText();
-      expect(message).toContain('10% acima de 100%');
-      expect(message).toContain('afiliado Bruno 70%');
-      if (process.env.PARTICIPATIONS_SCREENSHOT_CSS)
-        await page.screenshot({
-          path: `/tmp/participations-offer-over-${viewport.width}.png`,
-        });
-      // a outra aba também fica bloqueada
-      await page.getByRole('tab', { name: 'Co-produção' }).click();
-      expect(await total(page)).toBe('110%');
-      expect(
-        await page
-          .getByRole('button', { name: 'Salvar co-produção' })
-          .isDisabled(),
-      ).toBe(true);
-      expect(state.writes).toEqual([]);
-      // volta ao limite: libera
-      await page.getByRole('textbox', { name: /Participação/ }).fill('30');
-      await page.getByRole('textbox', { name: /Participação/ }).blur();
-      await page.waitForFunction(
-        () =>
-          document.querySelector('[data-testid=participation-total]')
-            .textContent === '100%',
-      );
-      expect(
-        await page
-          .getByRole('button', { name: 'Salvar co-produção' })
-          .isDisabled(),
-      ).toBe(false);
-      await page.close();
-    }
+    await fn({ server, browser });
   } finally {
     await browser.close();
     server.stop(true);
   }
-}, 180000);
+};
 
-test('the same person in both tabs counts once (tie keeps the coproducer; offer affiliate beats platform coproducer)', async () => {
-  const { server, browser } = await serve();
-  try {
-    const page = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    page.setDefaultTimeout(30000);
+test('one modal without tabs: people list with chips, submodal edit with discard, one Salvar splitting only changed agreements', async () => {
+  await run(async ({ server, browser }) => {
     const state = {
-      co: baseCo([ana(6000)], { mode: 'OWN', effective: null }),
-      aff: baseAff([anaAff(6000)]),
-    };
-    await mock(page, state);
-    await open(page, server, 'ofertas');
-    // empate no nível da oferta: vale o coprodutor, 60% e não 120%
-    expect(await total(page)).toBe('60%');
-    await page
-      .getByRole('note')
-      .filter({ hasText: 'conta uma vez só' })
-      .waitFor();
-    expect(
-      await page
-        .getByRole('button', { name: 'Salvar co-produção' })
-        .isDisabled(),
-    ).toBe(false);
-    await page.getByRole('tab', { name: 'Afiliados' }).click();
-    expect(
-      await page.getByRole('button', { name: 'Salvar afiliados' }).isDisabled(),
-    ).toBe(false);
-    await page.close();
-
-    // coprodutor herdado da plataforma, afiliado na oferta: o afiliado vence e troca a parte
-    const page2 = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    page2.setDefaultTimeout(30000);
-    const inheritState = {
-      co: baseCo([], {
-        mode: 'INHERIT',
-        effective: {
-          source: { platformId: 'platform', version: 1 },
-          participants: [
-            ana(3000),
-            { email: 'dani@local.test', name: 'Dani', percentageBps: 2000 },
-          ],
+      co: baseCo([ana(4000)], { mode: 'OWN', effective: null }),
+      aff: baseAff([bruno(3000), anaAff(500)], {
+        inherited: {
+          defaultPercentageBps: null,
+          commissionOnRenewals: true,
+          affiliates: [{ name: 'Caio', code: 'CAIO99', percentageBps: 500 }],
         },
       }),
-      aff: baseAff([anaAff(8000)]),
     };
-    await mock(page2, inheritState);
-    await open(page2, server, 'ofertas');
-    // Ana (oferta) 80% substitui os 30% dela; sobram Dani 20% + Ana 80% = 100%
-    expect(await total(page2)).toBe('100%');
-    expect(await owner(page2)).toBe('0%');
-    await page2.close();
-  } finally {
-    await browser.close();
-    server.stop(true);
-  }
-}, 180000);
-
-test('each tab saves its own configuration, dialog stays open, 409 reloads one tab and 400 keeps the draft', async () => {
-  const { server, browser } = await serve();
-  try {
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 900 },
-    });
-    page.setDefaultTimeout(30000);
-    const state = {
-      co: baseCo([ana(2000)], { mode: 'OWN', effective: null }),
-      aff: baseAff([bruno(1000)], { defaultPercentageBps: 500 }),
-      failNext: [],
-    };
-    await mock(page, state);
+    const page = await newPage(browser, state);
     await open(page, server, 'ofertas');
-    // co-produção
-    await page.getByRole('textbox', { name: /Participação/ }).fill('25,50');
-    await page.getByRole('textbox', { name: /Participação/ }).blur();
-    await page.getByRole('button', { name: 'Salvar co-produção' }).click();
-    await page.getByText('Co-produção salva').waitFor();
-    expect(state.writes[0]).toEqual({
-      key: 'co',
-      body: {
-        basis: 'NET',
-        version: 1,
-        mode: 'OWN',
-        participants: [{ email: 'ana@local.test', percentageBps: 2550 }],
-      },
-    });
-    expect(await page.getByRole('dialog').isVisible()).toBe(true);
-    // afiliados: 400 do servidor preserva o rascunho
-    await page.getByRole('tab', { name: 'Afiliados' }).click();
-    await page.getByLabel('Percentual global').fill('12,5');
-    state.failNext = [
-      {
-        status: 400,
-        message:
-          'Afiliado somado à co-produção não pode ultrapassar 100% do líquido',
-      },
-      {
-        status: 409,
-        message: 'Configuração alterada por outra sessão',
-        reload: { version: 5, defaultPercentageBps: 700 },
-      },
-    ];
-    await page.getByRole('button', { name: 'Salvar afiliados' }).click();
-    await page
-      .getByRole('alert')
-      .filter({ hasText: 'não pode ultrapassar 100%' })
-      .first()
-      .waitFor();
-    expect(await page.getByLabel('Percentual global').inputValue()).toBe(
-      '12,5',
+    expect(new URL(page.url()).searchParams.get('modal')).toBe(
+      'participations',
     );
-    // 409: bloqueia até recarregar; a recarga troca só o rascunho dos afiliados
-    await page.getByRole('button', { name: 'Salvar afiliados' }).click();
-    await page
-      .getByRole('button', { name: 'Recarregar configuração' })
-      .waitFor();
+    expect(await page.getByRole('tab').count()).toBe(0);
+    await page.getByText('Coprodutor · Produto 40%').waitFor();
+    await page.getByText('Afiliado · Produto 30%', { exact: true }).waitFor();
+    await page.getByText('Caio · Afiliado · Produto 5%').waitFor();
+    // pior caso: 40% + Bruno 30%
+    expect(await total(page)).toBe('70%');
+    expect(await owner(page)).toBe('30%');
+
+    // submodal: discard restores
+    await page.getByRole('button', { name: 'Editar Ana' }).click();
+    expect(new URL(page.url()).searchParams.get('modal')).toBe(
+      'participations-person',
+    );
+    await page.getByRole('textbox', { name: 'Percentual' }).first().fill('10');
+    await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
+    await page.getByRole('button', { name: 'Descartar' }).click();
+    await page.getByText('Coprodutor · Produto 40%').waitFor();
+    expect(new URL(page.url()).searchParams.get('modal')).toBe(
+      'participations',
+    );
+    expect(await total(page)).toBe('70%');
+
+    // submodal: over 100% blocks, then fix and save
+    await page.getByRole('button', { name: 'Editar Ana' }).click();
+    await page.getByRole('textbox', { name: 'Percentual' }).first().fill('80');
+    await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
+    await page.getByRole('alert').waitFor();
     expect(
-      await page.getByRole('button', { name: 'Salvar afiliados' }).isDisabled(),
+      await page
+        .getByRole('button', { name: 'Salvar', exact: true })
+        .isDisabled(),
     ).toBe(true);
-    await page.getByRole('button', { name: 'Recarregar configuração' }).click();
-    await page.waitForFunction(
-      () =>
-        document.querySelector('input[name="affiliate-default-percentage"]')
-          .value === '7',
-    );
-    await page.getByRole('button', { name: 'Salvar afiliados' }).click();
-    await page.getByText('Afiliados salvos').waitFor();
-    expect(state.writes.at(-1)).toEqual({
-      key: 'aff',
-      body: {
-        version: 5,
-        defaultPercentageBps: 700,
-        commissionOnRenewals: null,
-        affiliates: [{ email: 'bruno@local.test', percentageBps: 1000 }],
-      },
-    });
-    // a co-produção salva continua com 25,50%
-    await page.getByRole('tab', { name: 'Co-produção' }).click();
-    expect(
-      await page.getByRole('textbox', { name: /Participação/ }).inputValue(),
-    ).toBe('25,5');
+    await page.getByRole('textbox', { name: 'Percentual' }).first().fill('25');
+    await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText('Coprodutor · Produto 25%').waitFor();
+    expect(state.writes.length).toBe(0);
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText('Participações salvas').waitFor();
+    expect(state.writes.map((item) => item.key)).toEqual(['co']);
+    expect(state.writes[0].body.participants).toEqual([
+      { email: 'ana@local.test', percentageBps: 2500 },
+    ]);
     await page.close();
-  } finally {
-    await browser.close();
-    server.stop(true);
-  }
+  });
 }, 180000);
 
-test('a 404 on either module is an error, never an empty agreement', async () => {
-  const { server, browser } = await serve();
-  try {
-    const page = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    page.setDefaultTimeout(30000);
+test('add a person with both product shares and a 404 is an error, never an empty agreement', async () => {
+  await run(async ({ server, browser }) => {
     const state = {
       co: baseCo([], { mode: 'OWN', effective: null }),
       aff: baseAff(),
       loadError: { aff: 404 },
     };
-    await mock(page, state);
+    const page = await newPage(browser, state);
     await page.goto(`${server.url}?kind=ofertas`);
     await page
       .getByRole('button', { name: 'Participações', exact: true })
       .click();
     await page.getByText(/Não foi possível carregar os afiliados/).waitFor();
-    expect(await page.getByRole('tab').count()).toBe(0);
-    expect(await page.getByRole('button', { name: /Salvar/ }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'Salvar' }).count()).toBe(0);
     state.loadError = {};
     await page.getByRole('button', { name: 'Tentar novamente' }).click();
-    await page.getByRole('tab', { name: 'Afiliados' }).waitFor();
+    await page.getByRole('button', { name: 'Adicionar pessoa' }).waitFor();
+    await page.getByRole('button', { name: 'Adicionar pessoa' }).click();
+    await page.getByRole('combobox', { name: /Pessoa/ }).click();
+    await page.getByText('ana@local.test').click();
+    await page.getByRole('switch', { name: 'Coprodutor · Produto' }).click();
+    await page.getByRole('textbox', { name: 'Percentual' }).fill('10');
+    await page.getByRole('textbox', { name: 'Percentual' }).blur();
+    await page.getByRole('switch', { name: 'Afiliado · Produto' }).click();
+    await page.getByRole('textbox', { name: 'Percentual' }).nth(1).fill('5');
+    await page.getByRole('textbox', { name: 'Percentual' }).nth(1).blur();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText('Coprodutor · Produto 10%').waitFor();
+    await page.getByText('Afiliado · Produto 5%', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText('Participações salvas').waitFor();
+    expect(state.writes.map((item) => item.key)).toEqual(['co', 'aff']);
     await page.close();
-  } finally {
-    await browser.close();
-    server.stop(true);
-  }
+  });
 }, 180000);
 
-test('platform: link base, copyable code and joint total without inheritance controls', async () => {
-  const { server, browser } = await serve();
-  try {
-    const page = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    page.setDefaultTimeout(30000);
+test('non-admin never fetches or saves margin and sees no margin shares', async () => {
+  await run(async ({ server, browser }) => {
     const state = {
-      co: baseCo([ana(1000)], { mode: 'OWN' }),
-      aff: baseAff([bruno(2550)], {
-        defaultPercentageBps: 1000,
-        commissionOnRenewals: true,
-        linkBaseUrl: 'https://loja.test',
-      }),
-    };
-    await mock(page, state);
-    await open(page, server, 'plataformas');
-    expect(await total(page)).toBe('35,5%');
-    expect(
-      await page
-        .getByRole('button', { name: 'Usar padrão da plataforma' })
-        .count(),
-    ).toBe(0);
-    await page.getByRole('tab', { name: 'Afiliados' }).click();
-    await page.getByText('BRU456').waitFor();
-    expect(
-      await page.getByRole('button', { name: 'Copiar link' }).count(),
-    ).toBe(1);
-    expect(await page.getByLabel('Link base').inputValue()).toBe(
-      'https://loja.test',
-    );
-    if (process.env.PARTICIPATIONS_SCREENSHOT_CSS)
-      await page.screenshot({ path: '/tmp/participations-platform-390.png' });
-    // fechar pelo histórico
-    await page.goBack();
-    await page.getByRole('dialog').waitFor({ state: 'hidden' });
-    await page.close();
-  } finally {
-    await browser.close();
-    server.stop(true);
-  }
-}, 180000);
-
-test('margin affiliates tab is admin-only, outside the joint total, and saves without link base', async () => {
-  const { server, browser } = await serve();
-  try {
-    const make = () => ({
+      isAdmin: false,
       co: baseCo([ana(1000)], { mode: 'OWN' }),
       aff: baseAff([bruno(2000)]),
-      margin: baseAff([anaAff(3000)], { commissionOnRenewals: true }),
-    });
-    const plain = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    plain.setDefaultTimeout(30000);
-    const regular = { ...make(), isAdmin: false };
-    await mock(plain, regular);
-    await open(plain, server, 'plataformas');
-    expect(
-      await plain.getByRole('tab', { name: 'Afiliado SimIntPay' }).count(),
-    ).toBe(0);
-    expect(regular.requests.some((item) => item.includes('/margem/'))).toBe(
+      margin: baseMargin({
+        coproducers: [
+          { email: 'dani@local.test', name: 'Dani', percentageBps: 2000 },
+        ],
+      }),
+    };
+    const page = await newPage(browser, state);
+    await open(page, server, 'plataformas');
+    expect(state.requests.some((item) => item.includes('/margem/'))).toBe(
       false,
     );
-    await plain.close();
+    expect(await page.getByText('Dani').count()).toBe(0);
+    expect(await page.getByTestId('margin-affiliate-total').count()).toBe(0);
+    await page.getByRole('button', { name: 'Editar Ana' }).click();
+    expect(await page.getByRole('switch', { name: /Margem/ }).count()).toBe(0);
+    await page.getByRole('textbox', { name: 'Percentual' }).first().fill('15');
+    await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText('Participações salvas').waitFor();
+    expect(state.writes.map((item) => item.key)).toEqual(['co']);
+    await page.close();
+  });
+}, 180000);
 
-    const page = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-    });
-    page.setDefaultTimeout(30000);
-    const state = { ...make(), isAdmin: true };
-    await mock(page, state);
+test('admin: margin shares, independent margin indicator, sequential saves with partial failure and reload on 409', async () => {
+  await run(async ({ server, browser }) => {
+    const state = {
+      isAdmin: true,
+      co: baseCo([ana(1000)], { mode: 'OWN' }),
+      aff: baseAff([bruno(2000)]),
+      margin: baseMargin({
+        defaultPercentageBps: 3000,
+        affiliates: [
+          {
+            email: 'bruno@local.test',
+            name: 'Bruno',
+            code: 'M1',
+            percentageBps: null,
+          },
+        ],
+        coproducers: [
+          { email: 'ana@local.test', name: 'Ana', percentageBps: 2000 },
+        ],
+      }),
+    };
+    const page = await newPage(browser, state);
     await open(page, server, 'plataformas');
-    const joint = await total(page);
-    await page.getByRole('tab', { name: 'Afiliado SimIntPay' }).click();
-    await page.getByText('Margem SimIntPay:').waitFor();
+    await page.getByText('Coprodutor · Margem 20%').waitFor();
+    await page.getByText('Afiliado · Margem padrão 30%').waitFor();
+    // 20% coprodutor + Bruno 30% (padrão)
+    expect(await page.getByTestId('margin-affiliate-total').innerText()).toBe(
+      '50%',
+    );
+
+    await page.getByRole('button', { name: 'Editar Ana' }).click();
+    await page.getByRole('switch', { name: 'Afiliado · Produto' }).click();
+    await page.getByRole('textbox', { name: 'Percentual' }).nth(1).fill('5');
+    await page.getByRole('textbox', { name: 'Percentual' }).nth(1).blur();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('button', { name: 'Editar Bruno' }).click();
+    await page
+      .getByRole('switch', { name: 'Coprodutor · Margem SimIntPay' })
+      .click();
+    await page.getByRole('textbox', { name: 'Percentual' }).nth(1).fill('10');
+    await page.getByRole('textbox', { name: 'Percentual' }).nth(1).blur();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    // Salvar grava aff e margin, nessa ordem
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText('Participações salvas').waitFor();
+    expect(state.writes.map((item) => item.key)).toEqual(['aff', 'margin']);
+    expect(state.writes[1].body.coproducers).toEqual([
+      { email: 'ana@local.test', percentageBps: 2000 },
+      { email: 'bruno@local.test', percentageBps: 1000 },
+    ]);
+    expect(state.writes[1].body.affiliates).toEqual([
+      { email: 'bruno@local.test', percentageBps: null },
+    ]);
+    // Bruno virou coprodutor da margem: só os coprodutores contam (30%)
     expect(await page.getByTestId('margin-affiliate-total').innerText()).toBe(
       '30%',
     );
-    expect(await page.getByLabel('Link base').count()).toBe(0);
-    await page
-      .getByRole('button', { name: 'Salvar afiliados da margem' })
-      .click();
-    await page.getByText('Afiliados da margem salvos').waitFor();
-    expect(state.writes.at(-1).key).toBe('margin');
-    expect('linkBaseUrl' in state.writes.at(-1).body).toBe(false);
-    await page.getByRole('tab', { name: 'Co-produção' }).click();
-    expect(await total(page)).toBe(joint);
     await page.close();
-  } finally {
-    await browser.close();
-    server.stop(true);
-  }
+  });
+}, 180000);
+
+test('admin: a failing later agreement reports what was saved, keeps the draft and reloads on 409', async () => {
+  await run(async ({ server, browser }) => {
+    const state = {
+      isAdmin: true,
+      co: baseCo([ana(1000)], { mode: 'OWN' }),
+      aff: baseAff([bruno(2000)]),
+      margin: baseMargin({ defaultPercentageBps: 3000 }),
+      failNext: [],
+    };
+    const page = await newPage(browser, state);
+    await open(page, server, 'plataformas');
+    await page.getByRole('button', { name: 'Editar Ana' }).click();
+    await page.getByRole('textbox', { name: 'Percentual' }).first().fill('11');
+    await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
+    await page
+      .getByRole('switch', { name: 'Coprodutor · Margem SimIntPay' })
+      .click();
+    await page.getByRole('textbox', { name: 'Percentual' }).last().fill('10');
+    await page.getByRole('textbox', { name: 'Percentual' }).last().blur();
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    state.failNext.push(undefined, {
+      status: 409,
+      message: 'Versão antiga',
+      reload: { version: 7 },
+    });
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText(/Já salvo: Co-produção/).waitFor();
+    await page.getByRole('button', { name: 'Recarregar configuração' }).click();
+    await page.getByText('Configuração recarregada').waitFor();
+    await page.close();
+  });
 }, 180000);

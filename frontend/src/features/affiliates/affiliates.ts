@@ -100,7 +100,13 @@ export function parseAffiliates(value: unknown): AffiliateAgreement {
 }
 
 export function draftFromAgreement(
-  agreement: AffiliateAgreement,
+  agreement: Pick<
+    AffiliateAgreement,
+    | 'affiliates'
+    | 'defaultPercentageBps'
+    | 'commissionOnRenewals'
+    | 'linkBaseUrl'
+  >,
   platform: boolean,
 ): AffiliateDraft {
   return {

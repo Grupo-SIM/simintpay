@@ -2,14 +2,11 @@ import {
   AffiliateConfirmationError,
   canonical,
 } from '@/features/affiliates/affiliates.service';
-import { parseAffiliates } from '@/features/affiliates/affiliates';
-import type {
-  AffiliateAgreement,
-  AffiliateProduct,
-  AffiliateSaveInput,
-} from '@/features/affiliates/types';
+import type { AffiliateProduct } from '@/features/affiliates/types';
 import type { ApiClient } from '@/services/api/api.client';
 import { endpoints } from '@/services/api/endpoints';
+import { parseMarginAgreement } from './margin-affiliates';
+import type { MarginAgreement, MarginSaveInput } from './types';
 
 export async function getMarginAffiliates(
   api: ApiClient,
@@ -21,7 +18,7 @@ export async function getMarginAffiliates(
     endpoints.affiliates.marginConfiguration(product, id),
     { cache: 'no-store' },
   );
-  return parseAffiliates(response?.data);
+  return parseMarginAgreement(response?.data);
 }
 
 export async function saveMarginAffiliates(
@@ -29,16 +26,21 @@ export async function saveMarginAffiliates(
   product: AffiliateProduct,
   id: string,
   version: number,
-  input: AffiliateSaveInput,
-): Promise<AffiliateAgreement> {
-  const { linkBaseUrl: _ignored, ...body } = input;
+  input: MarginSaveInput,
+): Promise<MarginAgreement> {
   const response = await api.put<{ data: unknown }>(
     endpoints.affiliates.marginConfiguration(product, id),
-    { version, ...body },
+    {
+      version,
+      defaultPercentageBps: input.defaultPercentageBps,
+      commissionOnRenewals: input.commissionOnRenewals,
+      affiliates: input.affiliates,
+      coproducers: input.coproducers,
+    },
   );
-  let saved: AffiliateAgreement;
+  let saved: MarginAgreement;
   try {
-    saved = parseAffiliates(response?.data);
+    saved = parseMarginAgreement(response?.data);
   } catch {
     throw new AffiliateConfirmationError(
       'O servidor não confirmou a configuração salva. Recarregue antes de tentar novamente.',
@@ -46,12 +48,13 @@ export async function saveMarginAffiliates(
   }
   if (
     saved.version <= version ||
-    saved.defaultPercentageBps !== body.defaultPercentageBps ||
-    saved.commissionOnRenewals !== body.commissionOnRenewals ||
-    canonical(saved.affiliates) !== canonical(body.affiliates)
+    saved.defaultPercentageBps !== input.defaultPercentageBps ||
+    saved.commissionOnRenewals !== input.commissionOnRenewals ||
+    canonical(saved.affiliates) !== canonical(input.affiliates) ||
+    canonical(saved.coproducers) !== canonical(input.coproducers)
   )
     throw new AffiliateConfirmationError(
-      'O servidor não confirmou os afiliados da margem salvos. Recarregue a configuração antes de tentar novamente.',
+      'O servidor não confirmou a margem salva. Recarregue a configuração antes de tentar novamente.',
     );
   return saved;
 }

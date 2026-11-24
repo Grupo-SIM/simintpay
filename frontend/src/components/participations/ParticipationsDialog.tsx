@@ -35,7 +35,7 @@ const DESCRIPTION = {
   ofertas: 'Defina quem recebe parte das vendas desta oferta.',
 } as const;
 
-/** Um só diálogo para co-produção e afiliados: as duas listas dividem o mesmo líquido. */
+/** Um só diálogo de pessoas: coprodutores e afiliados (produto e margem) num único rascunho. */
 export function ParticipationsDialog({
   product,
   productId,
@@ -80,7 +80,7 @@ export function ParticipationsDialog({
     : affiliates.isError
       ? `Não foi possível carregar os afiliados. ${affiliates.error.message}`
       : margin.isError
-        ? `Não foi possível carregar os afiliados da margem. ${margin.error.message}`
+        ? `Não foi possível carregar a margem. ${margin.error.message}`
         : null;
   const ready = coproduction.data && affiliates.data;
   const shell = (children: ReactNode) => (

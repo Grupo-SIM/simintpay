@@ -52,6 +52,7 @@ const ADMIN_ITEMS = [
   { href: '/admin/cobrancas', icon: Receipt, label: 'Cobranças' },
   { href: '/admin/taxas', icon: Percent, label: 'Taxas' },
   { href: '/admin/saques', icon: Landmark, label: 'Saques' },
+  { href: '/plataformas', icon: Package, label: 'Plataformas' },
 ];
 
 const W_OPEN = 200;
