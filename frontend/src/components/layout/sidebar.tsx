@@ -75,7 +75,9 @@ function NavLink({
   open,
   pathname,
   labelStyle,
+  excludePrefix,
 }: {
+  excludePrefix?: string;
   href: string;
   icon: React.ElementType;
   label: string;
@@ -85,7 +87,12 @@ function NavLink({
   labelStyle: CSSProperties;
 }) {
   const active =
-    href !== '#' && (pathname === href || pathname.startsWith(href + '/'));
+    href !== '#' &&
+    (pathname === href || pathname.startsWith(href + '/')) &&
+    !(
+      excludePrefix &&
+      (pathname === excludePrefix || pathname.startsWith(excludePrefix + '/'))
+    );
   return (
     <Link
       href={href}
@@ -447,6 +454,7 @@ export function Sidebar() {
           pathname={pathname}
           labelStyle={labelStyle}
           href="/ofertas"
+          excludePrefix={user?.isAdmin ? '/ofertas/assinantes' : undefined}
           icon={Link2}
           label="Ofertas"
         />
