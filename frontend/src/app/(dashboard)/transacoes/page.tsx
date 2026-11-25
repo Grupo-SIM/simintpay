@@ -861,6 +861,11 @@ function TransacoesContent() {
                     />
                     <span className="text-xs text-zinc-400">
                       {affiliationStateLabel(affiliation.state)}
+                      {affiliation.basis === 'MARGIN'
+                        ? ' · margem'
+                        : affiliation.basis === 'BOTH'
+                          ? ' · produto + margem'
+                          : ''}
                       {affiliation.isRenewal ? ' · renovação' : ''}
                     </span>
                     {!mine && affiliation.affiliateCode && (

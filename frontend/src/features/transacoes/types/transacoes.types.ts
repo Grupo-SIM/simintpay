@@ -31,6 +31,8 @@ export type TransacaoAfiliacao = {
   myAmountCents: number | null;
   state: 'AVAILABLE' | 'LOCKED' | 'REVERSED' | string | null;
   isRenewal: boolean;
+  /** Origem da comissão própria: líquido da venda, margem SimIntPay ou ambas. */
+  basis?: 'PRODUCT' | 'MARGIN' | 'BOTH';
   affiliateCommissionCents?: number | null;
   affiliateCode?: string | null;
 };
