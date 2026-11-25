@@ -22,6 +22,7 @@ import { SubscriptionModule } from './presentation/subscription.module';
 import { ReportModule } from './presentation/report.module';
 import { SettingsModule } from './presentation/settings.module';
 import { WithdrawModule } from './presentation/withdraw.module';
+import { ExtratoModule } from './presentation/extrato.module';
 import { LeadModule } from './presentation/lead.module';
 import { AdminModule } from './presentation/admin.module';
 import { MaquinetasModule } from './presentation/maquinetas.module';
@@ -72,6 +73,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     ReportModule,
     SettingsModule,
     WithdrawModule,
+    ExtratoModule,
     LeadModule,
     AdminModule,
     MaquinetasModule,
