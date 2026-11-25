@@ -118,3 +118,34 @@ export function hasCoproducers(
     affiliation?.role === 'OWNER'
   );
 }
+
+/**
+ * Coluna única "Participação": soma o que o usuário recebeu ou repassou por coprodução e por
+ * afiliação, tanto do produto quanto da margem, sem distinguir a origem. Null quando não há valor.
+ */
+export function participationCell(
+  row: Pick<Transacao, 'netAmount' | 'coproducao' | 'afiliacao'>,
+): { cents: number; reversed: boolean } | null {
+  const co = coproductionCell(row);
+  const coCents = co
+    ? co.kind === 'OWNER'
+      ? co.divertedCents
+      : co.myCents
+    : null;
+  const affiliation = row.afiliacao;
+  const affiliationCents = affiliation
+    ? affiliation.role === 'AFFILIATE'
+      ? affiliation.myAmountCents
+      : (affiliation.affiliateCommissionCents ?? null)
+    : null;
+  if (coCents == null && affiliationCents == null) return null;
+  const states = [
+    coCents == null ? null : row.coproducao?.state,
+    affiliationCents == null ? null : affiliation?.state,
+  ].filter((state) => state != null);
+  return {
+    cents: (coCents ?? 0) + (affiliationCents ?? 0),
+    reversed:
+      states.length > 0 && states.every((state) => state === 'REVERSED'),
+  };
+}

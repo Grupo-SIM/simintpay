@@ -37,14 +37,9 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import type { Transacao } from '@/features/transacoes/types/transacoes.types';
+import { isAffiliateOnly } from '@/features/affiliates/affiliation';
 import {
-  affiliationAmountCents,
-  affiliationStateLabel,
-  isAffiliateOnly,
-} from '@/features/affiliates/affiliation';
-import {
-  coproductionCell,
-  coproductionStateLabel,
+  participationCell,
   userNetAmount,
 } from '@/features/transacoes/participations';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -805,75 +800,19 @@ function TransacoesContent() {
         ? []
         : [
             {
-              key: 'coproducao',
-              header: 'Coprodução',
+              key: 'participacao',
+              header: 'Participação',
               className: 'text-right whitespace-nowrap',
               headerClassName: 'text-right',
               render: (row: Transacao) => {
-                const cell = coproductionCell(row);
-                if (cell == null)
+                const participation = participationCell(row);
+                if (participation == null)
                   return <span className="text-xs text-zinc-400">-</span>;
-                const reversed = row.coproducao?.state === 'REVERSED';
                 return (
-                  <div className="flex flex-col items-end">
-                    <MoneyCell
-                      value={
-                        (cell.kind === 'OWNER'
-                          ? cell.divertedCents
-                          : cell.myCents) / 100
-                      }
-                      className={`text-sm font-medium text-violet-600 dark:text-violet-300 ${reversed ? 'line-through opacity-70' : ''}`}
-                    />
-                    <span className="text-xs text-zinc-400">
-                      {coproductionStateLabel(cell.state)}
-                      {cell.kind === 'OWNER'
-                        ? ` · ${cell.percentage.toLocaleString('pt-BR', {
-                            maximumFractionDigits: 2,
-                          })}%`
-                        : ' · sua parte'}
-                    </span>
-                  </div>
-                );
-              },
-            },
-            {
-              key: 'afiliacao',
-              header: 'Afiliação',
-              className: 'text-right whitespace-nowrap',
-              headerClassName: 'text-right',
-              render: (row: Transacao) => {
-                const affiliation = row.afiliacao;
-                const cents = affiliation
-                  ? affiliationAmountCents(affiliation)
-                  : null;
-                if (!affiliation || cents == null)
-                  return <span className="text-xs text-zinc-400">-</span>;
-                const mine = affiliation.role === 'AFFILIATE';
-                return (
-                  <div className="flex flex-col items-end">
-                    <MoneyCell
-                      value={cents / 100}
-                      className={`text-sm font-medium ${
-                        mine
-                          ? 'text-sky-600 dark:text-sky-300'
-                          : 'text-amber-600 dark:text-amber-300'
-                      } ${affiliation.state === 'REVERSED' ? 'line-through opacity-70' : ''}`}
-                    />
-                    <span className="text-xs text-zinc-400">
-                      {affiliationStateLabel(affiliation.state)}
-                      {affiliation.basis === 'MARGIN'
-                        ? ' · margem'
-                        : affiliation.basis === 'BOTH'
-                          ? ' · produto + margem'
-                          : ''}
-                      {affiliation.isRenewal ? ' · renovação' : ''}
-                    </span>
-                    {!mine && affiliation.affiliateCode && (
-                      <span className="font-mono text-[10px] text-zinc-400">
-                        {affiliation.affiliateCode}
-                      </span>
-                    )}
-                  </div>
+                  <MoneyCell
+                    value={participation.cents / 100}
+                    className={`text-sm font-medium text-violet-600 dark:text-violet-300 ${participation.reversed ? 'line-through opacity-70' : ''}`}
+                  />
                 );
               },
             },
