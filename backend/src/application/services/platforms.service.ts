@@ -5,6 +5,7 @@ import {
 } from '../../modules/coproduction/coproduction-view';
 import {
   affiliatePlatformIds,
+  coproducedOfferPlatformIds,
   type AffiliatePlatformInfo,
 } from '../../modules/affiliate/affiliate-view';
 import {
@@ -166,7 +167,19 @@ export class PlatformsService {
     const affiliateIds = adminListing
       ? []
       : await affiliatePlatformIds(this.prisma, user.sub);
-    const visibleIds = [...new Set([...sharedIds, ...affiliateIds])];
+    const offerCoproducerPlatformIds = adminListing
+      ? []
+      : await coproducedOfferPlatformIds(
+          this.prisma,
+          await sharedProductIds(this.prisma, 'ofertas', user.sub),
+        );
+    const visibleIds = [
+      ...new Set([
+        ...sharedIds,
+        ...affiliateIds,
+        ...offerCoproducerPlatformIds,
+      ]),
+    ];
     const platforms = await this.prisma.platform.findMany({
       where: adminListing
         ? {}
@@ -187,7 +200,18 @@ export class PlatformsService {
     );
     return {
       data: platforms.map((platform) => {
-        const coproducao = info.get(platform.id) ?? null;
+        const coproducao =
+          info.get(platform.id) ??
+          (!adminListing &&
+          platform.ownerUserId !== user.sub &&
+          offerCoproducerPlatformIds.includes(platform.id)
+            ? {
+                role: 'COPRODUCER' as const,
+                readOnly: true,
+                participantsCount: 0,
+                myPercentageBps: null,
+              }
+            : null);
         // Participation grants listing visibility, never configuration or fee access.
         if (!adminListing && platform.ownerUserId !== user.sub) {
           const afiliacao: AffiliatePlatformInfo | null = affiliateIds.includes(

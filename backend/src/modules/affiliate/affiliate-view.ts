@@ -24,7 +24,31 @@ export async function affiliatePlatformIds(
     SELECT p.id FROM "AffiliateAgreement" a
     JOIN "Offer" o ON o.id = a."productId"
     JOIN "Platform" p ON p.tag = o."platformTag" AND p."ownerUserId" = o."ownerUserId"
-    WHERE a.product = 'ofertas' AND a.affiliates @> ${listed}::jsonb`);
+    WHERE a.product = 'ofertas' AND a.affiliates @> ${listed}::jsonb
+    UNION
+    SELECT "productId" AS id FROM "MarginAffiliateAgreement"
+    WHERE product = 'plataformas'
+      AND (affiliates @> ${listed}::jsonb OR coproducers @> ${listed}::jsonb)
+    UNION
+    SELECT p.id FROM "MarginAffiliateAgreement" a
+    JOIN "Offer" o ON o.id = a."productId"
+    JOIN "Platform" p ON p.tag = o."platformTag" AND p."ownerUserId" = o."ownerUserId"
+    WHERE a.product = 'ofertas'
+      AND (a.affiliates @> ${listed}::jsonb OR a.coproducers @> ${listed}::jsonb)`);
+  return rows.map((row) => row.id);
+}
+
+/** Platforms hosting an offer whose effective coproduction agreement lists the user. */
+export async function coproducedOfferPlatformIds(
+  db: Db,
+  offerIds: string[],
+): Promise<string[]> {
+  if (!offerIds.length) return [];
+  const rows = await db.$queryRaw<
+    { id: string }[]
+  >(Prisma.sql`SELECT DISTINCT p.id FROM "Offer" o
+    JOIN "Platform" p ON p.tag = o."platformTag" AND p."ownerUserId" = o."ownerUserId"
+    WHERE o.id IN (${Prisma.join(offerIds)})`);
   return rows.map((row) => row.id);
 }
 
