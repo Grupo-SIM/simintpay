@@ -21,6 +21,7 @@ import {
   UsersRound,
   Receipt,
   Landmark,
+  ScrollText,
 } from 'lucide-react';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import {
@@ -381,6 +382,16 @@ export function Sidebar() {
             href="/saques"
             icon={ArrowDownToLine}
             label="Saques"
+          />
+        )}
+        {!user?.isAdmin && (
+          <NavLink
+            open={open}
+            pathname={pathname}
+            labelStyle={labelStyle}
+            href="/extrato"
+            icon={ScrollText}
+            label="Extrato"
           />
         )}
         {!user?.isAdmin && (

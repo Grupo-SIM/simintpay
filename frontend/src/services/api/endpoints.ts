@@ -40,6 +40,9 @@ export const endpoints = {
     comprovante: (id: string) =>
       `/saques/${encodeURIComponent(id)}/comprovante`,
   },
+  extrato: {
+    list: '/extrato',
+  },
   ofertas: {
     list: '/ofertas',
     create: '/ofertas',
