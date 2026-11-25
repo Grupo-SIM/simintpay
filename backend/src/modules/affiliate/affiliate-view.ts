@@ -38,7 +38,12 @@ export async function hasAffiliateHistory(
     { count: bigint }[]
   >(Prisma.sql`SELECT count(*) AS count FROM "AffiliateAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
     WHERE a."userId" = ${userId} AND t."userId" <> ${userId} AND t."platformTag" = ${platformTag}`);
-  return Number(rows[0]?.count ?? 0) > 0;
+  if (Number(rows[0]?.count ?? 0) > 0) return true;
+  const margin = await db.$queryRaw<
+    { count: bigint }[]
+  >(Prisma.sql`SELECT count(*) AS count FROM "MarginAffiliateAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
+    WHERE a."userId" = ${userId} AND t."userId" <> ${userId} AND t."platformTag" = ${platformTag}`);
+  return Number(margin[0]?.count ?? 0) > 0;
 }
 
 /** Read-only marker of a platform listed for someone who is only an affiliate there. */
@@ -51,7 +56,10 @@ export type AffiliateTotals = {
   reversedCents: number;
 };
 
-/** Own commissions as affiliate on sales of other owners; informative, already part of the wallet. */
+/**
+ * Own commissions on sales of other owners, as affiliate or as participant of the SimIntPay margin
+ * (affiliate or coproducer); informative, already part of the wallet.
+ */
 export async function affiliateTotals(
   db: Db,
   userId: string,
@@ -60,7 +68,11 @@ export async function affiliateTotals(
   const rows = await db.$queryRaw<
     { state: string; count: bigint; amount: Prisma.Decimal }[]
   >(Prisma.sql`SELECT a.state::text AS state, count(*) AS count, coalesce(sum(a.amount), 0) AS amount
-    FROM "AffiliateAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
+    FROM (
+      SELECT "transactionId", "userId", state, amount FROM "AffiliateAllocation"
+      UNION ALL
+      SELECT "transactionId", "userId", state, amount FROM "MarginAffiliateAllocation"
+    ) a JOIN "Transaction" t ON t.id = a."transactionId"
     WHERE a."userId" = ${userId} AND t."userId" <> ${userId} ${coproductionPeriod(range)}
     GROUP BY 1`);
   const state = (name: string) =>
@@ -109,6 +121,8 @@ export type AffiliateTransactionInfo = {
   myAmountCents: number | null;
   state: string | null;
   isRenewal: boolean;
+  /** Affiliate only: where the commission comes from (the sale's net or the SimIntPay margin). */
+  basis?: 'PRODUCT' | 'MARGIN' | 'BOTH';
   /** Owner only: commission paid to the affiliate of the sale. */
   affiliateCommissionCents?: number | null;
   /** Owner only: public code of the affiliate, never an e-mail. */
@@ -148,6 +162,15 @@ export async function transactionAffiliateInfo(
     }[]
   >(Prisma.sql`SELECT "transactionId", "userId", amount, state, "isRenewal"
     FROM "AffiliateAllocation" WHERE "transactionId" IN (${Prisma.join(transactions.map((t) => t.id))})`);
+  const marginRows = await db.$queryRaw<
+    {
+      transactionId: string;
+      amount: Prisma.Decimal;
+      state: string;
+      isRenewal: boolean;
+    }[]
+  >(Prisma.sql`SELECT "transactionId", amount, state, "isRenewal"
+    FROM "MarginAffiliateAllocation" WHERE "userId" = ${userId} AND "transactionId" IN (${Prisma.join(transactions.map((t) => t.id))})`);
   for (const transaction of transactions) {
     const allocation = rows.find((row) => row.transactionId === transaction.id);
     if (transaction.userId === userId) {
@@ -182,13 +205,19 @@ export async function transactionAffiliateInfo(
         affiliateCode:
           typeof fromSnapshot?.code === 'string' ? fromSnapshot.code : null,
       });
-    } else if (allocation?.userId === userId) {
+    } else {
+      const product = allocation?.userId === userId ? allocation : undefined;
+      const margin = marginRows.find(
+        (row) => row.transactionId === transaction.id,
+      );
+      if (!product && !margin) continue;
       info.set(transaction.id, {
         role: 'AFFILIATE',
         readOnly: true,
-        myAmountCents: cents(allocation.amount),
-        state: allocation.state,
-        isRenewal: allocation.isRenewal,
+        myAmountCents: cents(product?.amount ?? 0) + cents(margin?.amount ?? 0),
+        state: (product ?? margin)!.state,
+        isRenewal: Boolean(product?.isRenewal || margin?.isRenewal),
+        basis: product && margin ? 'BOTH' : margin ? 'MARGIN' : 'PRODUCT',
       });
     }
   }

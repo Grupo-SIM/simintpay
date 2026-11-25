@@ -227,5 +227,10 @@ migrations `20261123090000_margin_affiliates` e `20261124090000_margin_coproduce
   `/comissoes/margem/ofertas/:id`. Corpo: `{ version, defaultPercentageBps, commissionOnRenewals,
 affiliates: [{ email, percentageBps }], coproducers: [{ email, percentageBps }] }`, sem `linkBaseUrl`.
 - Interface: diálogo único Participações; cada pessoa tem um submodal de edição com as combinações.
+- Visibilidade: quem recebe parte da margem vê a venda em Transações (listagem e detalhe, como
+  `afiliacao` com `basis: MARGIN`, ou `BOTH` quando soma comissão de produto, sem comprador nem
+  financeiro do dono) e o valor entra em `afiliacao` do painel e dos relatórios (`affiliateTotals`
+  soma `AffiliateAllocation` e `MarginAffiliateAllocation`). O líquido do dono não muda: a margem não
+  sai dele.
 - Pendente: relatórios de lucro Simpay ainda não abatem essas comissões; a pessoa ainda não as vê em
   `/comissoes/recebimentos` (aparecem na carteira/extrato).

@@ -50,6 +50,7 @@ export class ListTransactionsUseCase {
             { userId: input.userId },
             { coproductionAllocations: { some: { userId: input.userId } } },
             { affiliateAllocations: { some: { userId: input.userId } } },
+            { marginAffiliateAllocations: { some: { userId: input.userId } } },
             {
               AND: [
                 { userId: getPlatformOwnerId('RENOVADA') ?? '' },
@@ -79,6 +80,7 @@ export class ListTransactionsUseCase {
             { userId: input.userId },
             { coproductionAllocations: { some: { userId: input.userId } } },
             { affiliateAllocations: { some: { userId: input.userId } } },
+            { marginAffiliateAllocations: { some: { userId: input.userId } } },
           ],
         });
       }

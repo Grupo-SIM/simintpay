@@ -377,6 +377,11 @@ export class GetTransactionDetailsUseCase {
                 { userId: input.userId },
                 { coproductionAllocations: { some: { userId: input.userId } } },
                 { affiliateAllocations: { some: { userId: input.userId } } },
+                {
+                  marginAffiliateAllocations: {
+                    some: { userId: input.userId },
+                  },
+                },
               ],
             }),
       },
