@@ -109,7 +109,8 @@ export async function walletBalanceReport(
   const ids = Prisma.join(users.map((user) => user.id));
   const inPeriod = (column: string) =>
     Prisma.sql`${Prisma.raw(column)} >= ${range.start ?? new Date(0)} AND ${Prisma.raw(column)} < ${range.end ?? new Date('9999-01-01')}`;
-  const ledgerKey = Prisma.sql`(CASE WHEN action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY} ELSE ${keySql(Prisma.sql`"platformTag"`)} END)`;
+  // Explicit ledger tag first; legacy rows without one inherit the platform of the transaction they settle.
+  const ledgerKey = Prisma.sql`(CASE WHEN bl.action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY} ELSE ${keySql(Prisma.sql`coalesce(nullif(btrim(bl."platformTag"), ''), tx."platformTag")`)} END)`;
   const [credits, withdrawals] = await Promise.all([
     db.$queryRaw<
       {
@@ -119,10 +120,11 @@ export async function walletBalanceReport(
         locked: Prisma.Decimal;
         period: Prisma.Decimal;
       }[]
-    >(Prisma.sql`SELECT "userId", ${ledgerKey} AS key,
-        coalesce(sum("balanceDelta"), 0) AS balance, coalesce(sum("lockedDelta"), 0) AS locked,
-        coalesce(sum("balanceDelta") FILTER (WHERE ${inPeriod('"createdAt"')}), 0) AS period
-      FROM "BalanceLog" WHERE "userId" IN (${ids}) AND action NOT LIKE 'WITHDRAW\\_%'
+    >(Prisma.sql`SELECT bl."userId", ${ledgerKey} AS key,
+        coalesce(sum(bl."balanceDelta"), 0) AS balance, coalesce(sum(bl."lockedDelta"), 0) AS locked,
+        coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
+      FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
+      WHERE bl."userId" IN (${ids}) AND bl.action NOT LIKE 'WITHDRAW\\_%'
       GROUP BY 1, 2`),
     db.$queryRaw<
       {
