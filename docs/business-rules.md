@@ -362,13 +362,13 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
   separados de taxas e coprodutores, e o líquido dele já desconta a comissão. Quem tem co-produção e
   afiliação na mesma venda vê as duas linhas separadas.
 
-### Afiliado e coprodutor sobre a margem SimIntPay
+### Afiliado e coprodutor SimIntPay
 
-- Só administrador configura, por plataforma e oferta. Afiliado de margem segue as regras de lista,
-  código e renovação do afiliado comum; coprodutor de margem é lista fixa que paga em toda venda.
+- Só administrador configura, por plataforma e oferta. Afiliado SimIntPay segue as regras de lista,
+  código e renovação do afiliado comum; coprodutor SimIntPay é lista fixa que paga em toda venda.
   Ambos são pagos sobre a margem SimIntPay (valor pago pelo comprador − líquido do vendedor − custo
   realizado da adquirente), nunca sobre o líquido do dono. Margem desconhecida ou negativa não gera
-  comissão. Limite de 100% da margem próprio; na margem o coprodutor vence o afiliado da mesma pessoa.
+  comissão. Limite de 100% da margem próprio; no SimIntPay o coprodutor vence o afiliado da mesma pessoa.
   Detalhes em [afiliados](afiliados.md).
 
 ### Coprodução por plataforma

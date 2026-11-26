@@ -98,7 +98,7 @@ describe('buildDraft / splitDraft', () => {
       'Afiliado · Produto padrão 5%',
     ]);
     const cai = draft.people.find((p) => p.email === 'cai@x.test')!;
-    expect(personChips(cai, {}, true)).toEqual(['Coprodutor · Margem 20%']);
+    expect(personChips(cai, {}, true)).toEqual(['Coprodutor · SimIntPay 20%']);
     expect(personChips(cai, {}, false)).toEqual([]);
   });
 });
@@ -131,7 +131,7 @@ describe('validateDraft', () => {
     expect(validateDraft(next, full, admin)).toMatch(/percentual/i);
   });
 
-  test('margem: coprodutores + maior afiliado que não é coprodutor', () => {
+  test('SimIntPay: coprodutores + maior afiliado que não é coprodutor', () => {
     const draft = buildDraft(full, admin);
     // Cai 20% + Bia (global 30%) = 50%
     expect(computeTotals(draft, full, admin).margin?.totalBps).toBe(5000);
@@ -144,8 +144,8 @@ describe('validateDraft', () => {
       ),
     };
     expect(computeTotals(bump, full, admin).margin?.exceeds).toBe(true);
-    expect(validateDraft(bump, full, admin)).toMatch(/margem/i);
-    // Bia vira coprodutora da margem: deixa de contar como afiliada.
+    expect(validateDraft(bump, full, admin)).toMatch(/SimIntPay/i);
+    // Bia vira coprodutora SimIntPay: deixa de contar como afiliada.
     const both = {
       ...draft,
       people: draft.people.map((p) =>

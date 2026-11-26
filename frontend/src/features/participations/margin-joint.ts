@@ -16,8 +16,8 @@ export type MarginResult = {
 const norm = (value?: string) => value?.trim().toLowerCase() ?? '';
 
 /**
- * Margem SimIntPay: soma dos coprodutores da margem + maior percentual efetivo de um afiliado
- * que não seja também coprodutor da margem (coprodutor vence). Plataforma e oferta somam; a
+ * SimIntPay: soma dos coprodutores SimIntPay + maior percentual efetivo de um afiliado
+ * que não seja também coprodutor SimIntPay (coprodutor vence). Plataforma e oferta somam; a
  * oferta vence para a mesma pessoa. Independe da divisão do líquido.
  */
 export function marginTotal(
@@ -71,5 +71,5 @@ export function marginTotal(
 
 export function marginMessage(result: MarginResult): string | null {
   if (!result.exceeds) return null;
-  return `A margem soma ${formatPercentage(result.totalBps)}% (coprodutores ${formatPercentage(result.coproducersBps)}% + afiliado ${formatPercentage(result.affiliateBps)}%), ${formatPercentage(result.overBps)}% acima de 100%. Reduza os percentuais da margem para salvar.`;
+  return `A parte SimIntPay soma ${formatPercentage(result.totalBps)}% (coprodutores ${formatPercentage(result.coproducersBps)}% + afiliado ${formatPercentage(result.affiliateBps)}%), ${formatPercentage(result.overBps)}% acima de 100%. Reduza os percentuais SimIntPay para salvar.`;
 }

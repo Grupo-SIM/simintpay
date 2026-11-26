@@ -48,7 +48,7 @@ import type { ParticipationsProduct } from './ParticipationsDialog';
 const LABELS = {
   co: 'Co-produção',
   aff: 'Afiliados',
-  margin: 'Margem SimIntPay',
+  margin: 'SimIntPay',
 } as const;
 
 /** Falha numa das gravações sequenciais; guarda o que já foi salvo. */
@@ -105,7 +105,7 @@ export function ParticipationsEditor({
   ownerEmail?: string;
   coproduction: Coproduction;
   affiliates: AffiliateAgreement;
-  /** Só para admin: coprodutores e afiliados da margem SimIntPay. */
+  /** Só para admin: coprodutores e afiliados SimIntPay. */
   margin?: MarginAgreement;
   description: string;
   refetchCoproduction: () => Promise<{ data?: Coproduction }>;

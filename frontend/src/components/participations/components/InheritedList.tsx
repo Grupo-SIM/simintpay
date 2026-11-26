@@ -22,12 +22,12 @@ export function InheritedList({
           ...(agreements.margin?.inherited?.coproducers ?? []).map(
             (row, index) => ({
               key: `co-margin-${index}`,
-              text: `${row.name} · Coprodutor · Margem ${formatPercentage(row.percentageBps)}%`,
+              text: `${row.name} · Coprodutor · SimIntPay ${formatPercentage(row.percentageBps)}%`,
             }),
           ),
           ...(agreements.margin?.inherited?.affiliates ?? []).map((row) => ({
             key: `aff-margin-${row.code}`,
-            text: `${row.name} · Afiliado · Margem ${formatPercentage(row.percentageBps)}%`,
+            text: `${row.name} · Afiliado · SimIntPay ${formatPercentage(row.percentageBps)}%`,
           })),
         ]
       : []),

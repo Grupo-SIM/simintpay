@@ -22,7 +22,7 @@ export function parseMarginAgreement(value: unknown): MarginAgreement {
         !validBps(row.percentageBps),
     )
   )
-    throw new Error('O servidor retornou coprodutores da margem inválidos.');
+    throw new Error('O servidor retornou coprodutores SimIntPay inválidos.');
   const { linkBaseUrl: _link, inherited, ...rest } = base;
   void _link;
   let inheritedCoproducers: { name: string; percentageBps: number }[] = [];
@@ -35,7 +35,7 @@ export function parseMarginAgreement(value: unknown): MarginAgreement {
       )
     )
       throw new Error(
-        'O servidor retornou coprodutores herdados da margem inválidos.',
+        'O servidor retornou coprodutores SimIntPay herdados inválidos.',
       );
     inheritedCoproducers = source.map(({ name, percentageBps }) => ({
       name,

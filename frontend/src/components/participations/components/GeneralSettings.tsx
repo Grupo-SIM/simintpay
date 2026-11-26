@@ -46,7 +46,7 @@ export function GeneralSettings({
         : 'Co-produção própria'),
     `Afiliados: ${settings.defaultPercentage ? `${settings.defaultPercentage}%` : 'sem padrão'}, ${renewalsText(settings.renewals)}`,
     admin &&
-      `Margem: ${settings.marginDefaultPercentage ? `${settings.marginDefaultPercentage}%` : 'sem padrão'}, ${renewalsText(settings.marginRenewals)}`,
+      `SimIntPay: ${settings.marginDefaultPercentage ? `${settings.marginDefaultPercentage}%` : 'sem padrão'}, ${renewalsText(settings.marginRenewals)}`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -130,20 +130,20 @@ export function GeneralSettings({
           {admin && (
             <>
               <PercentageField
-                label="Percentual global dos afiliados da margem"
+                label="Percentual global dos afiliados SimIntPay"
                 name="margin-default-percentage"
                 value={settings.marginDefaultPercentage}
                 placeholder={inheritedHint(
                   inheritedMargin?.defaultPercentageBps,
                 )}
                 disabled={disabled}
-                hint="Vale para quem não tem percentual próprio na margem."
+                hint="Vale para quem não tem percentual próprio como afiliado SimIntPay."
                 onChange={(marginDefaultPercentage) =>
                   onChange({ marginDefaultPercentage })
                 }
               />
               <RenewalsField
-                label="Comissão da margem nas renovações"
+                label="Comissão SimIntPay nas renovações"
                 platform={platform}
                 value={settings.marginRenewals}
                 inheritedLabel={

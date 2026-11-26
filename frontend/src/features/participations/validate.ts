@@ -88,11 +88,11 @@ export function validateDraft(
   if (jointError) return jointError;
   if (!admin) return null;
   const marginCoError = validateParticipants(marginCoproducerRows(draft));
-  if (marginCoError) return `Margem: ${marginCoError}`;
+  if (marginCoError) return `SimIntPay: ${marginCoError}`;
   const marginAffError = validateAffiliates(marginAffiliateDraft(draft), {
     platform: false,
     inheritedDefaultBps: agreements.margin?.inherited?.defaultPercentageBps,
   });
-  if (marginAffError) return `Margem: ${marginAffError}`;
+  if (marginAffError) return `SimIntPay: ${marginAffError}`;
   return totals.margin ? marginMessage(totals.margin) : null;
 }

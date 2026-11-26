@@ -100,7 +100,7 @@ export function validateMarginInput(
   });
   if (coproducers.reduce((sum, c) => sum + c.percentageBps, 0) > 10000)
     throw new BadRequestException(
-      'A soma dos coprodutores da margem não pode ultrapassar 100%',
+      'A soma dos coprodutores SimIntPay não pode ultrapassar 100%',
     );
   const { linkBaseUrl: _link, ...input } = base;
   return { ...input, coproducers };

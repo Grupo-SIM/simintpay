@@ -54,7 +54,7 @@ export async function saveMarginAffiliates(
     canonical(saved.coproducers) !== canonical(input.coproducers)
   )
     throw new AffiliateConfirmationError(
-      'O servidor não confirmou a margem salva. Recarregue a configuração antes de tentar novamente.',
+      'O servidor não confirmou a configuração SimIntPay salva. Recarregue a configuração antes de tentar novamente.',
     );
   return saved;
 }

@@ -215,12 +215,12 @@ export function snapshotFrom(
       m.percentageBps < 1 ||
       m.percentageBps > 10000
     )
-      throw new BadRequestException('Snapshot de margem inválido');
+      throw new BadRequestException('Snapshot SimIntPay inválido');
     marginIds.add(m.userId);
     marginTotal += m.percentageBps;
   }
   if (marginTotal > 10000)
-    throw new BadRequestException('Snapshot de margem inválido');
+    throw new BadRequestException('Snapshot SimIntPay inválido');
   if (total > 10000)
     throw new BadRequestException('Snapshot de co-produção inválido');
   return s;

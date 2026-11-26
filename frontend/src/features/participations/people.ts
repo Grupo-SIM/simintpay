@@ -146,7 +146,7 @@ export const productAffiliateDraft = (
   linkBaseUrl: draft.settings.linkBaseUrl,
 });
 
-/** `exclude`: e-mails que já são coprodutores da margem (coprodutor vence o afiliado). */
+/** `exclude`: e-mails que já são coprodutores SimIntPay (coprodutor vence o afiliado). */
 export const marginAffiliateDraft = (
   draft: ParticipationsDraft,
   exclude?: Set<string>,
@@ -269,12 +269,12 @@ export function personChips(
         : `Afiliado · Produto padrão${defaults.affiliate ? ` ${defaults.affiliate}%` : ''}`,
     );
   if (admin && person.coMargin.on)
-    chips.push(`Coprodutor · Margem ${pct(person.coMargin)}`);
+    chips.push(`Coprodutor · SimIntPay ${pct(person.coMargin)}`);
   if (admin && person.affMargin.on)
     chips.push(
       person.affMargin.percentage
-        ? `Afiliado · Margem ${pct(person.affMargin)}`
-        : `Afiliado · Margem padrão${defaults.margin ? ` ${defaults.margin}%` : ''}`,
+        ? `Afiliado · SimIntPay ${pct(person.affMargin)}`
+        : `Afiliado · SimIntPay padrão${defaults.margin ? ` ${defaults.margin}%` : ''}`,
     );
   return chips;
 }

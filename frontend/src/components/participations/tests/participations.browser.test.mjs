@@ -310,7 +310,9 @@ test('non-admin never fetches or saves margin and sees no margin shares', async 
     expect(await page.getByText('Dani').count()).toBe(0);
     expect(await page.getByTestId('margin-affiliate-total').count()).toBe(0);
     await page.getByRole('button', { name: 'Editar Ana' }).click();
-    expect(await page.getByRole('switch', { name: /Margem/ }).count()).toBe(0);
+    expect(await page.getByRole('switch', { name: /SimIntPay/ }).count()).toBe(
+      0,
+    );
     await page.getByRole('textbox', { name: 'Percentual' }).first().fill('15');
     await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
     await page.getByRole('button', { name: 'Salvar', exact: true }).click();
@@ -344,8 +346,8 @@ test('admin: margin shares, independent margin indicator, sequential saves with 
     };
     const page = await newPage(browser, state);
     await open(page, server, 'plataformas');
-    await page.getByText('Coprodutor · Margem 20%').waitFor();
-    await page.getByText('Afiliado · Margem padrão 30%').waitFor();
+    await page.getByText('Coprodutor · SimIntPay 20%').waitFor();
+    await page.getByText('Afiliado · SimIntPay padrão 30%').waitFor();
     // 20% coprodutor + Bruno 30% (padrão)
     expect(await page.getByTestId('margin-affiliate-total').innerText()).toBe(
       '50%',
@@ -357,9 +359,7 @@ test('admin: margin shares, independent margin indicator, sequential saves with 
     await page.getByRole('textbox', { name: 'Percentual' }).nth(1).blur();
     await page.getByRole('button', { name: 'Salvar', exact: true }).click();
     await page.getByRole('button', { name: 'Editar Bruno' }).click();
-    await page
-      .getByRole('switch', { name: 'Coprodutor · Margem SimIntPay' })
-      .click();
+    await page.getByRole('switch', { name: 'Coprodutor · SimIntPay' }).click();
     await page.getByRole('textbox', { name: 'Percentual' }).nth(1).fill('10');
     await page.getByRole('textbox', { name: 'Percentual' }).nth(1).blur();
     await page.getByRole('button', { name: 'Salvar', exact: true }).click();
@@ -374,7 +374,7 @@ test('admin: margin shares, independent margin indicator, sequential saves with 
     expect(state.writes[1].body.affiliates).toEqual([
       { email: 'bruno@local.test', percentageBps: null },
     ]);
-    // Bruno virou coprodutor da margem: só os coprodutores contam (30%)
+    // Bruno virou coprodutor SimIntPay: só os coprodutores contam (30%)
     expect(await page.getByTestId('margin-affiliate-total').innerText()).toBe(
       '30%',
     );
@@ -396,9 +396,7 @@ test('admin: a failing later agreement reports what was saved, keeps the draft a
     await page.getByRole('button', { name: 'Editar Ana' }).click();
     await page.getByRole('textbox', { name: 'Percentual' }).first().fill('11');
     await page.getByRole('textbox', { name: 'Percentual' }).first().blur();
-    await page
-      .getByRole('switch', { name: 'Coprodutor · Margem SimIntPay' })
-      .click();
+    await page.getByRole('switch', { name: 'Coprodutor · SimIntPay' }).click();
     await page.getByRole('textbox', { name: 'Percentual' }).last().fill('10');
     await page.getByRole('textbox', { name: 'Percentual' }).last().blur();
     await page.getByRole('button', { name: 'Salvar', exact: true }).click();

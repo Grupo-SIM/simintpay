@@ -258,7 +258,7 @@ export class MarginAffiliateService {
       const worst = marginWorstCaseBps(offer, platform);
       if (worst > 10000)
         throw new BadRequestException(
-          `A soma de coprodutores e afiliados da margem chegaria a ${percent(worst)}, ${percent(worst - 10000)} acima do limite de 100% da margem.`,
+          `A soma de coprodutores e afiliados SimIntPay chegaria a ${percent(worst)}, ${percent(worst - 10000)} acima do limite de 100% da margem SimIntPay.`,
         );
     }
   }

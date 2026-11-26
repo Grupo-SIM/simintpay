@@ -7,7 +7,7 @@ export function MarginAffiliateIndicator({ result }: { result: MarginResult }) {
     <div
       role="status"
       aria-live="polite"
-      aria-label="Margem SimIntPay"
+      aria-label="SimIntPay"
       data-over={result.exceeds}
       className={`space-y-1 border-b px-6 py-3 text-sm ${
         result.exceeds
@@ -16,7 +16,7 @@ export function MarginAffiliateIndicator({ result }: { result: MarginResult }) {
       }`}
     >
       <p>
-        Margem SimIntPay:{' '}
+        SimIntPay:{' '}
         <strong data-testid="margin-affiliate-total">
           {formatPercentage(result.totalBps)}%
         </strong>{' '}
@@ -29,7 +29,7 @@ export function MarginAffiliateIndicator({ result }: { result: MarginResult }) {
       {result.exceeds && (
         <p className="text-xs font-medium text-red-700 dark:text-red-400">
           Acima de 100% em {formatPercentage(result.overBps)}%. Ajuste os
-          percentuais da margem para salvar.
+          percentuais SimIntPay para salvar.
         </p>
       )}
     </div>

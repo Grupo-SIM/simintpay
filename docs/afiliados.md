@@ -198,27 +198,27 @@ Somente leitura e sem dados de terceiros; espelha a visibilidade da co-produçã
 Aplicar a migration `20261122090000_affiliates` (aditiva) antes do backend; depois frontend/checkout.
 Nada é retroativo: vendas e assinaturas existentes não ganham afiliado.
 
-## Participações sobre a margem SimIntPay (afiliado e coprodutor)
+## Afiliado e coprodutor SimIntPay (pagos da margem)
 
 Duas participações pagas da **margem da SimIntPay**, nunca do líquido do dono. Só administrador
 ativo configura, no mesmo acordo versionado por plataforma e oferta (`MarginAffiliateAgreement`,
 migrations `20261123090000_margin_affiliates` e `20261124090000_margin_coproducers`, aditivas).
 
-- **Afiliado de margem:** mesmo mecanismo do afiliado comum (código `aff` da pessoa na plataforma,
+- **Afiliado SimIntPay:** mesmo mecanismo do afiliado comum (código `aff` da pessoa na plataforma,
   plataforma + oferta somam, oferta vence para a mesma pessoa, percentual por pessoa ou global,
   `commissionOnRenewals`). Só paga nas vendas que trazem o código.
-- **Coprodutor de margem:** lista fixa (`coproducers`), paga em **toda** venda da plataforma ou
+- **Coprodutor SimIntPay:** lista fixa (`coproducers`), paga em **toda** venda da plataforma ou
   oferta, sem código. Plataforma e oferta somam; o percentual da oferta vence para a mesma pessoa.
   Vale também nas renovações (lido ao vivo, como a coprodução comum).
-- Uma pessoa pode ter, ao mesmo tempo, as quatro combinações (coprodutor/afiliado × produto/margem).
-  Na base de produto vale a deduplicação já descrita acima; na margem a mesma pessoa nunca recebe
+- Uma pessoa pode ter, ao mesmo tempo, as quatro combinações (coprodutor/afiliado × produto/SimIntPay).
+  Na base de produto vale a deduplicação já descrita acima; na parte SimIntPay a mesma pessoa nunca recebe
   duas partes na venda: o coprodutor vence o afiliado.
 - Margem da venda em centavos: `buyerTotalCents − líquido do vendedor − acquirerCost.realizedCents`
   (mesma conta do lucro Simpay). Custo realizado desconhecido ou margem negativa: margem zero, sem
   alocação. Cada parte = `floor(margem × bps / 10000)`, congelada no primeiro crédito (`COMPLETED`);
   mediação bloqueia e estorno/chargeback revertem o valor original.
 - Limite próprio: coprodutores + o afiliado mais bem pago que não seja coprodutor <= 100% da margem
-  (PUT recusa com 400; a plataforma também revalida as ofertas com acordo de margem). Sem limite
+  (PUT recusa com 400; a plataforma também revalida as ofertas com acordo SimIntPay). Sem limite
   conjunto com as partes de produto.
 - Snapshot da venda: `financialSnapshot.coproduction.marginParticipants` e `.marginAffiliate`.
   Tabela `MarginAffiliateAllocation`; carteira `nature: AFFILIATE`, ação `AFFILIATE_MARGIN_<status>`,

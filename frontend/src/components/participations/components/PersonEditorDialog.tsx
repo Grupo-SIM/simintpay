@@ -171,7 +171,7 @@ export function PersonEditorDialog({
         {admin && (
           <>
             <PersonShareSection
-              title="Coprodutor · Margem SimIntPay"
+              title="Coprodutor · SimIntPay"
               description="Parte da margem (taxas menos custo do adquirente)."
               name="person-co-margin"
               share={person.coMargin}
@@ -182,7 +182,7 @@ export function PersonEditorDialog({
                     role="note"
                     className="text-xs text-amber-700 dark:text-amber-400"
                   >
-                    Coprodutor e afiliado na margem: a pessoa recebe uma vez só
+                    Coprodutor e afiliado SimIntPay: a pessoa recebe uma vez só
                     por venda, como coprodutora.
                   </p>
                 ) : undefined
@@ -190,7 +190,7 @@ export function PersonEditorDialog({
               onChange={set('coMargin')}
             />
             <PersonShareSection
-              title="Afiliado · Margem SimIntPay"
+              title="Afiliado · SimIntPay"
               description="Comissão paga da margem, fora da divisão do líquido."
               name="person-aff-margin"
               share={person.affMargin}

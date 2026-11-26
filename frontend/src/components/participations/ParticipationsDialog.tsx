@@ -80,7 +80,7 @@ export function ParticipationsDialog({
     : affiliates.isError
       ? `Não foi possível carregar os afiliados. ${affiliates.error.message}`
       : margin.isError
-        ? `Não foi possível carregar a margem. ${margin.error.message}`
+        ? `Não foi possível carregar a configuração SimIntPay. ${margin.error.message}`
         : null;
   const ready = coproduction.data && affiliates.data;
   const shell = (children: ReactNode) => (
