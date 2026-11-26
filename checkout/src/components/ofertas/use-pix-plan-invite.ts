@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchPixInviteLink } from '@/components/telegram-success/api';
+import { fetchPixInviteLink } from '@/lib/pix-invite-api';
 
 // O webhook do PagaTG precisa de um instante para gravar o registro (mesmo backoff do legado).
 const DELAYS_MS = [1000, 1000, 2000, 3000, 5000, 5000, 5000, 5000];
