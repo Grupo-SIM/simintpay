@@ -43,8 +43,7 @@ export function BalanceTotalCards({ totals }: { totals: BalanceTotals }) {
       />
       <TotalCard
         label="Saque"
-        value={money(totals.withdrawnCents)}
-        detail={`Pendente: ${money(totals.pendingWithdrawalsCents)}`}
+        value={money(totals.withdrawnCents + totals.pendingWithdrawalsCents)}
         tone="text-amber-600 dark:text-amber-400"
       />
     </div>

@@ -14,7 +14,7 @@ import { ReportSkeleton } from './ReportSkeleton';
 import {
   money,
   PlatformBalanceCard,
-  Stat,
+  FiguresRow,
   type WalletBucket,
 } from './PlatformBalanceCard';
 
@@ -152,7 +152,7 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
                 <h3 className="truncate font-semibold">{person.name}</h3>
                 <p className="truncate text-xs text-zinc-500">{person.email}</p>
               </div>
-              <dl className="flex flex-col gap-2">
+              <dl className="flex flex-col gap-3">
                 <div>
                   <dt className="text-xs text-zinc-500">
                     Saldo disponível para saque
@@ -161,21 +161,15 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
                     {money(person.availableCents)}
                   </dd>
                 </div>
-                <Stat
-                  label="Faturado"
-                  value={money(
-                    sum(person.platforms, (p) => p.periodReceivedCents),
+                <FiguresRow
+                  billedCents={sum(
+                    person.platforms,
+                    (p) => p.periodReceivedCents,
                   )}
-                />
-                <Stat
-                  label="Sacado"
-                  value={money(
-                    sum(person.platforms, (p) => p.periodWithdrawnCents),
-                  )}
-                />
-                <Stat
-                  label="Saque pendente"
-                  value={money(person.totals.pendingWithdrawalsCents)}
+                  withdrawalCents={
+                    sum(person.platforms, (p) => p.periodWithdrawnCents) +
+                    person.totals.pendingWithdrawalsCents
+                  }
                 />
               </dl>
             </button>

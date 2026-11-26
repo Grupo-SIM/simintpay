@@ -18,9 +18,25 @@ export const money = (cents: number) => formatBRL(cents / 100);
 
 export function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
+    <div>
       <dt className="text-xs text-zinc-500 dark:text-zinc-400">{label}</dt>
       <dd className="text-sm font-medium">{value}</dd>
+    </div>
+  );
+}
+
+/** Faturado (period) beside Saque (withdrawn + pending), the same pair in every balance card. */
+export function FiguresRow({
+  billedCents,
+  withdrawalCents,
+}: {
+  billedCents: number;
+  withdrawalCents: number;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <Stat label="Faturado" value={money(billedCents)} />
+      <Stat label="Saque" value={money(withdrawalCents)} />
     </div>
   );
 }
@@ -34,7 +50,7 @@ export function PlatformBalanceCard({ bucket }: { bucket: WalletBucket }) {
           <p className="text-xs text-zinc-500">Inativa</p>
         )}
       </div>
-      <dl className="flex flex-col gap-2">
+      <dl className="flex flex-col gap-3">
         <div>
           <dt className="text-xs text-zinc-500 dark:text-zinc-400">
             Saldo disponível para saque
@@ -43,11 +59,11 @@ export function PlatformBalanceCard({ bucket }: { bucket: WalletBucket }) {
             {money(bucket.availableCents)}
           </dd>
         </div>
-        <Stat label="Faturado" value={money(bucket.periodReceivedCents)} />
-        <Stat label="Sacado" value={money(bucket.periodWithdrawnCents)} />
-        <Stat
-          label="Saque pendente"
-          value={money(bucket.pendingWithdrawalsCents)}
+        <FiguresRow
+          billedCents={bucket.periodReceivedCents}
+          withdrawalCents={
+            bucket.periodWithdrawnCents + bucket.pendingWithdrawalsCents
+          }
         />
       </dl>
     </div>
