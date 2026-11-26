@@ -22,6 +22,9 @@ export class OwnedPlatformReportsController {
   ) {
     return this.reports.ownBalances(user, query);
   }
+  @Get('saldos-carteira/resumo') walletTotals(@CurrentUser() user: JwtPayload) {
+    return this.reports.walletBalanceTotals(user, false);
+  }
   @Get('saldos-carteira') walletBalances(
     @CurrentUser() user: JwtPayload,
     @Query() query: Filters,
@@ -83,6 +86,11 @@ export class PlatformReportBalancesController {
     @Query() query: Filters,
   ) {
     return this.reports.balances(user, query);
+  }
+  @Get('saldos-carteiras/resumo') walletTotals(
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.reports.walletBalanceTotals(user, true);
   }
   @Get('saldos-carteiras') walletBalances(
     @CurrentUser() user: JwtPayload,

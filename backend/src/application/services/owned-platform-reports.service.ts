@@ -24,7 +24,10 @@ import {
   ownedReportSource,
   reportUnattributedSource,
 } from './owned-report-source';
-import { walletBalanceReport } from './wallet-balance-report';
+import {
+  walletBalanceReport,
+  walletBalanceTotals,
+} from './wallet-balance-report';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 
 type Filters = {
@@ -636,6 +639,16 @@ export class OwnedPlatformReportsService {
         pagination,
         range,
       });
+    });
+  }
+
+  /** All-time totals of the same population, ignoring period and search. */
+  async walletBalanceTotals(user: JwtPayload, admin: boolean) {
+    return this.snapshot(async (db) => {
+      const actor = await this.actor(db, user);
+      if (admin && actor.role !== 'ADMIN')
+        throw new ForbiddenException('Exige administrador');
+      return walletBalanceTotals(db, admin ? undefined : actor.id);
     });
   }
 }

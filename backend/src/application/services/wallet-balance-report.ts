@@ -14,6 +14,8 @@ export type WalletBucket = {
   availableCents: number;
   periodReceivedCents: number;
   periodWithdrawnCents: number;
+  /** Requested and not yet decided, any platform acquirer. */
+  pendingWithdrawalsCents: number;
 };
 export type WalletPerson = {
   id: string;
@@ -22,6 +24,13 @@ export type WalletPerson = {
   balanceCents: number;
   lockedCents: number;
   availableCents: number;
+  /** All-time figures, never filtered by period. */
+  totals: {
+    availableCents: number;
+    receivedCents: number;
+    withdrawnCents: number;
+    pendingWithdrawalsCents: number;
+  };
   platforms: WalletBucket[];
 };
 
@@ -121,11 +130,15 @@ export async function walletBalanceReport(
         key: string | null;
         debited: Prisma.Decimal;
         pending: Prisma.Decimal;
+        pendingAll: Prisma.Decimal;
+        all: Prisma.Decimal;
         period: Prisma.Decimal;
       }[]
     >(Prisma.sql`SELECT "userId", ${keySql(Prisma.sql`platform`)} AS key,
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS debited,
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING' AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS pending,
+        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS "pendingAll",
+        coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED')), 0) AS "all",
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND ${inPeriod('"createdAt"')}), 0) AS period
       FROM "WithdrawRequest" WHERE "userId" IN (${ids})
       GROUP BY 1, 2`),
@@ -153,6 +166,7 @@ export async function walletBalanceReport(
         locked: Prisma.Decimal;
         received: Prisma.Decimal;
         withdrawn: Prisma.Decimal;
+        pendingAll: Prisma.Decimal;
       }
     >();
     const bucket = (key: string | null) => {
@@ -164,6 +178,7 @@ export async function walletBalanceReport(
           locked: new Prisma.Decimal(0),
           received: new Prisma.Decimal(0),
           withdrawn: new Prisma.Decimal(0),
+          pendingAll: new Prisma.Decimal(0),
         };
         buckets.set(id, value);
       }
@@ -180,6 +195,7 @@ export async function walletBalanceReport(
       value.balance = value.balance.minus(row.debited);
       value.locked = value.locked.plus(row.pending);
       value.withdrawn = value.withdrawn.plus(row.period);
+      value.pendingAll = value.pendingAll.plus(row.pendingAll);
     }
     // Everything the attribution cannot explain (legacy history, adjustments, fees) closes the wallet.
     const identified = [...buckets.entries()].filter(([key]) => key !== NONE);
@@ -203,7 +219,8 @@ export async function walletBalanceReport(
           !value.balance.isZero() ||
           !value.locked.isZero() ||
           !value.received.isZero() ||
-          !value.withdrawn.isZero(),
+          !value.withdrawn.isZero() ||
+          !value.pendingAll.isZero(),
       )
       .map(([key, value]) => {
         const registered = names.get(key);
@@ -219,7 +236,7 @@ export async function walletBalanceReport(
           tag: key === NONE || key === SIMINTPAY ? null : key,
           name:
             kind === 'unidentified'
-              ? 'Não identificado'
+              ? 'Outros'
               : kind === 'simintpay'
                 ? 'SimIntPay'
                 : (registered?.name ?? key),
@@ -229,6 +246,7 @@ export async function walletBalanceReport(
           availableCents: cents(value.balance.minus(value.locked)),
           periodReceivedCents: cents(value.received),
           periodWithdrawnCents: cents(value.withdrawn),
+          pendingWithdrawalsCents: cents(value.pendingAll),
         };
       })
       .sort((a, b) => b.balanceCents - a.balanceCents);
@@ -241,6 +259,29 @@ export async function walletBalanceReport(
       availableCents: cents(
         new Prisma.Decimal(user.balance).minus(user.locked),
       ),
+      totals: {
+        availableCents: cents(
+          new Prisma.Decimal(user.balance).minus(user.locked),
+        ),
+        receivedCents: cents(
+          credits
+            .filter((item) => item.userId === user.id)
+            .reduce((sum, row) => sum.plus(row.balance), new Prisma.Decimal(0)),
+        ),
+        withdrawnCents: cents(
+          withdrawals
+            .filter((item) => item.userId === user.id)
+            .reduce((sum, row) => sum.plus(row.all), new Prisma.Decimal(0)),
+        ),
+        pendingWithdrawalsCents: cents(
+          withdrawals
+            .filter((item) => item.userId === user.id)
+            .reduce(
+              (sum, row) => sum.plus(row.pendingAll),
+              new Prisma.Decimal(0),
+            ),
+        ),
+      },
       platforms: list,
     };
   });
@@ -250,5 +291,33 @@ export async function walletBalanceReport(
     total,
     page: pagination.page,
     pageSize: pagination.pageSize,
+  };
+}
+
+/** All-time totals of every listed wallet (same population as the list), never filtered by period or search. */
+export async function walletBalanceTotals(db: Db, onlyUserId?: string) {
+  const scope = Prisma.sql`SELECT w."userId" FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
+    WHERE (w.balance <> 0 OR w."lockedBalance" <> 0)
+    ${onlyUserId ? Prisma.sql`AND u.id = ${onlyUserId}` : Prisma.sql`AND u.role <> 'ADMIN'`}`;
+  const [wallets, received, withdrawals] = await Promise.all([
+    db.$queryRaw<{ available: Prisma.Decimal }[]>(
+      Prisma.sql`SELECT coalesce(sum(balance - "lockedBalance"), 0) AS available FROM "Wallet" WHERE "userId" IN (${scope})`,
+    ),
+    db.$queryRaw<{ received: Prisma.Decimal }[]>(
+      Prisma.sql`SELECT coalesce(sum("balanceDelta"), 0) AS received FROM "BalanceLog"
+        WHERE "userId" IN (${scope}) AND action NOT LIKE 'WITHDRAW\\_%'`,
+    ),
+    db.$queryRaw<{ withdrawn: Prisma.Decimal; pending: Prisma.Decimal }[]>(
+      Prisma.sql`SELECT coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED')), 0) AS withdrawn,
+        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS pending
+        FROM "WithdrawRequest" WHERE "userId" IN (${scope})`,
+    ),
+  ]);
+  return {
+    unit: 'cents' as const,
+    availableCents: cents(wallets[0].available),
+    receivedCents: cents(received[0].received),
+    withdrawnCents: cents(withdrawals[0].withdrawn),
+    pendingWithdrawalsCents: cents(withdrawals[0].pending),
   };
 }
