@@ -55,7 +55,7 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   const [range, setRange] = useState<DateRange>(currentPeriod);
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
-  const [selected, setSelected] = useState<Person | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const startDate = ymd(range.start);
   const endDate = ymd(range.end);
@@ -108,6 +108,8 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const people = list.data?.pages.flatMap((page) => page.data) ?? [];
+  // Always read the person from the current (period-filtered) list, never from a copy taken on click.
+  const selected = people.find((person) => person.id === selectedId) ?? null;
   return (
     <div className="space-y-4">
       {totals.data && <BalanceTotalCards totals={totals.data} />}
@@ -143,7 +145,7 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
             <button
               key={person.id}
               type="button"
-              onClick={() => setSelected(person)}
+              onClick={() => setSelectedId(person.id)}
               className="flex cursor-pointer flex-col justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md dark:border-white/10 dark:bg-white/5"
             >
               <div className="min-w-0">
@@ -188,11 +190,25 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
         open={!!selected}
         title={selected ? `Plataformas de ${selected.name}` : undefined}
         maxWidth="max-w-4xl"
-        onClose={() => setSelected(null)}
+        onClose={() => setSelectedId(null)}
       >
         {selected && (
           <div className="space-y-4">
-            <BalanceTotalCards totals={selected.totals} />
+            <BalanceTotalCards
+              totals={{
+                availableCents: selected.availableCents,
+                receivedCents: sum(
+                  selected.platforms,
+                  (p) => p.periodReceivedCents,
+                ),
+                withdrawnCents: sum(
+                  selected.platforms,
+                  (p) => p.periodWithdrawnCents,
+                ),
+                pendingWithdrawalsCents:
+                  selected.totals.pendingWithdrawalsCents,
+              }}
+            />
             <PlatformGrid platforms={selected.platforms} />
           </div>
         )}
