@@ -8,6 +8,7 @@ import { decryptPlatformSecret } from '../platform-integrations/platform-secrets
 import type { PlatformContext } from './platform-context.service';
 import type { ChargeItem } from '../offer/offer-fulfillment';
 import { legacyOriginOf } from '../offer/offer-legacy-origin';
+import { legacyCompatFields } from '../offer/offer-legacy-webhook';
 const OFFER_ITEM_TYPE = { MAIN: 'PRINCIPAL', BUMP: 'ORDER_BUMP' } as const;
 
 function legacyLinkId(metadata: unknown): string | null {
@@ -22,7 +23,13 @@ async function offerSalesByTransaction(
 ) {
   const result = new Map<
     string,
-    { offerId: string; chargeId: string; linkId: string; items: object[] }
+    {
+      offerId: string;
+      chargeId: string;
+      linkId: string;
+      planName: string;
+      items: object[];
+    }
   >();
   if (transactionIds.length === 0) return result;
   const charges = await db.charge.findMany({
@@ -48,6 +55,7 @@ async function offerSalesByTransaction(
       chargeId: c.id,
       // Offers migrated from a legacy link keep the link id the platform already knows.
       linkId: legacyLinkId(c.offer.metadata) ?? c.offer.id,
+      planName: c.offer.name,
       items: items.map((i) => ({
         tipo: OFFER_ITEM_TYPE[i.role as 'MAIN' | 'BUMP'] ?? i.role,
         ...(i.role === 'MAIN' ? {} : { offerId: i.offerId }),
@@ -225,6 +233,12 @@ export class PlatformSalesEventsService {
               customerEmail: tx.customerEmail,
               customerName: tx.customerName,
               tracking: tx.tracking ?? {},
+              ...(['purchase_approved', 'purchase_refunded'].includes(event)
+                ? legacyCompatFields({
+                    planName: offerSales.get(tx.id)?.planName,
+                    tx,
+                  })
+                : {}),
               ...(affiliate ? { affiliate } : {}),
               ...(offerSales.has(tx.id)
                 ? { items: offerSales.get(tx.id)!.items }

@@ -131,3 +131,20 @@ export function subscriptionExpiredWebhookBody(input: {
     linkId: offer.id,
   };
 }
+
+/**
+ * Fields the legacy receiver (`saas-netflix-back` `POST /webhooks-simpay`) reads but the signed
+ * outbox body lacked: `planName` and the amounts in reais. Merged into the outbox payload so one
+ * delivery serves both receivers (additive: no field of the new format is removed). The buyer
+ * document (`cpf`/`cnpj`) stays out, as in every outbox payload; the legacy receiver ignores it.
+ */
+export function legacyCompatFields(input: {
+  planName?: string;
+  tx: { amount: Money; netAmount: Money | null };
+}) {
+  return {
+    ...(input.planName ? { planName: input.planName } : {}),
+    amountCharged: Number(input.tx.amount),
+    netAmount: reais(input.tx.netAmount ?? input.tx.amount),
+  };
+}

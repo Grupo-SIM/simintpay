@@ -228,3 +228,28 @@ test('delivery also sends the platform WEBHOOK_SECRET as x-simpay-token for purc
   }
   expect(sent.some((s) => s.event === 'purchase_approved')).toBe(true);
 });
+
+test('purchase payload is a superset: new-format fields intact plus the legacy receiver fields', async () => {
+  const f = fixture();
+  globalThis.fetch = mock(async () => new Response('ok')) as typeof fetch;
+  await f.service.run();
+  const payload = f.rows.find(
+    (r) => r.payload.event === 'purchase_approved',
+  ).payload;
+  expect(payload).toMatchObject({
+    event: 'purchase_approved',
+    orderId: 'tx',
+    amountCents: 2700,
+    netAmountCents: 2400,
+    paymentMethod: 'PIX',
+    phone: '5511999999999',
+    customerEmail: 'maria@example.com',
+    customerName: 'Maria',
+    tracking: { utm_content: 'A1' },
+    // legacy `POST /webhooks-simpay` reads these (reais)
+    amountCharged: 27,
+    netAmount: 24,
+  });
+  expect(payload.eventId).toHaveLength(64);
+  expect(JSON.stringify(payload)).not.toContain('52998224725');
+});
