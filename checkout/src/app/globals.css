@@ -85,7 +85,7 @@ body {
 }
 
 /*
- * Checkout novo (SimLink) — design "Checkout Novo" / "Checkout Novo Desktop".
+ * Checkout novo — design "Checkout Novo" / "Checkout Novo Desktop".
  * Tudo escopado em .sp2 / .sp2-* para não afetar os outros checkouts.
  * Mobile (< 1024px) usa os gradientes das telas 390px; desktop (>= lg) os das telas 1280px.
  * Ver DESIGN.md.

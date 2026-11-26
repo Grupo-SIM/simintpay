@@ -21,7 +21,7 @@ const nunito = Nunito({
   weight: ['300', '400', '500', '600', '700'], // Defina os pesos da fonte que você deseja usar
 });
 
-// Fonte do checkout novo (SimLink) — aplicada só onde a classe .sp2 é usada
+// Fonte do checkout novo — aplicada só onde a classe .sp2 é usada
 const outfit = Outfit({
   variable: '--font-outfit',
   subsets: ['latin'],

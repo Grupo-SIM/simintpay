@@ -1,11 +1,11 @@
-# Design — Checkout Novo (SimLink)
+# Design — Checkout Novo
 
-Implementação do design **"Checkout Novo"** (mobile, 390px) e **"Checkout Novo Desktop"** (1280px) no checkout de **link de pagamento** (`?simLinkCode=...`).
+Implementação do design **"Checkout Novo"** (mobile, 390px) e **"Checkout Novo Desktop"** (1280px) nos checkouts de **ofertas** (`src/components/ofertas/`) e no checkout do ebook (`card/creditCardForm`).
 
 > **Todos os checkouts** usam a UI nova:
 >
-> - **SimLink** (`src/components/simlink/`): implementação completa do fluxo em etapas, descrita abaixo.
-> - **Demais checkouts** (`card/creditCardForm` — o padrão, sem parâmetro —, legado já redirecionado para ofertas) e `assinatura-sucesso`: receberam o visual novo pelos componentes compartilhados (seção "Checkouts compartilhados"). A estrutura deles (accordion, campos, status) e toda a lógica continuam iguais.
+> - **Ofertas** (`src/components/ofertas/`): fluxo atual, acessado por `/{oferta}`; os links legados são redirecionados por `src/proxy.ts`.
+> - **Ebook** (`card/creditCardForm` e `/payment/success`): recebeu o visual novo pelos componentes compartilhados (seção abaixo). A estrutura (campos, status) e a lógica continuam iguais.
 
 ## Checkouts compartilhados
 
@@ -18,7 +18,6 @@ Os componentes em `src/components/checkout/` foram redesenhados com os tokens de
 | `CheckoutBrandingRow`                       | Logo do cliente (ex.: `/1.svg` do creditCardForm) à esquerda + selo à direita. Se o checkout não usa esse componente, o `CheckoutMain` mostra o logo SimPay.              |
 | `CheckoutUiCard`                            | Vidro com raio 28. Título 19px sem caixa alta. Variantes `danger` e `success` na paleta nova.                                                                             |
 | `CheckoutGlassField` / `CheckoutGlassInput` | Label `#b8b2c6`, asterisco laranja, campo `.sp2-input` (52px, raio 16, foco laranja) e prefixo `+55` com divisória.                                                       |
-| `CheckoutAccordionSection`                  | Seção com raio 22, ícone laranja dentro de círculo e título 17px.                                                                                                         |
 | `CheckoutStatusCard`                        | Checklist com bolinha em gradiente (ok) ou cinza (pendente). Em caso de erro, caixa vermelha no estilo da tela 3d.                                                        |
 | `CheckoutSummaryTrustPanel`                 | Selos "Conexão criptografada…" e "Dados tratados conforme a LGPD".                                                                                                        |
 | `CheckoutSummaryBranding`                   | Não renderiza mais nada: a marca foi para o header.                                                                                                                       |
@@ -34,14 +33,13 @@ Nas classes fixas dos 5 checkouts, só os tokens de cor e forma foram trocados (
 
 **O que fica fora** (é asset, não estilo):
 
-- A animação Lottie do carrinho, em roxo, continua igual.
-- O preview `react-credit-cards-2` nos checkouts de plano e assinatura continua igual. O cartão ilustrado novo existe só no SimLink.
+- O preview `react-credit-cards-2` no checkout do ebook continua igual.
 
 ## Regras de comportamento preservadas
 
 A camada visual mudou; a lógica de pagamento não. Continuam iguais:
 
-- `GET /links-pagamento/public/:code` (carregar o link) e `GET /links-pagamento/public/:id?orderBumps=...` (recalcular com bumps, com controle de sequência).
+- Carregamento da oferta e recálculo com bumps (com controle de sequência) pelos endpoints de ofertas do backend.
 - Tokenização do cartão via `getTokenCard` (`sdk.tsx`), com a mesma chave pública e os mesmos campos.
 - Body de `POST /pix` e `POST /charge`: mesmos campos, incluindo `orderBumpIds`.
 - Status recusado: `FAILED | REJECTED | EXPIRED | DECLINED | REFUNDED | CHARGEBACK`. Status aprovado: `PAID | APPROVED | COMPLETED`.
@@ -53,14 +51,12 @@ A camada visual mudou; a lógica de pagamento não. Continuam iguais:
 
 ## Arquivos
 
-| Arquivo                                            | O que é                                                                                                                                                                                                                                                                                              |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/components/checkout/ui/`                      | Primitivas visuais: `Screen`, `DesktopHeader` (logo + stepper + selo), `MobileTopBar`, `MobileProgress`, `CtaButton`, `Field`, `SummaryRow`, `SummaryAside`, `StatusPill`, `ErrorBox`, `Spinner`, `ProductImage`, `useCountdown`, `formatCurrency` e as constantes `GLASS`, `LG_GLASS` e `SM_GLASS`. |
-| `src/components/simlink/SimLinkCheckout/index.tsx` | Fluxo em etapas, estados (processando, recusado, sucesso PIX) e resumo lateral.                                                                                                                                                                                                                      |
-| `src/components/simlink/LinkOffers.tsx`            | `OrderBumpCard` (novo visual) e `FunnelOfferScreen` (upsell/downsell).                                                                                                                                                                                                                               |
-| `src/components/simlink/PixPayment.tsx`            | `PixDisplay` (QR, contagem regressiva, copia e cola, passos) e `usePixConfirmation`, que não mudou.                                                                                                                                                                                                  |
-| `src/app/globals.css`                              | Classes `.sp2*` em `@layer components`: fundos, CTA, inputs, spinner e radio.                                                                                                                                                                                                                        |
-| `src/app/layout.tsx`                               | Carrega a fonte **Outfit** (`--font-outfit`). Ela só se aplica dentro de `.sp2`.                                                                                                                                                                                                                     |
+| Arquivo                       | O que é                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/components/checkout/ui/` | Primitivas visuais: `Screen`, `DesktopHeader` (logo + stepper + selo), `MobileTopBar`, `MobileProgress`, `CtaButton`, `Field`, `SummaryRow`, `SummaryAside`, `StatusPill`, `ErrorBox`, `Spinner`, `ProductImage`, `useCountdown`, `formatCurrency` e as constantes `GLASS`, `LG_GLASS` e `SM_GLASS`. |
+| `src/components/ofertas/`     | Fluxo da oferta: `OfferCheckout`, `OrderBumpCard`, `OfferFunnelScreen` (upsell/downsell), `PixPayment`, `OfferBoleto` e `OfferRenewal`.                                                                                                                                                              |
+| `src/app/globals.css`         | Classes `.sp2*` em `@layer components`: fundos, CTA, inputs, spinner e radio.                                                                                                                                                                                                                        |
+| `src/app/layout.tsx`          | Carrega a fonte **Outfit** (`--font-outfit`). Ela só se aplica dentro de `.sp2`.                                                                                                                                                                                                                     |
 
 ## Fluxo e mapa de telas
 
