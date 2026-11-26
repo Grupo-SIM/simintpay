@@ -12,21 +12,19 @@ import {
   money,
   PlatformBalanceCard,
   Stat,
-  type PlatformBalance,
+  type WalletBucket,
 } from './PlatformBalanceCard';
 
-type BalancePage = {
-  data: PlatformBalance[];
-  total: number;
-  pageSize: number;
-};
 type Person = {
   id: string;
   name: string;
-  email?: string;
-  walletCents: number;
-  platforms: PlatformBalance[];
+  email: string;
+  balanceCents: number;
+  lockedCents: number;
+  availableCents: number;
+  platforms: WalletBucket[];
 };
+type BalancePage = { data: Person[]; total: number; pageSize: number };
 
 const PAGE_SIZE = 100;
 const ymd = (date: Date | null) =>
@@ -37,24 +35,8 @@ const currentPeriod = (): DateRange => {
   const now = new Date();
   return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: now };
 };
-const sum = (rows: PlatformBalance[], pick: (row: PlatformBalance) => number) =>
+const sum = (rows: WalletBucket[], pick: (row: WalletBucket) => number) =>
   rows.reduce((total, row) => total + pick(row), 0);
-
-export function groupByPerson(rows: PlatformBalance[]): Person[] {
-  const people = new Map<string, Person>();
-  for (const row of rows) {
-    const person = people.get(row.owner.id) ?? {
-      ...row.owner,
-      walletCents: row.ownerWalletBalanceCents,
-      platforms: [],
-    };
-    person.platforms.push(row);
-    people.set(row.owner.id, person);
-  }
-  return [...people.values()].sort((a, b) =>
-    a.name.localeCompare(b.name, 'pt-BR'),
-  );
-}
 
 export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   const api = useReportApi();
@@ -67,18 +49,18 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   const { data, isLoading, isError, refetch } = useReportQuery({
     queryKey: ['people-billing', admin, startDate, endDate],
     queryFn: async () => {
-      const rows: PlatformBalance[] = [];
+      const rows: Person[] = [];
       for (let page = 1; ; page++) {
         const result = await api.get<BalancePage>(
           admin
-            ? '/admin/relatorios/saldos-plataformas'
-            : '/relatorios/saldos-plataformas',
+            ? '/admin/relatorios/saldos-carteiras'
+            : '/relatorios/saldos-carteira',
           { query: { page, pageSize: PAGE_SIZE, startDate, endDate } },
         );
         rows.push(...result.data);
         if (result.data.length === 0 || page * PAGE_SIZE >= result.total) break;
       }
-      return groupByPerson(rows);
+      return rows;
     },
   });
   const people = useMemo(() => {
@@ -111,15 +93,15 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
       </div>
       <p className="text-xs text-zinc-500">
         O período filtra faturado e sacado; saldo e disponível são sempre os
-        valores atuais. A carteira é única por pessoa e compartilhada entre as
-        plataformas dela.
+        valores atuais. Ganhos de afiliado e margem aparecem em SimIntPay; o que
+        não tem plataforma de origem fica em Não identificado.
       </p>
       {isLoading ? (
         <ReportSkeleton />
       ) : isError || !data ? (
         <ReportError retry={() => void refetch()} />
       ) : !people.length ? (
-        <p className="text-sm text-zinc-500">Nenhuma plataforma encontrada.</p>
+        <p className="text-sm text-zinc-500">Nenhum saldo encontrado.</p>
       ) : admin ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {people.map((person) => (
@@ -140,14 +122,14 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
               <div>
                 <p className="text-xs text-zinc-500">Carteira</p>
                 <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {money(person.walletCents)}
+                  {money(person.balanceCents)}
                 </p>
               </div>
               <dl className="grid grid-cols-2 gap-3">
                 <Stat
-                  label="Faturado"
+                  label="Recebido"
                   value={money(
-                    sum(person.platforms, (p) => p.periodEarnedCents),
+                    sum(person.platforms, (p) => p.periodReceivedCents),
                   )}
                 />
                 <Stat
@@ -162,9 +144,11 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
         <>
           <div className="rounded-2xl border p-5">
             <p className="text-xs text-zinc-500">Saldo da sua carteira</p>
-            <p className="text-2xl font-bold">{money(people[0].walletCents)}</p>
+            <p className="text-2xl font-bold">
+              {money(people[0].balanceCents)}
+            </p>
           </div>
-          <PlatformGrid platforms={people.flatMap((p) => p.platforms)} />
+          <PlatformGrid platforms={people[0].platforms} />
         </>
       )}
       <Modal
@@ -176,7 +160,8 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
         {selected && (
           <div className="space-y-4">
             <p className="text-sm text-zinc-500">
-              Carteira: {money(selected.walletCents)}
+              Carteira: {money(selected.balanceCents)} · Disponível:{' '}
+              {money(selected.availableCents)}
             </p>
             <PlatformGrid platforms={selected.platforms} />
           </div>
@@ -186,11 +171,11 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   );
 }
 
-function PlatformGrid({ platforms }: { platforms: PlatformBalance[] }) {
+function PlatformGrid({ platforms }: { platforms: WalletBucket[] }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {platforms.map((platform) => (
-        <PlatformBalanceCard key={platform.id} platform={platform} />
+      {platforms.map((bucket) => (
+        <PlatformBalanceCard key={bucket.key} bucket={bucket} />
       ))}
     </div>
   );
