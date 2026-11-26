@@ -11,7 +11,7 @@ import {
   CheckoutGlassField,
   CheckoutGlassInput,
 } from '@/components/checkout/CheckoutFormPrimitives';
-import { CopyRow } from '@/components/simboleto/components/CopyRow';
+import { CopyRow } from './CopyRow';
 import { maskCep } from '@/lib/input-masks';
 import {
   boletoPaymentNotice,
