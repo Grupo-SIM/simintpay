@@ -562,12 +562,30 @@ export class OwnedPlatformReportsService {
   }
 
   async balances(user: JwtPayload, filters: Filters) {
+    return this.balanceRows(user, filters, true);
+  }
+
+  /** Same projection, limited to the platforms owned by the authenticated user. */
+  async ownBalances(user: JwtPayload, filters: Filters) {
+    return this.balanceRows(user, filters, false);
+  }
+
+  private async balanceRows(
+    user: JwtPayload,
+    filters: Filters,
+    adminOnly: boolean,
+  ) {
     reportPagination(filters, 12);
     return this.snapshot(async (db) => {
       const actor = await this.actor(db, user);
-      if (actor.role !== 'ADMIN')
+      if (adminOnly && actor.role !== 'ADMIN')
         throw new ForbiddenException('Exige administrador');
-      const catalog = await this.catalogPage(db, undefined, filters, 12);
+      const catalog = await this.catalogPage(
+        db,
+        adminOnly ? undefined : actor.id,
+        filters,
+        12,
+      );
       const reader = new PlatformAttributedBalance(this.prisma);
       const data = [];
       for (const p of catalog.data) {
