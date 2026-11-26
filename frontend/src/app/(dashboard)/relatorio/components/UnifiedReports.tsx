@@ -23,6 +23,9 @@ import type { DateRange } from '../types';
 const AdminOverview = dynamic(() => import('./AdminReportOverview'), {
   loading: () => <ReportSkeleton />,
 });
+const PeopleBilling = dynamic(() => import('./PeopleBillingReport'), {
+  loading: () => <ReportSkeleton />,
+});
 const currentPeriod = (): DateRange => {
   const now = new Date();
   return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: now };
@@ -41,6 +44,7 @@ export function UnifiedReports() {
   const [range, setRange] = useState<DateRange>(currentPeriod);
   const [method, setMethod] = useState('all');
   const [accessLost, setAccessLost] = useState(false);
+  const [tab, setTab] = useState<'overview' | 'people'>('overview');
   const clearSelection = useCallback(() => {
     setPlatform([]);
     setAccessLost(true);
@@ -54,9 +58,38 @@ export function UnifiedReports() {
     paymentMethod: method === 'all' ? undefined : method,
   };
   const admin = !!user?.isAdmin;
+  const tabs = admin && (
+    <div role="tablist" className="flex gap-2 border-b">
+      {(
+        [
+          ['overview', 'Visão geral'],
+          ['people', 'Faturamento por pessoas'],
+        ] as const
+      ).map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={tab === key}
+          onClick={() => setTab(key)}
+          className={`cursor-pointer border-b-2 px-4 py-2 text-sm font-medium ${tab === key ? 'border-current' : 'border-transparent text-zinc-500'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+  if (admin && tab === 'people')
+    return (
+      <ReportsLayout admin>
+        {tabs}
+        <PeopleBilling />
+      </ReportsLayout>
+    );
   return (
     <ReportsLayout admin={admin}>
       <>
+        {tabs}
         <ReportFilterFields
           theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
           range={range}
