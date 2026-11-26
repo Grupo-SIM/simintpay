@@ -24,6 +24,7 @@ import {
   ownedReportSource,
   reportUnattributedSource,
 } from './owned-report-source';
+import { walletBalanceReport } from './wallet-balance-report';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 
 type Filters = {
@@ -614,6 +615,27 @@ export class OwnedPlatformReportsService {
         });
       }
       return { unit: 'cents' as const, ...catalog, data };
+    });
+  }
+
+  /** Wallet-first balances per person (administrators see everybody, others only themselves). */
+  async walletBalances(user: JwtPayload, filters: Filters, admin: boolean) {
+    const pagination = reportPagination(filters, 12);
+    const range = reportPeriod(filters);
+    const search = filters.search?.trim();
+    if ((search?.length ?? 0) > 100)
+      throw new BadRequestException('Pesquisa muito longa');
+    return this.snapshot(async (db) => {
+      const actor = await this.actor(db, user);
+      if (admin && actor.role !== 'ADMIN')
+        throw new ForbiddenException('Exige administrador');
+      return walletBalanceReport(db, {
+        onlyUserId: admin ? undefined : actor.id,
+        search,
+        alphabetic: (value) => this.alphabetic(value),
+        pagination,
+        range,
+      });
     });
   }
 }
