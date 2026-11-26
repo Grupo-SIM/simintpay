@@ -43,7 +43,12 @@ export class PlatformAttributedBalance {
     context: PlatformContext,
     allowInactive = false,
     merchantUserId?: string,
+    /** Restricts earned/withdrawn movements to a period; the balance fields then describe that period only. */
+    range?: { start?: Date; end?: Date },
   ) {
+    const inRange = range
+      ? { createdAt: { gte: range.start, lt: range.end } }
+      : {};
     const accountUserId = merchantUserId ?? context.ownerUserId;
     const saleFeeAt = (createdAt: Date) =>
       merchantUserId
@@ -82,7 +87,7 @@ export class PlatformAttributedBalance {
       unidentifiedOwnerWithdrawals,
     ] = await Promise.all([
       p.transaction.findMany({
-        where: { userId: accountUserId, status: 'COMPLETED' },
+        where: { userId: accountUserId, status: 'COMPLETED', ...inRange },
         select: {
           platformTag: true,
           createdAt: true,
@@ -98,6 +103,7 @@ export class PlatformAttributedBalance {
               userId: merchantUserId,
               source: { in: ['EBOOK_V1', 'EBOOK_COMMISSION'] },
               platformTag: canonicalTransactionPlatformTag(context.tag),
+              ...inRange,
             },
             select: { balanceDelta: true },
           })
@@ -109,6 +115,7 @@ export class PlatformAttributedBalance {
               nature: { in: ['COPRODUCTION', 'AFFILIATE'] },
               source: { notIn: ['EBOOK_V1', 'EBOOK_COMMISSION'] },
               platformTag: canonicalTransactionPlatformTag(context.tag),
+              ...inRange,
             },
             select: { balanceDelta: true, transactionId: true },
           })
@@ -123,6 +130,7 @@ export class PlatformAttributedBalance {
           userId: accountUserId,
           platform: { in: rules.withdrawalPlatforms, mode: 'insensitive' },
           status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] },
+          ...inRange,
         },
         select: { grossAmount: true, status: true },
       }),

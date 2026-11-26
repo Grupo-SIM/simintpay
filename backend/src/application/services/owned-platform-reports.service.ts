@@ -576,6 +576,8 @@ export class OwnedPlatformReportsService {
     adminOnly: boolean,
   ) {
     reportPagination(filters, 12);
+    const range =
+      filters.startDate || filters.endDate ? reportPeriod(filters) : undefined;
     return this.snapshot(async (db) => {
       const actor = await this.actor(db, user);
       if (adminOnly && actor.role !== 'ADMIN')
@@ -589,16 +591,17 @@ export class OwnedPlatformReportsService {
       const reader = new PlatformAttributedBalance(this.prisma);
       const data = [];
       for (const p of catalog.data) {
-        const balance = await reader.readSnapshot(
-          db,
-          {
-            id: p.id,
-            tag: p.tag,
-            ownerUserId: p.ownerUserId,
-            acquirer: p.acquirer,
-          },
-          true,
-        );
+        const context = {
+          id: p.id,
+          tag: p.tag,
+          ownerUserId: p.ownerUserId,
+          acquirer: p.acquirer,
+        };
+        const balance = await reader.readSnapshot(db, context, true);
+        // Balance is always current; only the movements follow the requested period.
+        const period = range
+          ? await reader.readSnapshot(db, context, true, undefined, range)
+          : balance;
         data.push({
           id: p.id,
           tag: p.tag,
@@ -606,6 +609,8 @@ export class OwnedPlatformReportsService {
           isActive: p.isActive,
           owner: { id: p.ownerUserId, name: p.ownerName, email: p.ownerEmail },
           ...balance,
+          periodEarnedCents: period.earnedCents,
+          periodWithdrawnGrossCents: period.withdrawnGrossCents,
         });
       }
       return { unit: 'cents' as const, ...catalog, data };
