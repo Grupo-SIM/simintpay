@@ -28,7 +28,6 @@ import {
 } from './offer-sales-event-outbox';
 import { subscriptionActivatedPayload } from './offer-subscription-event';
 import {
-  offerWebhookUrl,
   purchaseWebhookBody,
   subscriptionExpiredWebhookBody,
   subscriptionWebhookBody,
@@ -258,7 +257,7 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
     activated: boolean;
   }): Promise<boolean> {
     const { offer, charge, tx, delivery, refunded } = input;
-    if (!this.webhooks || !offerWebhookUrl(offer)) return true;
+    if (!this.webhooks) return true;
     const oneOff = offer.renewalMode === 'NONE';
     let event: LegacyWebhookEvent;
     if (refunded) {
@@ -270,6 +269,7 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
         ? 'subscription_activated'
         : 'subscription_renewed';
     else return true;
+    if (!this.webhooks.target(offer, event)) return true;
 
     const body =
       event === 'purchase_approved' || event === 'purchase_refunded'
@@ -306,7 +306,11 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
       where: { id: contractId },
       include: { offer: true },
     });
-    if (!contract?.offer || !offerWebhookUrl(contract.offer)) return true;
+    if (
+      !contract?.offer ||
+      !this.webhooks.target(contract.offer, 'subscription_expired')
+    )
+      return true;
     const last = await this.prisma.charge.findFirst({
       where: { contractId, status: 'PAID' },
       orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],

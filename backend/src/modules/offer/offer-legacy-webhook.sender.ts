@@ -42,14 +42,45 @@ export class OfferLegacyWebhookSender {
   resolve: HostResolver = resolveAll;
   post: WebhookPost = post;
 
+  /**
+   * Where `event` of this offer goes through the legacy format, or null when there is nothing to
+   * send. The offer's own `metadata.webhookUrl` wins; without one, the events the signed outbox
+   * does not emit (renewal, expiry) use the platform `WEBHOOK_URL` (HTTPS) with the platform
+   * `WEBHOOK_SECRET` as `x-simpay-token`. An event is never sent twice to the same URL.
+   */
+  target(
+    offer: { platformTag: string | null; metadata: unknown },
+    event: LegacyWebhookEvent,
+  ): { url: string; token: string } | null {
+    const tag = offer.platformTag;
+    const own = offerWebhookUrl(offer);
+    if (own) {
+      if (this.coveredBySignedChannel(tag, event, own)) return null;
+      return { url: own, token: getPlatformWebhookToken([tag]) };
+    }
+    // Signed events already reach the platform URL through the outbox (new body, same token).
+    if (!tag || SIGNED_OUTBOX_EVENTS.has(event)) return null;
+    const url = getPlatformIntegrationValue(tag, 'WEBHOOK_URL');
+    const token = getPlatformIntegrationValue(tag, 'WEBHOOK_SECRET');
+    if (!url || !token) {
+      this.warnOnce(tag, 'sem WEBHOOK_URL/WEBHOOK_SECRET configurados');
+      return null;
+    }
+    if (!url.toLowerCase().startsWith('https://')) {
+      this.warnOnce(tag, 'WEBHOOK_URL não é HTTPS');
+      return null;
+    }
+    return { url, token };
+  }
+
   async send(
     offer: { id: string; platformTag: string | null; metadata: unknown },
     event: LegacyWebhookEvent,
     body: Record<string, unknown>,
   ): Promise<boolean> {
-    const url = offerWebhookUrl(offer);
-    if (!url) return true;
-    if (this.coveredBySignedChannel(offer.platformTag, event, url)) return true;
+    const target = this.target(offer, event);
+    if (!target) return true;
+    const { url, token } = target;
     try {
       // SSRF barrier: static URL check plus the addresses the host resolves to right now.
       const reason = unsafeUrlReason(url);
@@ -58,7 +89,6 @@ export class OfferLegacyWebhookSender {
       if (addresses.length === 0 || addresses.some(isPrivateAddress))
         return this.refuse(offer.id, 'host resolve para rede interna');
 
-      const token = getPlatformWebhookToken([offer.platformTag]);
       const response = await this.post(url, {
         headers: {
           'content-type': 'application/json',
@@ -97,6 +127,15 @@ export class OfferLegacyWebhookSender {
     return (
       Boolean(getPlatformIntegrationValue(tag, 'WEBHOOK_SECRET')) &&
       getPlatformIntegrationValue(tag, 'WEBHOOK_URL') === url
+    );
+  }
+
+  private readonly warned = new Set<string>();
+  private warnOnce(tag: string, reason: string) {
+    if (this.warned.has(tag)) return;
+    this.warned.add(tag);
+    this.logger.warn(
+      `[OfferWebhook] plataforma ${tag}: ${reason}; renovação/expiração não serão enviadas`,
     );
   }
 

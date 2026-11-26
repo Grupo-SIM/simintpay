@@ -156,4 +156,64 @@ describe('OfferLegacyWebhookSender', () => {
     );
     expect(calls).toHaveLength(3);
   });
+
+  test('without an offer URL, renewal/expiry use the HTTPS platform WEBHOOK_URL with its secret', async () => {
+    await configure([
+      { key: 'WEBHOOK_SECRET', secret: 'platform-secret' },
+      { key: 'WEBHOOK_URL', url: 'https://platform.example/hook' },
+    ]);
+    const { sender, calls } = make();
+    for (const event of [
+      'subscription_renewed',
+      'subscription_expired',
+    ] as const)
+      expect(await sender.send(offer(null), event, { event })).toBe(true);
+    // signed events are the outbox's job on that same URL
+    await sender.send(offer(null), 'purchase_approved', {});
+    await sender.send(offer(null), 'subscription_activated', {});
+    expect(calls.map((c) => [c.url, c.headers['x-simpay-token']])).toEqual([
+      ['https://platform.example/hook', 'platform-secret'],
+      ['https://platform.example/hook', 'platform-secret'],
+    ]);
+  });
+
+  test('the platform URL needs HTTPS, a secret and passes the same SSRF barrier', async () => {
+    const { sender, calls } = make();
+    await configure([
+      { key: 'WEBHOOK_SECRET', secret: 's' },
+      { key: 'WEBHOOK_URL', url: 'http://platform.example/hook' },
+    ]);
+    expect(await sender.send(offer(null), 'subscription_renewed', {})).toBe(
+      true,
+    );
+    await configure([
+      { key: 'WEBHOOK_URL', url: 'https://platform.example/h' },
+    ]);
+    expect(await sender.send(offer(null), 'subscription_renewed', {})).toBe(
+      true,
+    );
+    await configure([
+      { key: 'WEBHOOK_SECRET', secret: 's' },
+      { key: 'WEBHOOK_URL', url: 'https://rebind.example/h' },
+    ]);
+    sender.resolve = async () => ['10.0.0.9'];
+    expect(await sender.send(offer(null), 'subscription_renewed', {})).toBe(
+      true,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  test('the offer URL has priority over the platform URL', async () => {
+    await configure([
+      { key: 'WEBHOOK_SECRET', secret: 's' },
+      { key: 'WEBHOOK_URL', url: 'https://platform.example/hook' },
+    ]);
+    const { sender, calls } = make();
+    await sender.send(
+      offer('https://own.example/hook'),
+      'subscription_renewed',
+      {},
+    );
+    expect(calls.map((c) => c.url)).toEqual(['https://own.example/hook']);
+  });
 });

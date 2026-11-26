@@ -19,6 +19,9 @@ const db = url
 
 process.env.PLATFORM_CONFIG_ENCRYPTION_KEY ??= 'cd'.repeat(32);
 const TAG = `WH${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+/** Platform with WEBHOOK_URL + WEBHOOK_SECRET (the owner filled the URL in the admin). */
+const TAG_URL = `${TAG}U`;
+const PLATFORM_URL = 'https://platform.example/webhook';
 
 beforeAll(async () => {
   if (!db) return;
@@ -31,6 +34,18 @@ beforeAll(async () => {
           url: null,
           encryptedValue: encryptPlatformSecret('secret-of-' + TAG),
           platform: { tag: TAG },
+        },
+        {
+          key: 'WEBHOOK_SECRET',
+          url: null,
+          encryptedValue: encryptPlatformSecret('secret-of-' + TAG_URL),
+          platform: { tag: TAG_URL },
+        },
+        {
+          key: 'WEBHOOK_URL',
+          url: PLATFORM_URL,
+          encryptedValue: null,
+          platform: { tag: TAG_URL },
         },
       ],
     },
@@ -64,12 +79,23 @@ function build(prisma: PrismaClient, status = 200) {
 
 async function seed(
   prisma: PrismaClient,
-  opts: { webhookUrl: string; recurring?: boolean },
+  opts: { webhookUrl?: string; recurring?: boolean; tag?: string },
 ) {
   const suffix = crypto.randomUUID().slice(0, 8);
   const owner = await prisma.user.create({
     data: { email: `${suffix}@wh.local`, password: 'x', name: 'Local' },
   });
+  if (opts.tag === TAG_URL)
+    await prisma.platform.upsert({
+      where: { tag: TAG_URL },
+      update: {},
+      create: {
+        tag: TAG_URL,
+        name: TAG_URL,
+        ownerUserId: owner.id,
+        integrations: { create: { key: 'WEBHOOK_URL', url: PLATFORM_URL } },
+      },
+    });
   const offer = await prisma.offer.create({
     data: {
       ownerUserId: owner.id,
@@ -78,8 +104,8 @@ async function seed(
       name: 'Plano',
       amountCents: 3990,
       acceptedMethods: ['CREDIT_CARD'],
-      platformTag: TAG,
-      metadata: { webhookUrl: opts.webhookUrl },
+      platformTag: opts.tag ?? TAG,
+      metadata: opts.webhookUrl ? { webhookUrl: opts.webhookUrl } : {},
       ...(opts.recurring
         ? {
             renewalMode: 'AUTO_CHARGE' as const,
@@ -306,6 +332,85 @@ test.skipIf(!db)(
     });
     await cron.run();
     expect(f.calls).toHaveLength(3);
+  },
+  60_000,
+);
+
+test.skipIf(!db)(
+  'real database: without an offer URL, renewed and expired go to the platform URL with its secret; signed events stay on the outbox',
+  async () => {
+    const prisma = db!;
+    const s = await seed(prisma, { recurring: true, tag: TAG_URL });
+    const first = await pay(prisma, s, 1);
+    const second = await pay(prisma, s, 2);
+    const f = build(prisma);
+    for (const t of [first.tx, second.tx, second.tx])
+      await f.service.deliver({ transactionId: t.id, kind: 'PAID' });
+    // subscription_activated belongs to the signed outbox (same URL): never sent here.
+    expect(f.calls.map((c) => c.body.event)).toEqual(['subscription_renewed']);
+    expect(f.calls[0].url).toBe(PLATFORM_URL);
+    expect(f.calls[0].headers['x-simpay-token']).toBe('secret-of-' + TAG_URL);
+    expect(f.calls[0].body.orderId).toBe(second.tx.id);
+
+    await prisma.billingContract.update({
+      where: { id: s.contract!.id },
+      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+    });
+    const cron = new OfferLegacyWebhookCron(prisma as never, f.service);
+    await cron.run();
+    await cron.run();
+    expect(f.calls.map((c) => c.body.event)).toEqual([
+      'subscription_renewed',
+      'subscription_expired',
+    ]);
+    expect(f.calls[1].url).toBe(PLATFORM_URL);
+    expect(f.calls[1].headers['x-simpay-token']).toBe('secret-of-' + TAG_URL);
+    expect(f.calls[1].body.orderId).toBe(s.contract!.id);
+  },
+  60_000,
+);
+
+test.skipIf(!db)(
+  'real database: an own offer URL keeps priority over the platform URL; a one-off sale is left to the outbox',
+  async () => {
+    const prisma = db!;
+    const s = await seed(prisma, {
+      recurring: true,
+      tag: TAG_URL,
+      webhookUrl: 'https://own.example/hook',
+    });
+    await pay(prisma, s, 1);
+    const second = await pay(prisma, s, 2);
+    const f = build(prisma);
+    await f.service.deliver({ transactionId: second.tx.id, kind: 'PAID' });
+    expect(f.calls.map((c) => c.url)).toEqual(['https://own.example/hook']);
+    expect(f.calls[0].headers['x-simpay-token']).toBe('secret-of-' + TAG_URL);
+
+    const oneOff = await seed(prisma, { tag: TAG_URL });
+    const sale = await pay(prisma, oneOff, 1);
+    await f.service.deliver({ transactionId: sale.tx.id, kind: 'PAID' });
+    expect(f.calls).toHaveLength(1);
+  },
+  60_000,
+);
+
+test.skipIf(!db)(
+  'real database: a platform with a secret but no WEBHOOK_URL has nothing to send and succeeds',
+  async () => {
+    const prisma = db!;
+    const s = await seed(prisma, { recurring: true });
+    await pay(prisma, s, 1);
+    const second = await pay(prisma, s, 2);
+    const f = build(prisma);
+    expect(
+      await f.service.deliver({ transactionId: second.tx.id, kind: 'PAID' }),
+    ).toBe('done');
+    await prisma.billingContract.update({
+      where: { id: s.contract!.id },
+      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+    });
+    await new OfferLegacyWebhookCron(prisma as never, f.service).run();
+    expect(f.calls).toHaveLength(0);
   },
   60_000,
 );

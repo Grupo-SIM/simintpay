@@ -7,7 +7,7 @@ const LIMIT = 200;
 
 /**
  * Looks for recurring-offer contracts whose access ended (cancelled and past `accessEndsAt`,
- * suspended, or finished) and tells the offer webhook once per paid cycle. Retries on the next
+ * suspended, or finished) and tells the offer webhook (own URL, else the platform `WEBHOOK_URL`) once per paid cycle. Retries on the next
  * run when the receiver is down: the marker on the last paid Charge is released on failure.
  */
 @Injectable()
@@ -29,7 +29,14 @@ export class OfferLegacyWebhookCron {
         SELECT c."id" FROM "BillingContract" c
         JOIN "Offer" o ON o."id" = c."offerId"
         WHERE o."renewalMode" <> 'NONE'
-          AND o."metadata"->>'webhookUrl' IS NOT NULL
+          AND (
+            o."metadata"->>'webhookUrl' IS NOT NULL
+            OR o."platformTag" IN (
+              SELECT p."tag" FROM "Platform" p
+              JOIN "PlatformIntegration" i ON i."platformId" = p."id"
+              WHERE i."key" = 'WEBHOOK_URL' AND i."url" IS NOT NULL
+            )
+          )
           AND (
             (c."status" = 'CANCELLED' AND (c."accessEndsAt" IS NULL OR c."accessEndsAt" <= ${now}))
             OR c."status" = 'SUSPENDED'

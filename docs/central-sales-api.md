@@ -31,7 +31,25 @@ Além do canal assinado, cada oferta pode ter uma URL própria em `Offer.metadat
 | `subscription_renewed`                   | cada ciclo seguinte pago                                                                     | mesmos campos de `subscription_activated`; `orderId` é a transação do ciclo (único por ciclo)                                                                                                                        |
 | `subscription_expired`                   | contrato `SUSPENDED`, `CANCELLED` com `accessEndsAt` vencido ou `INACTIVE` com período findo | `event`, `customerEmail`, `customerName`, `planName`, `paymentMethod`, `frequencyType`, `amountCharged: 0`, `netAmount: 0`, `orderId` (id do contrato), `linkId`                                                     |
 
+Destino sem URL própria: quando a oferta não tem `metadata.webhookUrl`, `subscription_renewed` e `subscription_expired` (que o outbox não emite) vão ao `WEBHOOK_URL` (HTTPS) da plataforma da oferta, com `x-simpay-token` = `WEBHOOK_SECRET` da plataforma e a mesma validação `unsafeUrlReason`/DNS. URL própria da oferta tem prioridade. Sem `WEBHOOK_URL` ou sem `WEBHOOK_SECRET` não há o que enviar (sucesso, aviso no log uma vez por plataforma). `purchase_approved`, `purchase_refunded` e `subscription_activated` nunca saem por este caminho para o `WEBHOOK_URL` da plataforma: vão pelo outbox assinado (corpo abaixo), o que evita duplicidade.
+
 Garantias: um envio por Charge e evento (marcador em `Charge.snapshot.fulfillment`), com nova tentativa quando o receptor responde 5xx, 408, 429 ou não responde (ciclo de 250 ms a 5 min na memória; a expiração é varrida a cada 5 minutos). 4xx definitivo e URL insegura (esquema não http(s), credenciais, host interno ou DNS que resolve para rede privada) contam como tratados e não repetem. Sem URL não há envio. Se a URL da oferta for igual ao `WEBHOOK_URL` HTTPS de uma plataforma com `WEBHOOK_SECRET`, `purchase_approved`, `purchase_refunded` e `subscription_activated` vão só pelo canal assinado (sem duplicar); renovação e expiração não existem no outbox e sempre seguem pela URL da oferta.
+
+### Corpo do outbox é superconjunto do legado
+
+O receptor do formato antigo (`saas-netflix-back`, `POST /webhooks-simpay`, valida `x-simpay-token`) lê `event`, `customerEmail`, `customerName`, `planName`, `paymentMethod`, `frequencyType`, `amountCharged` (reais), `netAmount` (reais), `orderId`, `linkId` e `phone`; ignora `cpf`/`cnpj`/`document` e eventos desconhecidos. O corpo do outbox (centavos, `eventId`, `occurredAt`, `tracking`, `affiliate`, `items`…) ganhou, de forma aditiva, o que faltava, e a assinatura HMAC cobre o corpo final. Um único envio ao `WEBHOOK_URL` serve aos dois receptores (o novo ignora os campos extras).
+
+| Campo legado                                                                  | `purchase_approved` / `purchase_refunded`                                            | `subscription_activated` |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------ |
+| `event`, `orderId`, `paymentMethod`, `phone`, `customerEmail`, `customerName` | já existiam, mesmo nome e valor                                                      | já existiam              |
+| `linkId`                                                                      | já existia (id do link legado migrado ou `Offer.id`)                                 | já existia (`Offer.id`)  |
+| `planName`                                                                    | **novo**: nome da oferta (sem oferta, omitido)                                       | já existia               |
+| `amountCharged`                                                               | **novo**: reais (`amountCents / 100`)                                                | já existia               |
+| `netAmount`                                                                   | **novo**: reais (`netAmountCents / 100`)                                             | já existia               |
+| `frequencyType`                                                               | não se aplica (pagamento avulso)                                                     | já existia               |
+| `cpf` / `cnpj`                                                                | fora do outbox por política (sem documento no payload); o receptor antigo não os usa | idem                     |
+
+Os campos novos (`amountCents`, `netAmountCents`, `eventId`, `occurredAt`, `tracking`, `affiliate`, `items`, `offerId`, `chargeId`) permanecem sem alteração. Receptores do formato novo (ex.: Rastrewin) recebem o mesmo corpo de antes mais `planName`, `amountCharged` e `netAmount`. `chargeback`, `refund_requested`, `card_declined` e `pix_*` não ganham campos legados (o receptor antigo os ignora). Corpo montado por `legacyCompatFields` em `modules/offer/offer-legacy-webhook.ts`.
 
 ## Estorno parcial (contrato proposto, não implementado)
 
