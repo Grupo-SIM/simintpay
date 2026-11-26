@@ -56,7 +56,7 @@ export function groupByPerson(rows: PlatformBalance[]): Person[] {
   );
 }
 
-export default function PeopleBillingReport() {
+export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   const api = useMemo(
     () =>
       createApiClient({
@@ -66,12 +66,14 @@ export default function PeopleBillingReport() {
     [],
   );
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['people-billing'],
+    queryKey: ['people-billing', admin],
     queryFn: async () => {
       const rows: PlatformBalance[] = [];
       for (let page = 1; ; page++) {
         const result = await api.get<BalancePage>(
-          '/admin/relatorios/saldos-plataformas',
+          admin
+            ? '/admin/relatorios/saldos-plataformas'
+            : '/relatorios/saldos-plataformas',
           { query: { page, pageSize: PAGE_SIZE } },
         );
         rows.push(...result.data);
@@ -93,7 +95,9 @@ export default function PeopleBillingReport() {
     <div className="space-y-4">
       <div className="rounded-xl border p-4">
         <p className="text-sm text-zinc-500">
-          Saldo total em carteiras ({data.length} pessoas)
+          {admin
+            ? `Saldo total em carteiras (${data.length} pessoas)`
+            : 'Saldo da sua carteira'}
         </p>
         <p className="text-2xl font-bold">{money(totalWallet)}</p>
       </div>

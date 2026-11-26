@@ -58,12 +58,15 @@ export function UnifiedReports() {
     paymentMethod: method === 'all' ? undefined : method,
   };
   const admin = !!user?.isAdmin;
-  const tabs = admin && (
+  const tabs = (
     <div role="tablist" className="flex gap-2 border-b">
       {(
         [
           ['overview', 'Visão geral'],
-          ['people', 'Faturamento por pessoas'],
+          [
+            'people',
+            admin ? 'Faturamento por pessoas' : 'Saldo das plataformas',
+          ],
         ] as const
       ).map(([key, label]) => (
         <button
@@ -79,11 +82,11 @@ export function UnifiedReports() {
       ))}
     </div>
   );
-  if (admin && tab === 'people')
+  if (tab === 'people')
     return (
-      <ReportsLayout admin>
+      <ReportsLayout admin={admin}>
         {tabs}
-        <PeopleBilling />
+        <PeopleBilling admin={admin} />
       </ReportsLayout>
     );
   return (
