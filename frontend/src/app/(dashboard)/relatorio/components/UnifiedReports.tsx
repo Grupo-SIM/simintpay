@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useQueryClient } from '@tanstack/react-query';
 import { consolidadoTagFor } from '@/lib/consolidado-tag';
@@ -44,7 +45,14 @@ export function UnifiedReports() {
   const [range, setRange] = useState<DateRange>(currentPeriod);
   const [method, setMethod] = useState('all');
   const [accessLost, setAccessLost] = useState(false);
-  const [tab, setTab] = useState<'overview' | 'people'>('overview');
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const tab = params.get('aba') === 'saldos' ? 'people' : 'overview';
+  const setTab = (next: 'overview' | 'people') =>
+    router.replace(next === 'people' ? `${pathname}?aba=saldos` : pathname, {
+      scroll: false,
+    });
   const clearSelection = useCallback(() => {
     setPlatform([]);
     setAccessLost(true);
@@ -63,10 +71,7 @@ export function UnifiedReports() {
       {(
         [
           ['overview', 'Visão geral'],
-          [
-            'people',
-            admin ? 'Faturamento por pessoas' : 'Saldo das plataformas',
-          ],
+          ['people', admin ? 'Saldo por usuário' : 'Saldo das plataformas'],
         ] as const
       ).map(([key, label]) => (
         <button
