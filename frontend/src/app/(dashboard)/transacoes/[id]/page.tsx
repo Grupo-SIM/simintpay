@@ -34,6 +34,7 @@ import {
   hasCoproducers,
   ownerSplit,
 } from '@/features/transacoes/participations';
+import { NetChainCard } from '@/components/transactions/NetChainCard';
 import { ParticipationsDetailCard } from '@/components/transactions/ParticipationsDetailCard';
 import { isAffiliateOnly } from '@/features/affiliates/affiliation';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
@@ -157,6 +158,9 @@ export default function TransacaoDetailPage() {
   const lucroMaster = safeNum(
     order.lucro_master ?? order.valor_liquido_vendedor ?? order.total_liquid,
   );
+
+  // Venda dividida com coprodutores/afiliado: o líquido é só a base, não o ganho do usuário.
+  const sharesNet = !isAdmin && Boolean(data?.coproducao || data?.afiliacao);
 
   return (
     <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full pb-10">
@@ -310,18 +314,26 @@ export default function TransacaoDetailPage() {
                   <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 mb-2">
                     <History className="h-4 w-4" />
                     <span className="text-xs font-bold uppercase tracking-wider">
-                      Lucro/Prejuízo
+                      {sharesNet ? 'Líquido da venda' : 'Lucro/Prejuízo'}
                     </span>
                   </div>
                   <div
                     className={`text-3xl lg:text-4xl font-bold ${
-                      lucroMaster >= 0
-                        ? 'text-violet-600 dark:text-violet-400'
-                        : 'text-rose-600 dark:text-rose-400'
+                      sharesNet
+                        ? 'text-zinc-400 dark:text-zinc-500'
+                        : lucroMaster >= 0
+                          ? 'text-violet-600 dark:text-violet-400'
+                          : 'text-rose-600 dark:text-rose-400'
                     }`}
                   >
                     {formatBRL(lucroMaster)}
                   </div>
+                  {sharesNet && (
+                    <div className="mt-2 text-[10px] font-medium text-zinc-500">
+                      Base de cálculo, não é o seu ganho. Veja a sua parte
+                      abaixo.
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -329,6 +341,12 @@ export default function TransacaoDetailPage() {
         </div>
       </div>
 
+      {sharesNet && data && (
+        <NetChainCard
+          detail={data}
+          grossCents={Math.round(valorBrutoVenda * 100)}
+        />
+      )}
       {data?.coproducao && <ParticipationsDetailCard detail={data} />}
       {data?.afiliacao && (
         <AffiliationDetailCard
