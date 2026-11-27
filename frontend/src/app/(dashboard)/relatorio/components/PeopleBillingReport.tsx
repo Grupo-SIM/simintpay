@@ -21,8 +21,8 @@ const currentPeriod = (): DateRange => {
   return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: now };
 };
 const VIEWS = [
-  ['usuarios', 'Usuários'],
   ['plataformas', 'Plataformas'],
+  ['usuarios', 'Usuários'],
 ] as const;
 
 export default function PeopleBillingReport({ admin }: { admin: boolean }) {
@@ -35,12 +35,12 @@ export default function PeopleBillingReport({ admin }: { admin: boolean }) {
   const [range, setRange] = useState<DateRange>(currentPeriod);
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
-  // The view toggle lives in the URL (?visao=plataformas) next to the tab (?aba=saldos).
+  // The view toggle lives in the URL (?visao=usuarios) next to the tab (?aba=saldos); platforms is the admin default.
   const view =
-    admin && params.get('visao') === 'plataformas' ? 'plataformas' : 'usuarios';
+    admin && params.get('visao') !== 'usuarios' ? 'plataformas' : 'usuarios';
   const setView = (next: (typeof VIEWS)[number][0]) => {
     const query = new URLSearchParams(params.toString());
-    if (next === 'plataformas') query.set('visao', next);
+    if (next === 'usuarios') query.set('visao', next);
     else query.delete('visao');
     router.replace(`${pathname}?${query.toString()}`, { scroll: false });
   };
