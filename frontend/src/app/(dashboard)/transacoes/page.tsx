@@ -37,10 +37,7 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import type { Transacao } from '@/features/transacoes/types/transacoes.types';
-import {
-  participationCell,
-  userNetAmount,
-} from '@/features/transacoes/participations';
+import { participationCell } from '@/features/transacoes/participations';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import {
   formatDocument,
@@ -809,6 +806,18 @@ function TransacoesContent() {
               ),
             },
           ]),
+      {
+        key: 'netAmount',
+        header: 'Valor líquido',
+        className: 'text-right whitespace-nowrap',
+        headerClassName: 'text-right',
+        render: (row: Transacao) => (
+          <MoneyCell
+            value={row.netAmount}
+            className="text-sm font-medium text-emerald-600 dark:text-emerald-400"
+          />
+        ),
+      },
       ...(isAdmin
         ? []
         : [
@@ -830,18 +839,6 @@ function TransacoesContent() {
               },
             },
           ]),
-      {
-        key: 'netAmount',
-        header: 'Valor líquido',
-        className: 'text-right whitespace-nowrap',
-        headerClassName: 'text-right',
-        render: (row: Transacao) => (
-          <MoneyCell
-            value={userNetAmount(row)}
-            className="text-sm font-medium text-emerald-600 dark:text-emerald-400"
-          />
-        ),
-      },
       dateColumn,
     ],
     [
