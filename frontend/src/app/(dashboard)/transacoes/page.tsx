@@ -764,6 +764,21 @@ function TransacoesContent() {
               ),
             },
             {
+              key: 'marginParticipation',
+              header: 'Participações',
+              className: 'text-right whitespace-nowrap',
+              headerClassName: 'text-right',
+              render: (row: Transacao) =>
+                row.marginParticipationCents ? (
+                  <MoneyCell
+                    value={row.marginParticipationCents / 100}
+                    className="text-sm font-medium text-violet-600 dark:text-violet-300"
+                  />
+                ) : (
+                  <span className="text-xs text-zinc-400">-</span>
+                ),
+            },
+            {
               key: 'platformAddition',
               header: 'Adicional SimIntPay',
               className: 'text-right whitespace-nowrap',
@@ -772,7 +787,9 @@ function TransacoesContent() {
                 <MoneyCell
                   value={Math.max(
                     0,
-                    Number(row.totalFee ?? 0) - Number(row.acquirerFee ?? 0),
+                    Number(row.totalFee ?? 0) -
+                      Number(row.acquirerFee ?? 0) -
+                      (row.marginParticipationCents ?? 0) / 100,
                   )}
                   className="text-sm text-red-500 dark:text-red-400"
                 />

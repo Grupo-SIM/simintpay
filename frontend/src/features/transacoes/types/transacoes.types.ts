@@ -40,6 +40,8 @@ export type TransacaoAfiliacao = {
 export type Transacao = {
   coproducao?: TransacaoCoproducao | null;
   afiliacao?: TransacaoAfiliacao | null;
+  /** Admin only: participações SimIntPay (afiliados/coprodutores da margem) não estornadas, em centavos. */
+  marginParticipationCents?: number;
   id: string;
   status: TransacaoStatus | string;
   /** Decimal do transporte. Não representa centavos. */
