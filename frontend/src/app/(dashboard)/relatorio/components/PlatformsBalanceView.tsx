@@ -1,12 +1,17 @@
 'use client';
 
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query';
 import { useState } from 'react';
 import { useReportApi } from '@/hooks/use-report-api';
 import { useInfiniteSentinel } from '@/hooks/use-infinite-sentinel';
 import { Modal } from '@/components/ui/Modal';
 import { BalanceTotalCards } from './BalanceTotalCards';
 import { ReportError } from './ReportError';
+import { ReportPagination } from './ReportPagination';
 import { ReportSkeleton } from './ReportSkeleton';
 import { BalanceCard, type WalletBucket } from './PlatformBalanceCard';
 import { CACHE_MS, PAGE_SIZE, type BalanceViewProps } from './UsersBalanceView';
@@ -20,6 +25,9 @@ type PlatformPage = {
 };
 type PlatformUsers = {
   data: { id: string; name: string; email: string; bucket: WalletBucket }[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 const withdrawal = (bucket: WalletBucket) =>
@@ -37,6 +45,7 @@ export function PlatformsBalanceView({
 }: BalanceViewProps) {
   const api = useReportApi();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [usersPage, setUsersPage] = useState(1);
   const list = useInfiniteQuery({
     queryKey: [...scope, 'platforms', startDate, endDate, term],
     staleTime: CACHE_MS,
@@ -63,12 +72,20 @@ export function PlatformsBalanceView({
   const platforms = list.data?.pages.flatMap((page) => page.data) ?? [];
   const selected = platforms.find((item) => item.key === selectedKey) ?? null;
   const users = useQuery({
-    queryKey: [...scope, 'platform-users', selectedKey, startDate, endDate],
+    queryKey: [
+      ...scope,
+      'platform-users',
+      selectedKey,
+      startDate,
+      endDate,
+      usersPage,
+    ],
     enabled: !!selectedKey,
     staleTime: CACHE_MS,
+    placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       api.get<PlatformUsers>(`${BASE}/${encodeURIComponent(selectedKey!)}`, {
-        query: { startDate, endDate },
+        query: { startDate, endDate, page: usersPage, pageSize: PAGE_SIZE },
         signal,
       }),
   });
@@ -88,7 +105,10 @@ export function PlatformsBalanceView({
             availableCents={platform.availableCents}
             billedCents={platform.periodReceivedCents}
             withdrawalCents={withdrawal(platform)}
-            onClick={() => setSelectedKey(platform.key)}
+            onClick={() => {
+              setUsersPage(1);
+              setSelectedKey(platform.key);
+            }}
           />
         ))}
       </div>
@@ -115,18 +135,26 @@ export function PlatformsBalanceView({
             ) : users.isError ? (
               <ReportError retry={() => void users.refetch()} />
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {users.data.data.map((row) => (
-                  <BalanceCard
-                    key={row.id}
-                    title={row.name}
-                    subtitle={row.email}
-                    availableCents={row.bucket.availableCents}
-                    billedCents={row.bucket.periodReceivedCents}
-                    withdrawalCents={withdrawal(row.bucket)}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {users.data.data.map((row) => (
+                    <BalanceCard
+                      key={row.id}
+                      title={row.name}
+                      subtitle={row.email}
+                      availableCents={row.bucket.availableCents}
+                      billedCents={row.bucket.periodReceivedCents}
+                      withdrawalCents={withdrawal(row.bucket)}
+                    />
+                  ))}
+                </div>
+                <ReportPagination
+                  page={usersPage}
+                  total={users.data.total}
+                  pageSize={PAGE_SIZE}
+                  onChange={setUsersPage}
+                />
+              </>
             )}
           </div>
         )}
