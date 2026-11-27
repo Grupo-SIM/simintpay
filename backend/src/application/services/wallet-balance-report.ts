@@ -47,6 +47,20 @@ const keySql = (tag: Prisma.Sql) => Prisma.sql`(CASE
   WHEN upper(btrim(${tag})) = 'EBOOKSIM' THEN 'EBOOK'
   ELSE replace(upper(btrim(${tag})), '_', '-') END)`;
 
+/**
+ * Movements of the person, never of a platform: withdrawals, withdrawal fees, adjustments, reconciliations and
+ * manual/administrative entries. They only change the wallet, so they land in "Outros" whatever tag or
+ * transaction they carry. Only product credits (sales, commissions, coproduction, affiliate, margin) belong to a platform.
+ */
+const ownMovementSql = Prisma.sql`(bl.action LIKE 'WITHDRAW\\_%' OR bl.action LIKE 'ADMIN\\_%'
+  OR bl.action IN ('ADJUSTMENT', 'WALLET_RECALCULATE', 'ATLAS_WALLET_ZERO', 'MAQUINETA_CORRECTION')
+  OR coalesce(bl.nature, '') IN ('WITHDRAWAL', 'ADJUSTMENT')
+  OR bl.source IN ('RECONCILIATION', 'MASTER_ADMIN_CONTROL', 'ADMIN_SYNC'))`;
+
+const ledgerKeyOf = () => Prisma.sql`(CASE WHEN ${ownMovementSql} THEN NULL
+  WHEN bl.action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY}
+  ELSE ${keySql(Prisma.sql`coalesce(nullif(btrim(bl."platformTag"), ''), tx."platformTag")`)} END)`;
+
 const cents = (value: Prisma.Decimal | number | null | undefined) => {
   const result = new Prisma.Decimal(value ?? 0)
     .mul(100)
@@ -139,7 +153,7 @@ async function walletPeople(
   const inPeriod = (column: string) =>
     Prisma.sql`${Prisma.raw(column)} >= ${range.start ?? new Date(0)} AND ${Prisma.raw(column)} < ${range.end ?? new Date('9999-01-01')}`;
   // Explicit ledger tag first; legacy rows without one inherit the platform of the transaction they settle.
-  const ledgerKey = Prisma.sql`(CASE WHEN bl.action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY} ELSE ${keySql(Prisma.sql`coalesce(nullif(btrim(bl."platformTag"), ''), tx."platformTag")`)} END)`;
+  const ledgerKey = ledgerKeyOf();
   const [credits, withdrawals] = await Promise.all([
     db.$queryRaw<
       {
@@ -151,7 +165,7 @@ async function walletPeople(
       }[]
     >(Prisma.sql`SELECT bl."userId", ${ledgerKey} AS key,
         coalesce(sum(bl."balanceDelta"), 0) AS balance, coalesce(sum(bl."lockedDelta"), 0) AS locked,
-        coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
+        coalesce(sum(bl."balanceDelta") FILTER (WHERE NOT ${ownMovementSql} AND ${inPeriod('bl."createdAt"')}), 0) AS period
       FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
       WHERE bl."userId" IN (${scope}) AND bl.action NOT LIKE 'WITHDRAW\\_%'
       GROUP BY 1, 2`),
@@ -165,7 +179,7 @@ async function walletPeople(
         all: Prisma.Decimal;
         period: Prisma.Decimal;
       }[]
-    >(Prisma.sql`SELECT "userId", ${keySql(Prisma.sql`platform`)} AS key,
+    >(Prisma.sql`SELECT "userId", NULL::text AS key, -- a withdrawal is the person's, never a platform's
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS debited,
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING' AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS pending,
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS "pendingAll",
@@ -371,7 +385,7 @@ type BucketRow = {
 function bucketsCte(range: Range) {
   const inPeriod = (column: string) =>
     Prisma.sql`${Prisma.raw(column)} >= ${range.start ?? new Date(0)} AND ${Prisma.raw(column)} < ${range.end ?? new Date('9999-01-01')}`;
-  const ledgerKey = Prisma.sql`(CASE WHEN bl.action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY} ELSE ${keySql(Prisma.sql`coalesce(nullif(btrim(bl."platformTag"), ''), tx."platformTag")`)} END)`;
+  const ledgerKey = ledgerKeyOf();
   return Prisma.sql`WITH users AS (
       SELECT w."userId" AS id, w.balance, w."lockedBalance" AS locked
       FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
@@ -379,12 +393,12 @@ function bucketsCte(range: Range) {
     ), cr AS (
       SELECT bl."userId" AS uid, ${ledgerKey} AS key,
         sum(bl."balanceDelta") AS balance, sum(bl."lockedDelta") AS locked,
-        coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
+        coalesce(sum(bl."balanceDelta") FILTER (WHERE NOT ${ownMovementSql} AND ${inPeriod('bl."createdAt"')}), 0) AS period
       FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
       WHERE bl."userId" IN (SELECT id FROM users) AND bl.action NOT LIKE 'WITHDRAW\\_%'
       GROUP BY 1, 2
     ), wd AS (
-      SELECT "userId" AS uid, ${keySql(Prisma.sql`platform`)} AS key,
+      SELECT "userId" AS uid, NULL::text AS key, -- a withdrawal is the person's, never a platform's
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS debited,
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING' AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS pending,
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS pending_all,
