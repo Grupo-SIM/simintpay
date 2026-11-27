@@ -37,7 +37,6 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import type { Transacao } from '@/features/transacoes/types/transacoes.types';
-import { isAffiliateOnly } from '@/features/affiliates/affiliation';
 import {
   participationCell,
   userNetAmount,
@@ -802,15 +801,12 @@ function TransacoesContent() {
               header: 'Taxas',
               className: 'text-right whitespace-nowrap',
               headerClassName: 'text-right',
-              render: (row: Transacao) =>
-                isAffiliateOnly(row) ? (
-                  <span className="text-xs text-zinc-400">-</span>
-                ) : (
-                  <MoneyCell
-                    value={row.totalFee}
-                    className="text-sm text-red-500 dark:text-red-400"
-                  />
-                ),
+              render: (row: Transacao) => (
+                <MoneyCell
+                  value={row.totalFee}
+                  className="text-sm text-red-500 dark:text-red-400"
+                />
+              ),
             },
           ]),
       ...(isAdmin
