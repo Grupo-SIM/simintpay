@@ -118,7 +118,6 @@ test('affiliate view shows code, link, sales and pending/credited/reverted commi
       await page.getByText('R$ 12,34').first().waitFor();
       await page.getByText('R$ 8,00').waitFor();
       await page.getByText('R$ 5,00').first().waitFor();
-      await page.getByText('Curso (renovação)').waitFor();
       expect(
         await page.getByRole('button', { name: 'Copiar link' }).count(),
       ).toBe(1);

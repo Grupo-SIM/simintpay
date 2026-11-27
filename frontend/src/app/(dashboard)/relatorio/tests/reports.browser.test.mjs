@@ -69,6 +69,10 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
         path: url.pathname,
         query: url.searchParams.toString(),
       });
+      if (url.pathname === '/api/coproducao/participacoes')
+        return route.fulfill({
+          json: { data: [], totalCents: 0, total: 0, page: 1, pageSize: 10 },
+        });
       if (url.pathname === '/api/coproducao/recebimentos')
         return route.fulfill({
           json: {
@@ -350,9 +354,7 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
       .waitFor();
     expect(await page.getByRole('tab').count()).toBe(0);
     expect(
-      await page
-        .getByRole('region', { name: 'Recebimentos de coprodução' })
-        .count(),
+      await page.getByRole('region', { name: 'Participações' }).count(),
     ).toBe(1);
     expect(errors).toEqual([]);
   } finally {

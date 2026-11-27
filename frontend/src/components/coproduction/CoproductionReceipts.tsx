@@ -12,25 +12,10 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import { endpoints } from '@/services/api/endpoints';
-import type { CoproductionReceipts as Receipts } from '@/features/coproduction/types';
+import type { ParticipationReceipts as Receipts } from '@/features/coproduction/types';
 
 const money = (cents: number) =>
   (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const states = {
-  AVAILABLE: 'Creditado',
-  LOCKED: 'Em mediação',
-  REVERSED: 'Estornado',
-};
-const products = {
-  plataformas: 'Plataforma',
-  'links-pagamento': 'Link de pagamento',
-  'links-assinatura': 'Link de assinatura',
-  boletos: 'Boleto',
-  planos: 'Plano',
-  'planos-pix': 'Plano PIX',
-  ofertas: 'Oferta',
-};
-
 export function CoproductionReceipts({
   filters = {},
 }: {
@@ -43,9 +28,9 @@ export function CoproductionReceipts({
     getToken: () => localStorage.getItem('access_token'),
   });
   const query = useQuery({
-    queryKey: ['coproduction-receipts', user?.id, page, filters],
+    queryKey: ['participation-receipts', user?.id, page, filters],
     queryFn: () =>
-      api.get<Receipts>(endpoints.coproduction.receipts, {
+      api.get<Receipts>(endpoints.coproduction.participations, {
         query: { ...filters, page },
         cache: 'no-store',
       }),
@@ -57,14 +42,14 @@ export function CoproductionReceipts({
     <div
       role="region"
       className="flex flex-col gap-8"
-      aria-label="Recebimentos de coprodução"
+      aria-label="Participações"
     >
       {query.isPending ? (
         <ReportSkeleton />
       ) : query.isError ? (
         <div className="space-y-3">
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-            Não foi possível carregar seus recebimentos. {query.error.message}
+            Não foi possível carregar suas participações. {query.error.message}
           </p>
           <Button
             variant="outline"
@@ -77,25 +62,31 @@ export function CoproductionReceipts({
       ) : query.data ? (
         <>
           <ReportDataTable
-            title="Recebimentos de coprodução"
+            title="Participações"
             columns={[
               { label: 'Data' },
               { label: 'Origem' },
-              { label: 'Status' },
               { label: 'Valor', numeric: true },
             ]}
-            summary={`${query.data.total.toLocaleString('pt-BR')} ${query.data.total === 1 ? 'recebimento' : 'recebimentos'}`}
             empty={query.data.data.length === 0}
-            emptyMessage="Nenhum recebimento de coprodução no período."
+            emptyMessage="Nenhuma participação no período."
             footer={
-              query.data.total > query.data.pageSize ? (
-                <ReportPagination
-                  page={page}
-                  total={query.data.total}
-                  pageSize={query.data.pageSize}
-                  onChange={setPage}
-                />
-              ) : undefined
+              <div className="flex flex-col gap-3">
+                {query.data.total > query.data.pageSize ? (
+                  <ReportPagination
+                    page={page}
+                    total={query.data.total}
+                    pageSize={query.data.pageSize}
+                    onChange={setPage}
+                  />
+                ) : null}
+                <div className="flex items-center justify-between text-sm font-semibold">
+                  <span>Total</span>
+                  <span className="tabular-nums">
+                    {money(query.data.totalCents)}
+                  </span>
+                </div>
+              </div>
             }
           >
             {query.data.data.map((row) => (
@@ -107,10 +98,7 @@ export function CoproductionReceipts({
                   {new Date(row.createdAt).toLocaleDateString('pt-BR')}
                 </td>
                 <td className="px-5 py-4 font-medium">
-                  {row.originName ?? products[row.product] ?? 'Produto'}
-                </td>
-                <td className="whitespace-nowrap px-5 py-4 text-xs text-zinc-600 dark:text-zinc-300">
-                  {states[row.state] ?? 'Indisponível'}
+                  {row.originName ?? 'Venda'}
                 </td>
                 <td className="whitespace-nowrap px-5 py-4 text-right font-semibold tabular-nums">
                   {money(row.amountCents)}

@@ -339,6 +339,83 @@ export class CoproductionService {
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
+
+  /** Credited coproduction and affiliate earnings of the actor, merged into one paginated list. */
+  participations(
+    actorId: string,
+    pageValue = '1',
+    filters: ReceiptFilters = {},
+  ) {
+    const { start, end, tag, paymentMethod } = parseReceiptFilters(filters);
+    if (
+      typeof pageValue !== 'string' ||
+      !/^[1-9]\d*$/.test(pageValue) ||
+      !Number.isSafeInteger(Number(pageValue)) ||
+      Number(pageValue) > 1000000
+    )
+      throw new BadRequestException('Página inválida');
+    const page = Number(pageValue),
+      offset = (page - 1) * 10;
+    return this.prisma.$transaction(
+      async (tx) => {
+        const actor = await tx.user.findUnique({ where: { id: actorId } });
+        if (
+          !actor?.isActive ||
+          actor.isPurged ||
+          actor.role !== 'USER' ||
+          actor.clientStatus !== 'APPROVED'
+        )
+          throw new ForbiddenException(
+            'Recebimentos exclusivos de clientes aprovados',
+          );
+        const filter = Prisma.sql`
+        ${start ? Prisma.sql`AND t."createdAt" >= ${start}` : Prisma.empty}
+        ${end ? Prisma.sql`AND t."createdAt" < ${end}` : Prisma.empty}
+        ${tag ? Prisma.sql`AND t."platformTag" = ${tag}` : Prisma.empty}
+        ${paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${paymentMethod}` : Prisma.empty}`;
+        const merged = Prisma.sql`
+          SELECT a."transactionId", a.amount, a."createdAt", coalesce(o.name, pl.name) AS "originName"
+          FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
+          LEFT JOIN "Offer" o ON o.id = t."offerId"
+          LEFT JOIN "Platform" pl ON pl.tag = t."platformTag"
+          WHERE a."userId" = ${actorId} AND t."userId" <> ${actorId} AND a.state = 'AVAILABLE' ${filter}
+          UNION ALL
+          SELECT a."transactionId", a.amount, a."createdAt", coalesce(o.name, pl.name) AS "originName"
+          FROM "AffiliateAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
+          LEFT JOIN "Offer" o ON o.id = t."offerId"
+          LEFT JOIN "Platform" pl ON pl.tag = t."platformTag"
+          WHERE a."userId" = ${actorId} AND a.state = 'AVAILABLE' ${filter}`;
+        const [totals, rows] = await Promise.all([
+          tx.$queryRaw<{ count: bigint; total: Prisma.Decimal }[]>(
+            Prisma.sql`SELECT count(*) AS count, coalesce(sum(amount), 0) AS total FROM (${merged}) m`,
+          ),
+          tx.$queryRaw<
+            {
+              transactionId: string;
+              amount: Prisma.Decimal;
+              createdAt: Date;
+              originName: string | null;
+            }[]
+          >(
+            Prisma.sql`SELECT * FROM (${merged}) m ORDER BY "createdAt" DESC, "transactionId" ASC, amount DESC LIMIT 10 OFFSET ${offset}`,
+          ),
+        ]);
+        const cents = (amount: Prisma.Decimal) =>
+          new Prisma.Decimal(amount).mul(100).toNumber();
+        return {
+          data: rows.map(({ amount, ...row }) => ({
+            ...row,
+            amountCents: cents(amount),
+          })),
+          totalCents: cents(totals[0].total),
+          total: Number(totals[0].count),
+          page,
+          pageSize: 10,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
 }
 
 /**

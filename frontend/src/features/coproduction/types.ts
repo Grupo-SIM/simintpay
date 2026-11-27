@@ -47,3 +47,16 @@ export type CoproductionReceipts = {
   page: number;
   pageSize: number;
 };
+
+export type ParticipationReceipts = {
+  data: {
+    transactionId: string;
+    amountCents: number;
+    createdAt: string;
+    originName: string | null;
+  }[];
+  totalCents: number;
+  total: number;
+  page: number;
+  pageSize: number;
+};

@@ -42,6 +42,20 @@ export class CoproductionController {
       paymentMethod,
     });
   }
+  @Get('participacoes')
+  @Header('Cache-Control', 'no-store')
+  participations(
+    @CurrentUser() actor: JwtPayload,
+    @Query() query: ReceiptFilters & { page?: string },
+  ) {
+    const { page, startDate, endDate, platform, paymentMethod } = query;
+    return this.service.participations(actor.sub, page, {
+      startDate,
+      endDate,
+      platform,
+      paymentMethod,
+    });
+  }
   @Get(':product/:id')
   @Header('Cache-Control', 'no-store')
   get(

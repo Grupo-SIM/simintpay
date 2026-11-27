@@ -11,6 +11,7 @@ export const endpoints = {
     accounts: '/coproducao/contas',
     configuration: (product: string, id: string) =>
       `/coproducao/${encodeURIComponent(product)}/${encodeURIComponent(id)}`,
+    participations: '/coproducao/participacoes',
     receipts: '/coproducao/recebimentos',
   },
   auth: {
