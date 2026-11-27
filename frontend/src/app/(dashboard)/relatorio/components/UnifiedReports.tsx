@@ -71,7 +71,7 @@ export function UnifiedReports() {
       {(
         [
           ['overview', 'Visão geral'],
-          ['people', admin ? 'Saldo por usuário' : 'Saldo das plataformas'],
+          ['people', admin ? 'Saldos' : 'Saldo das plataformas'],
         ] as const
       ).map(([key, label]) => (
         <button

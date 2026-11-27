@@ -41,13 +41,33 @@ export function FiguresRow({
   );
 }
 
-export function PlatformBalanceCard({ bucket }: { bucket: WalletBucket }) {
-  return (
-    <div className="flex flex-col justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
+/** Saldo disponível, then Faturado beside Saque; one layout for users, platforms and buckets. */
+export function BalanceCard({
+  title,
+  subtitle,
+  availableCents,
+  billedCents,
+  withdrawalCents,
+  onClick,
+}: {
+  title: string;
+  subtitle?: string | null;
+  availableCents: number;
+  billedCents: number;
+  withdrawalCents: number;
+  onClick?: () => void;
+}) {
+  const className =
+    'flex flex-col justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-5 text-left shadow-sm dark:border-white/10 dark:bg-white/5' +
+    (onClick
+      ? ' cursor-pointer transition hover:border-gray-300 hover:shadow-md'
+      : '');
+  const body = (
+    <>
       <div className="min-w-0">
-        <h3 className="truncate font-semibold">{bucket.name}</h3>
-        {bucket.isActive === false && (
-          <p className="text-xs text-zinc-500">Inativa</p>
+        <h3 className="truncate font-semibold">{title}</h3>
+        {subtitle && (
+          <p className="truncate text-xs text-zinc-500">{subtitle}</p>
         )}
       </div>
       <dl className="flex flex-col gap-3">
@@ -56,16 +76,35 @@ export function PlatformBalanceCard({ bucket }: { bucket: WalletBucket }) {
             Saldo disponível para saque
           </dt>
           <dd className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-            {money(bucket.availableCents)}
+            {money(availableCents)}
           </dd>
         </div>
         <FiguresRow
-          billedCents={bucket.periodReceivedCents}
-          withdrawalCents={
-            bucket.periodWithdrawnCents + bucket.pendingWithdrawalsCents
-          }
+          billedCents={billedCents}
+          withdrawalCents={withdrawalCents}
         />
       </dl>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className={className}>
+      {body}
+    </button>
+  ) : (
+    <div className={className}>{body}</div>
+  );
+}
+
+export function PlatformBalanceCard({ bucket }: { bucket: WalletBucket }) {
+  return (
+    <BalanceCard
+      title={bucket.name}
+      subtitle={bucket.isActive === false ? 'Inativa' : null}
+      availableCents={bucket.availableCents}
+      billedCents={bucket.periodReceivedCents}
+      withdrawalCents={
+        bucket.periodWithdrawnCents + bucket.pendingWithdrawalsCents
+      }
+    />
   );
 }
