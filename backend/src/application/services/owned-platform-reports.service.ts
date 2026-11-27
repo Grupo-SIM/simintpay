@@ -25,6 +25,7 @@ import {
   reportUnattributedSource,
 } from './owned-report-source';
 import {
+  walletBalanceByPlatform,
   walletBalanceReport,
   walletBalanceTotals,
 } from './wallet-balance-report';
@@ -649,6 +650,25 @@ export class OwnedPlatformReportsService {
       if (admin && actor.role !== 'ADMIN')
         throw new ForbiddenException('Exige administrador');
       return walletBalanceTotals(db, admin ? undefined : actor.id);
+    });
+  }
+
+  /** Platform-first balances (administrators only); `key` lists the users of one platform. */
+  async platformWalletBalances(
+    user: JwtPayload,
+    filters: Filters,
+    key?: string,
+  ) {
+    const pagination = reportPagination(filters, 12);
+    const range = reportPeriod(filters);
+    const search = filters.search?.trim();
+    if ((search?.length ?? 0) > 100)
+      throw new BadRequestException('Pesquisa muito longa');
+    return this.snapshot(async (db) => {
+      const actor = await this.actor(db, user);
+      if (actor.role !== 'ADMIN')
+        throw new ForbiddenException('Exige administrador');
+      return walletBalanceByPlatform(db, { search, pagination, range, key });
     });
   }
 }

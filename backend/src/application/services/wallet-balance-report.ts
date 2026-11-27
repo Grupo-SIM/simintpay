@@ -106,7 +106,36 @@ export async function walletBalanceReport(
       page: pagination.page,
       pageSize: pagination.pageSize,
     };
-  const ids = Prisma.join(users.map((user) => user.id));
+  const data = await walletPeople(
+    db,
+    users,
+    Prisma.join(users.map((user) => user.id)),
+    range,
+  );
+  return {
+    unit: 'cents' as const,
+    data,
+    total,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+  };
+}
+
+type WalletUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  balance: Prisma.Decimal;
+  locked: Prisma.Decimal;
+};
+
+/** Builds the per-person buckets for `users`; `scope` is the SQL list/subquery of their ids. */
+async function walletPeople(
+  db: Db,
+  users: WalletUserRow[],
+  scope: Prisma.Sql,
+  range: Range,
+): Promise<WalletPerson[]> {
   const inPeriod = (column: string) =>
     Prisma.sql`${Prisma.raw(column)} >= ${range.start ?? new Date(0)} AND ${Prisma.raw(column)} < ${range.end ?? new Date('9999-01-01')}`;
   // Explicit ledger tag first; legacy rows without one inherit the platform of the transaction they settle.
@@ -124,7 +153,7 @@ export async function walletBalanceReport(
         coalesce(sum(bl."balanceDelta"), 0) AS balance, coalesce(sum(bl."lockedDelta"), 0) AS locked,
         coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
       FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
-      WHERE bl."userId" IN (${ids}) AND bl.action NOT LIKE 'WITHDRAW\\_%'
+      WHERE bl."userId" IN (${scope}) AND bl.action NOT LIKE 'WITHDRAW\\_%'
       GROUP BY 1, 2`),
     db.$queryRaw<
       {
@@ -142,7 +171,7 @@ export async function walletBalanceReport(
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS "pendingAll",
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED')), 0) AS "all",
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND ${inPeriod('"createdAt"')}), 0) AS period
-      FROM "WithdrawRequest" WHERE "userId" IN (${ids})
+      FROM "WithdrawRequest" WHERE "userId" IN (${scope})
       GROUP BY 1, 2`),
   ]);
   const tags = [
@@ -287,13 +316,7 @@ export async function walletBalanceReport(
       platforms: list,
     };
   });
-  return {
-    unit: 'cents' as const,
-    data,
-    total,
-    page: pagination.page,
-    pageSize: pagination.pageSize,
-  };
+  return data;
 }
 
 /** All-time totals of every listed wallet (same population as the list), never filtered by period or search. */
@@ -321,5 +344,94 @@ export async function walletBalanceTotals(db: Db, onlyUserId?: string) {
     receivedCents: cents(received[0].received),
     withdrawnCents: cents(withdrawals[0].withdrawn),
     pendingWithdrawalsCents: cents(withdrawals[0].pending),
+  };
+}
+
+export type PlatformBalance = Omit<
+  WalletBucket,
+  'periodReceivedCents' | 'periodWithdrawnCents'
+> & {
+  usersCount: number;
+  periodReceivedCents: number;
+  periodWithdrawnCents: number;
+};
+
+const fold = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+/**
+ * Platform-first view: the same per-person buckets, summed per platform (including the SimIntPay
+ * pseudo-platform and "Outros"). With `key`, lists the users that hold balance in that one platform.
+ */
+export async function walletBalanceByPlatform(
+  db: Db,
+  input: {
+    search?: string;
+    pagination: Page;
+    range: Range;
+    key?: string;
+  },
+) {
+  const scope = Prisma.sql`SELECT w."userId" FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
+    WHERE (w.balance <> 0 OR w."lockedBalance" <> 0) AND u.role <> 'ADMIN'`;
+  const users = await db.$queryRaw<WalletUserRow[]>(
+    Prisma.sql`SELECT u.id, u.name, u.email, w.balance, w."lockedBalance" AS locked
+      FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
+      WHERE (w.balance <> 0 OR w."lockedBalance" <> 0) AND u.role <> 'ADMIN'`,
+  );
+  const people = users.length
+    ? await walletPeople(db, users, scope, input.range)
+    : [];
+  if (input.key) {
+    const rows = people
+      .flatMap((person) => {
+        const bucket = person.platforms.find((item) => item.key === input.key);
+        return bucket
+          ? [{ id: person.id, name: person.name, email: person.email, bucket }]
+          : [];
+      })
+      .sort(
+        (a, b) =>
+          b.bucket.availableCents - a.bucket.availableCents ||
+          a.name.localeCompare(b.name, 'pt-BR'),
+      );
+    return { unit: 'cents' as const, data: rows };
+  }
+  const platforms = new Map<string, PlatformBalance>();
+  for (const person of people)
+    for (const bucket of person.platforms) {
+      const current = platforms.get(bucket.key);
+      if (!current) {
+        platforms.set(bucket.key, { ...bucket, usersCount: 1 });
+        continue;
+      }
+      current.usersCount += 1;
+      current.balanceCents += bucket.balanceCents;
+      current.lockedCents += bucket.lockedCents;
+      current.availableCents += bucket.availableCents;
+      current.periodReceivedCents += bucket.periodReceivedCents;
+      current.periodWithdrawnCents += bucket.periodWithdrawnCents;
+      current.pendingWithdrawalsCents += bucket.pendingWithdrawalsCents;
+    }
+  const term = fold(input.search?.trim() ?? '');
+  const all = [...platforms.values()]
+    .filter(
+      (item) => !term || fold(`${item.name} ${item.tag ?? ''}`).includes(term),
+    )
+    .sort(
+      (a, b) =>
+        b.availableCents - a.availableCents ||
+        a.name.localeCompare(b.name, 'pt-BR'),
+    );
+  const { page, pageSize, skip } = input.pagination;
+  return {
+    unit: 'cents' as const,
+    data: all.slice(skip, skip + pageSize),
+    total: all.length,
+    page,
+    pageSize,
   };
 }

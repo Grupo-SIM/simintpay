@@ -87,6 +87,19 @@ export class PlatformReportBalancesController {
   ) {
     return this.reports.balances(user, query);
   }
+  @Get('saldos-por-plataforma/:key') platformUsers(
+    @CurrentUser() user: JwtPayload,
+    @Param('key') key: string,
+    @Query() query: Filters,
+  ) {
+    return this.reports.platformWalletBalances(user, query, key);
+  }
+  @Get('saldos-por-plataforma') platformBalances(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: Filters,
+  ) {
+    return this.reports.platformWalletBalances(user, query);
+  }
   @Get('saldos-carteiras/resumo') walletTotals(
     @CurrentUser() user: JwtPayload,
   ) {
