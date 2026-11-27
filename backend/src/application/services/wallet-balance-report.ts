@@ -40,7 +40,7 @@ const SIMINTPAY = 'SIMINTPAY';
 const NONE = '__NONE__';
 
 /**
- * SQL key of a ledger/withdrawal tag. SimIntPay margin and the reserved policy contexts (GLOBAL, SIMINTPAY,
+ * SQL key of a ledger/withdrawal tag. The reserved policy contexts (GLOBAL, SIMINTPAY,
  * CLIENT:/USER:) are the SimIntPay pseudo-platform; an empty tag stays unattributed (NULL).
  */
 const keySql = (tag: Prisma.Sql) => Prisma.sql`(CASE
@@ -61,7 +61,6 @@ const ownMovementSql = Prisma.sql`(bl.action LIKE 'WITHDRAW\\_%' OR bl.action LI
   OR bl.source IN ('RECONCILIATION', 'MASTER_ADMIN_CONTROL', 'ADMIN_SYNC'))`;
 
 const ledgerKeyOf = () => Prisma.sql`(CASE WHEN ${ownMovementSql} THEN NULL
-  WHEN bl.action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY}
   ELSE ${keySql(Prisma.sql`coalesce(nullif(btrim(bl."platformTag"), ''), tx."platformTag")`)} END)`;
 
 const cents = (value: Prisma.Decimal | number | null | undefined) => {
@@ -78,7 +77,7 @@ type Range = { start?: Date; end?: Date };
 
 /**
  * Wallet-first balances. A person's product credits (sales, commission, coproduction, affiliate) are split by the
- * platform that originated them, margin commissions go to the SimIntPay pseudo-platform and credits without
+ * platform that originated them (margin affiliate/coproduction included) and credits without
  * attribution stay in "unidentified". Withdrawals, withdrawal fees, adjustments and manual entries belong to the
  * person only: they are in no bucket, so the buckets do not add up to the wallet (the wallet is still the
  * person's `availableCents`).
