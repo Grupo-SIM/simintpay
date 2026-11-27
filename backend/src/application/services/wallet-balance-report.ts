@@ -347,91 +347,167 @@ export async function walletBalanceTotals(db: Db, onlyUserId?: string) {
   };
 }
 
-export type PlatformBalance = Omit<
-  WalletBucket,
-  'periodReceivedCents' | 'periodWithdrawnCents'
-> & {
-  usersCount: number;
-  periodReceivedCents: number;
-  periodWithdrawnCents: number;
+export type PlatformBalance = WalletBucket & { usersCount: number };
+
+type BucketRow = {
+  key: string;
+  balance: Prisma.Decimal;
+  locked: Prisma.Decimal;
+  received: Prisma.Decimal;
+  withdrawn: Prisma.Decimal;
+  pendingAll: Prisma.Decimal;
+  tag: string | null;
+  platformName: string | null;
+  isActive: boolean | null;
+  total: bigint;
 };
 
-const fold = (value: string) =>
-  value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
+/**
+ * Per (user, platform) buckets computed entirely in SQL, with the same attribution rules as
+ * `walletPeople`: ledger credits by explicit tag (legacy rows inherit their transaction's platform), SimIntPay
+ * margin and policy contexts in the SimIntPay pseudo-platform, withdrawals charged to the platform they were
+ * requested for, and the remainder of each wallet in "Outros".
+ */
+function bucketsCte(range: Range) {
+  const inPeriod = (column: string) =>
+    Prisma.sql`${Prisma.raw(column)} >= ${range.start ?? new Date(0)} AND ${Prisma.raw(column)} < ${range.end ?? new Date('9999-01-01')}`;
+  const ledgerKey = Prisma.sql`(CASE WHEN bl.action LIKE 'AFFILIATE\\_MARGIN\\_%' THEN ${SIMINTPAY} ELSE ${keySql(Prisma.sql`coalesce(nullif(btrim(bl."platformTag"), ''), tx."platformTag")`)} END)`;
+  return Prisma.sql`WITH users AS (
+      SELECT w."userId" AS id, w.balance, w."lockedBalance" AS locked
+      FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
+      WHERE (w.balance <> 0 OR w."lockedBalance" <> 0) AND u.role <> 'ADMIN'
+    ), cr AS (
+      SELECT bl."userId" AS uid, ${ledgerKey} AS key,
+        sum(bl."balanceDelta") AS balance, sum(bl."lockedDelta") AS locked,
+        coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
+      FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
+      WHERE bl."userId" IN (SELECT id FROM users) AND bl.action NOT LIKE 'WITHDRAW\\_%'
+      GROUP BY 1, 2
+    ), wd AS (
+      SELECT "userId" AS uid, ${keySql(Prisma.sql`platform`)} AS key,
+        coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS debited,
+        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING' AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS pending,
+        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS pending_all,
+        coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND ${inPeriod('"createdAt"')}), 0) AS period
+      FROM "WithdrawRequest" WHERE "userId" IN (SELECT id FROM users)
+      GROUP BY 1, 2
+    ), mix AS (
+      SELECT coalesce(cr.uid, wd.uid) AS uid, coalesce(cr.key, wd.key) AS key,
+        coalesce(cr.balance, 0) - coalesce(wd.debited, 0) AS balance,
+        coalesce(cr.locked, 0) + coalesce(wd.pending, 0) AS locked,
+        coalesce(cr.period, 0) AS received, coalesce(wd.period, 0) AS withdrawn,
+        coalesce(wd.pending_all, 0) AS pending_all
+      FROM cr FULL JOIN wd ON wd.uid = cr.uid AND wd.key IS NOT DISTINCT FROM cr.key
+    ), buckets AS (
+      SELECT uid, key, balance, locked, received, withdrawn, pending_all FROM mix WHERE key IS NOT NULL
+      UNION ALL
+      SELECT u.id, ${NONE}, u.balance - coalesce(i.balance, 0), u.locked - coalesce(i.locked, 0),
+        coalesce(n.received, 0), coalesce(n.withdrawn, 0), coalesce(n.pending_all, 0)
+      FROM users u
+      LEFT JOIN (SELECT uid, sum(balance) AS balance, sum(locked) AS locked FROM mix WHERE key IS NOT NULL GROUP BY uid) i ON i.uid = u.id
+      LEFT JOIN mix n ON n.uid = u.id AND n.key IS NULL
+      WHERE u.balance - coalesce(i.balance, 0) <> 0 OR u.locked - coalesce(i.locked, 0) <> 0
+        OR coalesce(n.received, 0) <> 0 OR coalesce(n.withdrawn, 0) <> 0 OR coalesce(n.pending_all, 0) <> 0
+    ), platform_names AS (
+      SELECT DISTINCT ON (key) key, name, "isActive" FROM (
+        SELECT ${keySql(Prisma.sql`tag`)} AS key, name, "isActive" FROM "Platform") p
+      WHERE key IS NOT NULL ORDER BY key, "isActive" DESC
+    )`;
+}
+
+const toBucket = (row: BucketRow): WalletBucket => {
+  const kind: WalletBucketKind =
+    row.key === NONE
+      ? 'unidentified'
+      : row.key === SIMINTPAY
+        ? 'simintpay'
+        : 'platform';
+  return {
+    key: row.key,
+    kind,
+    tag: kind === 'platform' ? row.key : null,
+    name:
+      kind === 'unidentified'
+        ? 'Outros'
+        : kind === 'simintpay'
+          ? 'SimIntPay'
+          : (row.platformName ?? row.key),
+    isActive: kind === 'platform' ? (row.isActive ?? null) : null,
+    balanceCents: cents(row.balance),
+    lockedCents: cents(row.locked),
+    availableCents: cents(new Prisma.Decimal(row.balance).minus(row.locked)),
+    periodReceivedCents: cents(row.received),
+    periodWithdrawnCents: cents(row.withdrawn),
+    pendingWithdrawalsCents: cents(row.pendingAll),
+  };
+};
 
 /**
- * Platform-first view: the same per-person buckets, summed per platform (including the SimIntPay
- * pseudo-platform and "Outros"). With `key`, lists the users that hold balance in that one platform.
+ * Platform-first view, paginated in the database: the per-person buckets are summed per platform
+ * (including the SimIntPay pseudo-platform and "Outros") with GROUP BY, searched, ordered and paged in SQL.
  */
 export async function walletBalanceByPlatform(
   db: Db,
   input: {
     search?: string;
+    alphabetic: (value: Prisma.Sql) => Prisma.Sql;
     pagination: Page;
     range: Range;
-    key?: string;
   },
 ) {
-  const scope = Prisma.sql`SELECT w."userId" FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
-    WHERE (w.balance <> 0 OR w."lockedBalance" <> 0) AND u.role <> 'ADMIN'`;
-  const users = await db.$queryRaw<WalletUserRow[]>(
-    Prisma.sql`SELECT u.id, u.name, u.email, w.balance, w."lockedBalance" AS locked
-      FROM "Wallet" w JOIN "User" u ON u.id = w."userId"
-      WHERE (w.balance <> 0 OR w."lockedBalance" <> 0) AND u.role <> 'ADMIN'`,
+  const { search, pagination } = input;
+  const label = Prisma.sql`(CASE b.key WHEN ${NONE} THEN 'Outros' WHEN ${SIMINTPAY} THEN 'SimIntPay' ELSE coalesce(pn.name, b.key) END)`;
+  const rows = await db.$queryRaw<(BucketRow & { usersCount: bigint })[]>(
+    Prisma.sql`${bucketsCte(input.range)}
+      SELECT b.key, sum(b.balance) AS balance, sum(b.locked) AS locked, sum(b.received) AS received,
+        sum(b.withdrawn) AS withdrawn, sum(b.pending_all) AS "pendingAll", count(*) AS "usersCount",
+        max(pn.name) AS "platformName", bool_or(pn."isActive") AS "isActive", count(*) OVER () AS total
+      FROM buckets b LEFT JOIN platform_names pn ON pn.key = b.key
+      ${search ? Prisma.sql`WHERE strpos(${input.alphabetic(Prisma.sql`${label} || ' ' || b.key`)}, ${input.alphabetic(Prisma.sql`${search}::text`)}) > 0` : Prisma.empty}
+      GROUP BY b.key, pn.name
+      ORDER BY sum(b.balance - b.locked) DESC, ${input.alphabetic(label)} ASC
+      LIMIT ${pagination.pageSize} OFFSET ${pagination.skip}`,
   );
-  const people = users.length
-    ? await walletPeople(db, users, scope, input.range)
-    : [];
-  if (input.key) {
-    const rows = people
-      .flatMap((person) => {
-        const bucket = person.platforms.find((item) => item.key === input.key);
-        return bucket
-          ? [{ id: person.id, name: person.name, email: person.email, bucket }]
-          : [];
-      })
-      .sort(
-        (a, b) =>
-          b.bucket.availableCents - a.bucket.availableCents ||
-          a.name.localeCompare(b.name, 'pt-BR'),
-      );
-    return { unit: 'cents' as const, data: rows };
-  }
-  const platforms = new Map<string, PlatformBalance>();
-  for (const person of people)
-    for (const bucket of person.platforms) {
-      const current = platforms.get(bucket.key);
-      if (!current) {
-        platforms.set(bucket.key, { ...bucket, usersCount: 1 });
-        continue;
-      }
-      current.usersCount += 1;
-      current.balanceCents += bucket.balanceCents;
-      current.lockedCents += bucket.lockedCents;
-      current.availableCents += bucket.availableCents;
-      current.periodReceivedCents += bucket.periodReceivedCents;
-      current.periodWithdrawnCents += bucket.periodWithdrawnCents;
-      current.pendingWithdrawalsCents += bucket.pendingWithdrawalsCents;
-    }
-  const term = fold(input.search?.trim() ?? '');
-  const all = [...platforms.values()]
-    .filter(
-      (item) => !term || fold(`${item.name} ${item.tag ?? ''}`).includes(term),
-    )
-    .sort(
-      (a, b) =>
-        b.availableCents - a.availableCents ||
-        a.name.localeCompare(b.name, 'pt-BR'),
-    );
-  const { page, pageSize, skip } = input.pagination;
   return {
     unit: 'cents' as const,
-    data: all.slice(skip, skip + pageSize),
-    total: all.length,
-    page,
-    pageSize,
+    data: rows.map((row): PlatformBalance => ({
+      ...toBucket(row),
+      usersCount: Number(row.usersCount),
+    })),
+    total: rows.length ? Number(rows[0].total) : 0,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+  };
+}
+
+/** Users holding balance in one platform, paginated in the database. */
+export async function walletBalanceUsersOfPlatform(
+  db: Db,
+  input: { key: string; pagination: Page; range: Range },
+) {
+  const { key, pagination } = input;
+  const rows = await db.$queryRaw<
+    (BucketRow & { id: string; name: string; email: string })[]
+  >(
+    Prisma.sql`${bucketsCte(input.range)}
+      SELECT u.id, u.name, u.email, b.key, b.balance, b.locked, b.received, b.withdrawn,
+        b.pending_all AS "pendingAll", pn.name AS "platformName", pn."isActive" AS "isActive",
+        count(*) OVER () AS total
+      FROM buckets b JOIN "User" u ON u.id = b.uid LEFT JOIN platform_names pn ON pn.key = b.key
+      WHERE b.key = ${key}
+      ORDER BY (b.balance - b.locked) DESC, u.name ASC, u.id ASC
+      LIMIT ${pagination.pageSize} OFFSET ${pagination.skip}`,
+  );
+  return {
+    unit: 'cents' as const,
+    data: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      bucket: toBucket(row),
+    })),
+    total: rows.length ? Number(rows[0].total) : 0,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
   };
 }

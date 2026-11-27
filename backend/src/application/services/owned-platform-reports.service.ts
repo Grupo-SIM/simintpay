@@ -28,6 +28,7 @@ import {
   walletBalanceByPlatform,
   walletBalanceReport,
   walletBalanceTotals,
+  walletBalanceUsersOfPlatform,
 } from './wallet-balance-report';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 
@@ -668,7 +669,14 @@ export class OwnedPlatformReportsService {
       const actor = await this.actor(db, user);
       if (actor.role !== 'ADMIN')
         throw new ForbiddenException('Exige administrador');
-      return walletBalanceByPlatform(db, { search, pagination, range, key });
+      return key
+        ? walletBalanceUsersOfPlatform(db, { key, pagination, range })
+        : walletBalanceByPlatform(db, {
+            search,
+            alphabetic: (value) => this.alphabetic(value),
+            pagination,
+            range,
+          });
     });
   }
 }
