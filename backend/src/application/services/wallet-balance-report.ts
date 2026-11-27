@@ -465,7 +465,7 @@ export async function walletBalanceByPlatform(
       FROM buckets b LEFT JOIN platform_names pn ON pn.key = b.key
       ${search ? Prisma.sql`WHERE strpos(${input.alphabetic(Prisma.sql`${label} || ' ' || b.key`)}, ${input.alphabetic(Prisma.sql`${search}::text`)}) > 0` : Prisma.empty}
       GROUP BY b.key, pn.name
-      ORDER BY sum(b.balance - b.locked) DESC, ${input.alphabetic(label)} ASC
+      ORDER BY ${input.alphabetic(label)} ASC, b.key ASC
       LIMIT ${pagination.pageSize} OFFSET ${pagination.skip}`,
   );
   return {
