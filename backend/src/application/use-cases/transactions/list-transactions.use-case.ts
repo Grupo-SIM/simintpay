@@ -247,6 +247,22 @@ export class ListTransactionsUseCase {
       transactions,
     );
 
+    // Admin sees what SimIntPay affiliates/coproducers took from the margin (reversed ones returned to it).
+    const marginParticipation = new Map<string, number>();
+    if (input.role === 'ADMIN' && transactions.length) {
+      const rows = await this.prisma.$queryRaw<
+        { transactionId: string; amount: Prisma.Decimal }[]
+      >(Prisma.sql`SELECT "transactionId", sum(amount) AS amount
+        FROM "MarginAffiliateAllocation"
+        WHERE state <> 'REVERSED' AND "transactionId" IN (${Prisma.join(transactions.map((t) => t.id))})
+        GROUP BY 1`);
+      for (const row of rows)
+        marginParticipation.set(
+          row.transactionId,
+          new Prisma.Decimal(row.amount).mul(100).toNumber(),
+        );
+    }
+
     return {
       data: {
         transactions: transactions.map((transaction) => {
@@ -287,6 +303,10 @@ export class ListTransactionsUseCase {
             paymentLinkId: transaction.offerId,
             coproducao: coproducao.get(transaction.id) ?? null,
             afiliacao: own,
+            ...(input.role === 'ADMIN' && {
+              marginParticipationCents:
+                marginParticipation.get(transaction.id) ?? 0,
+            }),
             createdAt: transaction.createdAt.toISOString(),
             updatedAt: transaction.updatedAt.toISOString(),
           };
