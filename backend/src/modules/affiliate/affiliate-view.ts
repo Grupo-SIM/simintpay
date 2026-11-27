@@ -260,18 +260,13 @@ const BUYER_FIELDS = [
   'cardCodeAuth',
 ] as const;
 
-/** Affiliates see their commission, never the buyer or the owner's financials. */
+/** Affiliates see their commission and the SimIntPay fee (`totalFee`), never the buyer or the owner's other financials. */
 export function redactForAffiliate<T extends Record<string, unknown>>(
   transaction: T,
 ): T {
   const result: Record<string, unknown> = { ...transaction };
   for (const field of BUYER_FIELDS) if (field in result) result[field] = null;
-  for (const field of [
-    'netAmount',
-    'totalFee',
-    'acquirerFee',
-    'platformFee',
-  ] as const)
+  for (const field of ['netAmount', 'acquirerFee', 'platformFee'] as const)
     if (field in result) result[field] = field === 'netAmount' ? null : '0';
   return result as T;
 }
