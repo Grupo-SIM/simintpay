@@ -30,8 +30,6 @@ type PlatformUsers = {
   pageSize: number;
 };
 
-const withdrawal = (bucket: WalletBucket) =>
-  bucket.periodWithdrawnCents + bucket.pendingWithdrawalsCents;
 const usersLabel = (count: number) =>
   `${count} ${count === 1 ? 'usuário' : 'usuários'}`;
 const BASE = '/admin/relatorios/saldos-por-plataforma';
@@ -104,7 +102,6 @@ export function PlatformsBalanceView({
             subtitle={usersLabel(platform.usersCount)}
             availableCents={platform.availableCents}
             billedCents={platform.periodReceivedCents}
-            withdrawalCents={withdrawal(platform)}
             onClick={() => {
               setUsersPage(1);
               setSelectedKey(platform.key);
@@ -126,8 +123,6 @@ export function PlatformsBalanceView({
               totals={{
                 availableCents: selected.availableCents,
                 receivedCents: selected.periodReceivedCents,
-                withdrawnCents: selected.periodWithdrawnCents,
-                pendingWithdrawalsCents: selected.pendingWithdrawalsCents,
               }}
             />
             {users.isPending ? (
@@ -144,7 +139,6 @@ export function PlatformsBalanceView({
                       subtitle={row.email}
                       availableCents={row.bucket.availableCents}
                       billedCents={row.bucket.periodReceivedCents}
-                      withdrawalCents={withdrawal(row.bucket)}
                     />
                   ))}
                 </div>

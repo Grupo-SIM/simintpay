@@ -19,7 +19,8 @@ type Person = {
   name: string;
   email: string;
   availableCents: number;
-  totals: BalanceTotals;
+  periodWithdrawnCents: number;
+  totals: BalanceTotals & { pendingWithdrawalsCents: number };
   platforms: WalletBucket[];
 };
 type BalancePage = {
@@ -99,7 +100,7 @@ export function UsersBalanceView({
               availableCents={person.availableCents}
               billedCents={sum(person.platforms, (p) => p.periodReceivedCents)}
               withdrawalCents={
-                sum(person.platforms, (p) => p.periodWithdrawnCents) +
+                person.periodWithdrawnCents +
                 person.totals.pendingWithdrawalsCents
               }
               onClick={() => setSelectedId(person.id)}
@@ -126,10 +127,7 @@ export function UsersBalanceView({
                   selected.platforms,
                   (p) => p.periodReceivedCents,
                 ),
-                withdrawnCents: sum(
-                  selected.platforms,
-                  (p) => p.periodWithdrawnCents,
-                ),
+                withdrawnCents: selected.periodWithdrawnCents,
                 pendingWithdrawalsCents:
                   selected.totals.pendingWithdrawalsCents,
               }}

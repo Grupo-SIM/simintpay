@@ -3,8 +3,9 @@ import { money, Stat } from './PlatformBalanceCard';
 export type BalanceTotals = {
   availableCents: number;
   receivedCents: number;
-  withdrawnCents: number;
-  pendingWithdrawalsCents: number;
+  /** Omitted for a platform: withdrawals belong to the person, never to a platform. */
+  withdrawnCents?: number;
+  pendingWithdrawalsCents?: number;
 };
 
 function TotalCard({
@@ -30,7 +31,9 @@ function TotalCard({
 /** Saldo, Faturado and Saque, accumulated over everything (never filtered by period). */
 export function BalanceTotalCards({ totals }: { totals: BalanceTotals }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div
+      className={`grid gap-4 ${totals.withdrawnCents === undefined ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}
+    >
       <TotalCard
         label="Saldo disponível para saque"
         value={money(totals.availableCents)}
@@ -41,11 +44,15 @@ export function BalanceTotalCards({ totals }: { totals: BalanceTotals }) {
         value={money(totals.receivedCents)}
         tone="text-sky-600 dark:text-sky-400"
       />
-      <TotalCard
-        label="Saque"
-        value={money(totals.withdrawnCents + totals.pendingWithdrawalsCents)}
-        tone="text-amber-600 dark:text-amber-400"
-      />
+      {totals.withdrawnCents !== undefined && (
+        <TotalCard
+          label="Saque"
+          value={money(
+            totals.withdrawnCents + (totals.pendingWithdrawalsCents ?? 0),
+          )}
+          tone="text-amber-600 dark:text-amber-400"
+        />
+      )}
     </div>
   );
 }

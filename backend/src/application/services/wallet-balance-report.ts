@@ -24,6 +24,8 @@ export type WalletPerson = {
   balanceCents: number;
   lockedCents: number;
   availableCents: number;
+  /** Withdrawn in the period (approved/completed), at person level: never part of a platform bucket. */
+  periodWithdrawnCents: number;
   /** All-time figures, never filtered by period. */
   totals: {
     availableCents: number;
@@ -49,8 +51,9 @@ const keySql = (tag: Prisma.Sql) => Prisma.sql`(CASE
 
 /**
  * Movements of the person, never of a platform: withdrawals, withdrawal fees, adjustments, reconciliations and
- * manual/administrative entries. They only change the wallet, so they land in "Outros" whatever tag or
- * transaction they carry. Only product credits (sales, commissions, coproduction, affiliate, margin) belong to a platform.
+ * manual/administrative entries. They only change the person's wallet, so they appear in no bucket at all (not
+ * even "Outros"), whatever tag or transaction they carry. Buckets hold product credits only (sales, commissions,
+ * coproduction, affiliate, margin).
  */
 const ownMovementSql = Prisma.sql`(bl.action LIKE 'WITHDRAW\\_%' OR bl.action LIKE 'ADMIN\\_%'
   OR bl.action IN ('ADJUSTMENT', 'WALLET_RECALCULATE', 'ATLAS_WALLET_ZERO', 'MAQUINETA_CORRECTION')
@@ -74,11 +77,11 @@ type Page = { page: number; pageSize: number; skip: number };
 type Range = { start?: Date; end?: Date };
 
 /**
- * Wallet-first balances. The wallet is exactly SUM(BalanceLog), so a person's balance splits by ledger
- * attribution: product credits (sales, commission, coproduction, affiliate) go to the platform that
- * originated them, margin commissions to the SimIntPay pseudo-platform, and withdrawals are charged to the
- * platform they were requested for. Whatever the attribution cannot explain stays in "unidentified", so the
- * buckets always add up to the wallet.
+ * Wallet-first balances. A person's product credits (sales, commission, coproduction, affiliate) are split by the
+ * platform that originated them, margin commissions go to the SimIntPay pseudo-platform and credits without
+ * attribution stay in "unidentified". Withdrawals, withdrawal fees, adjustments and manual entries belong to the
+ * person only: they are in no bucket, so the buckets do not add up to the wallet (the wallet is still the
+ * person's `availableCents`).
  */
 export async function walletBalanceReport(
   db: Db,
@@ -165,32 +168,27 @@ async function walletPeople(
       }[]
     >(Prisma.sql`SELECT bl."userId", ${ledgerKey} AS key,
         coalesce(sum(bl."balanceDelta"), 0) AS balance, coalesce(sum(bl."lockedDelta"), 0) AS locked,
-        coalesce(sum(bl."balanceDelta") FILTER (WHERE NOT ${ownMovementSql} AND ${inPeriod('bl."createdAt"')}), 0) AS period
+        coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
       FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
-      WHERE bl."userId" IN (${scope}) AND bl.action NOT LIKE 'WITHDRAW\\_%'
+      WHERE bl."userId" IN (${scope}) AND NOT ${ownMovementSql}
       GROUP BY 1, 2`),
     db.$queryRaw<
       {
         userId: string;
-        key: string | null;
-        debited: Prisma.Decimal;
-        pending: Prisma.Decimal;
         pendingAll: Prisma.Decimal;
         all: Prisma.Decimal;
         period: Prisma.Decimal;
       }[]
-    >(Prisma.sql`SELECT "userId", NULL::text AS key, -- a withdrawal is the person's, never a platform's
-        coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS debited,
-        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING' AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS pending,
+    >(Prisma.sql`SELECT "userId",
         coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS "pendingAll",
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED')), 0) AS "all",
         coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND ${inPeriod('"createdAt"')}), 0) AS period
       FROM "WithdrawRequest" WHERE "userId" IN (${scope})
-      GROUP BY 1, 2`),
+      GROUP BY 1`),
   ]);
   const tags = [
     ...new Set(
-      [...credits, ...withdrawals].flatMap((row) =>
+      credits.flatMap((row) =>
         row.key && row.key !== SIMINTPAY ? [row.key] : [],
       ),
     ),
@@ -210,62 +208,30 @@ async function walletPeople(
         balance: Prisma.Decimal;
         locked: Prisma.Decimal;
         received: Prisma.Decimal;
-        withdrawn: Prisma.Decimal;
-        pendingAll: Prisma.Decimal;
       }
     >();
-    const bucket = (key: string | null) => {
-      const id = key ?? NONE;
-      let value = buckets.get(id);
-      if (!value) {
-        value = {
-          balance: new Prisma.Decimal(0),
-          locked: new Prisma.Decimal(0),
-          received: new Prisma.Decimal(0),
-          withdrawn: new Prisma.Decimal(0),
-          pendingAll: new Prisma.Decimal(0),
-        };
-        buckets.set(id, value);
-      }
-      return value;
-    };
     for (const row of credits.filter((item) => item.userId === user.id)) {
-      const value = bucket(row.key);
+      const id = row.key ?? NONE;
+      const value = buckets.get(id) ?? {
+        balance: new Prisma.Decimal(0),
+        locked: new Prisma.Decimal(0),
+        received: new Prisma.Decimal(0),
+      };
       value.balance = value.balance.plus(row.balance);
       value.locked = value.locked.plus(row.locked);
       value.received = value.received.plus(row.period);
+      buckets.set(id, value);
     }
-    for (const row of withdrawals.filter((item) => item.userId === user.id)) {
-      const value = bucket(row.key);
-      value.balance = value.balance.minus(row.debited);
-      value.locked = value.locked.plus(row.pending);
-      value.withdrawn = value.withdrawn.plus(row.period);
-      value.pendingAll = value.pendingAll.plus(row.pendingAll);
-    }
-    // Everything the attribution cannot explain (legacy history, adjustments, fees) closes the wallet.
-    const identified = [...buckets.entries()].filter(([key]) => key !== NONE);
-    const none = bucket(null);
-    none.balance = new Prisma.Decimal(user.balance).minus(
-      identified.reduce(
-        (sum, [, value]) => sum.plus(value.balance),
-        new Prisma.Decimal(0),
-      ),
-    );
-    none.locked = new Prisma.Decimal(user.locked).minus(
-      identified.reduce(
-        (sum, [, value]) => sum.plus(value.locked),
-        new Prisma.Decimal(0),
-      ),
-    );
+    const own = withdrawals.filter((item) => item.userId === user.id);
+    const sumOwn = (pick: (row: (typeof own)[number]) => Prisma.Decimal) =>
+      own.reduce((sum, row) => sum.plus(pick(row)), new Prisma.Decimal(0));
     const list: WalletBucket[] = [...buckets.entries()]
       .filter(
         ([key, value]) =>
           key !== NONE ||
           !value.balance.isZero() ||
           !value.locked.isZero() ||
-          !value.received.isZero() ||
-          !value.withdrawn.isZero() ||
-          !value.pendingAll.isZero(),
+          !value.received.isZero(),
       )
       .map(([key, value]) => {
         const registered = names.get(key);
@@ -290,8 +256,9 @@ async function walletPeople(
           lockedCents: cents(value.locked),
           availableCents: cents(value.balance.minus(value.locked)),
           periodReceivedCents: cents(value.received),
-          periodWithdrawnCents: cents(value.withdrawn),
-          pendingWithdrawalsCents: cents(value.pendingAll),
+          // Withdrawals are the person's, never a platform's.
+          periodWithdrawnCents: 0,
+          pendingWithdrawalsCents: 0,
         };
       })
       .sort((a, b) => b.balanceCents - a.balanceCents);
@@ -304,6 +271,7 @@ async function walletPeople(
       availableCents: cents(
         new Prisma.Decimal(user.balance).minus(user.locked),
       ),
+      periodWithdrawnCents: cents(sumOwn((row) => row.period)),
       totals: {
         availableCents: cents(
           new Prisma.Decimal(user.balance).minus(user.locked),
@@ -313,19 +281,8 @@ async function walletPeople(
             .filter((item) => item.userId === user.id)
             .reduce((sum, row) => sum.plus(row.balance), new Prisma.Decimal(0)),
         ),
-        withdrawnCents: cents(
-          withdrawals
-            .filter((item) => item.userId === user.id)
-            .reduce((sum, row) => sum.plus(row.all), new Prisma.Decimal(0)),
-        ),
-        pendingWithdrawalsCents: cents(
-          withdrawals
-            .filter((item) => item.userId === user.id)
-            .reduce(
-              (sum, row) => sum.plus(row.pendingAll),
-              new Prisma.Decimal(0),
-            ),
-        ),
+        withdrawnCents: cents(sumOwn((row) => row.all)),
+        pendingWithdrawalsCents: cents(sumOwn((row) => row.pendingAll)),
       },
       platforms: list,
     };
@@ -343,8 +300,8 @@ export async function walletBalanceTotals(db: Db, onlyUserId?: string) {
       Prisma.sql`SELECT coalesce(sum(balance - "lockedBalance"), 0) AS available FROM "Wallet" WHERE "userId" IN (${scope})`,
     ),
     db.$queryRaw<{ received: Prisma.Decimal }[]>(
-      Prisma.sql`SELECT coalesce(sum("balanceDelta"), 0) AS received FROM "BalanceLog"
-        WHERE "userId" IN (${scope}) AND action NOT LIKE 'WITHDRAW\\_%'`,
+      Prisma.sql`SELECT coalesce(sum("balanceDelta"), 0) AS received FROM "BalanceLog" bl
+        WHERE "userId" IN (${scope}) AND NOT ${ownMovementSql}`,
     ),
     db.$queryRaw<{ withdrawn: Prisma.Decimal; pending: Prisma.Decimal }[]>(
       Prisma.sql`SELECT coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED')), 0) AS withdrawn,
@@ -378,9 +335,9 @@ type BucketRow = {
 
 /**
  * Per (user, platform) buckets computed entirely in SQL, with the same attribution rules as
- * `walletPeople`: ledger credits by explicit tag (legacy rows inherit their transaction's platform), SimIntPay
- * margin and policy contexts in the SimIntPay pseudo-platform, withdrawals charged to the platform they were
- * requested for, and the remainder of each wallet in "Outros".
+ * `walletPeople`: product credits by explicit tag (legacy rows inherit their transaction's platform), SimIntPay
+ * margin and policy contexts in the SimIntPay pseudo-platform, unattributed credits in "Outros". Withdrawals and
+ * other movements of the person are in no bucket.
  */
 function bucketsCte(range: Range) {
   const inPeriod = (column: string) =>
@@ -393,35 +350,16 @@ function bucketsCte(range: Range) {
     ), cr AS (
       SELECT bl."userId" AS uid, ${ledgerKey} AS key,
         sum(bl."balanceDelta") AS balance, sum(bl."lockedDelta") AS locked,
-        coalesce(sum(bl."balanceDelta") FILTER (WHERE NOT ${ownMovementSql} AND ${inPeriod('bl."createdAt"')}), 0) AS period
+        coalesce(sum(bl."balanceDelta") FILTER (WHERE ${inPeriod('bl."createdAt"')}), 0) AS period
       FROM "BalanceLog" bl LEFT JOIN "Transaction" tx ON tx.id = bl."transactionId"
-      WHERE bl."userId" IN (SELECT id FROM users) AND bl.action NOT LIKE 'WITHDRAW\\_%'
+      WHERE bl."userId" IN (SELECT id FROM users) AND NOT ${ownMovementSql}
       GROUP BY 1, 2
-    ), wd AS (
-      SELECT "userId" AS uid, NULL::text AS key, -- a withdrawal is the person's, never a platform's
-        coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS debited,
-        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING' AND lower(coalesce(platform, '')) <> 'atlas'), 0) AS pending,
-        coalesce(sum("grossAmount") FILTER (WHERE status = 'PENDING'), 0) AS pending_all,
-        coalesce(sum("grossAmount") FILTER (WHERE status IN ('APPROVED', 'COMPLETED') AND ${inPeriod('"createdAt"')}), 0) AS period
-      FROM "WithdrawRequest" WHERE "userId" IN (SELECT id FROM users)
-      GROUP BY 1, 2
-    ), mix AS (
-      SELECT coalesce(cr.uid, wd.uid) AS uid, coalesce(cr.key, wd.key) AS key,
-        coalesce(cr.balance, 0) - coalesce(wd.debited, 0) AS balance,
-        coalesce(cr.locked, 0) + coalesce(wd.pending, 0) AS locked,
-        coalesce(cr.period, 0) AS received, coalesce(wd.period, 0) AS withdrawn,
-        coalesce(wd.pending_all, 0) AS pending_all
-      FROM cr FULL JOIN wd ON wd.uid = cr.uid AND wd.key IS NOT DISTINCT FROM cr.key
     ), buckets AS (
-      SELECT uid, key, balance, locked, received, withdrawn, pending_all FROM mix WHERE key IS NOT NULL
-      UNION ALL
-      SELECT u.id, ${NONE}, u.balance - coalesce(i.balance, 0), u.locked - coalesce(i.locked, 0),
-        coalesce(n.received, 0), coalesce(n.withdrawn, 0), coalesce(n.pending_all, 0)
-      FROM users u
-      LEFT JOIN (SELECT uid, sum(balance) AS balance, sum(locked) AS locked FROM mix WHERE key IS NOT NULL GROUP BY uid) i ON i.uid = u.id
-      LEFT JOIN mix n ON n.uid = u.id AND n.key IS NULL
-      WHERE u.balance - coalesce(i.balance, 0) <> 0 OR u.locked - coalesce(i.locked, 0) <> 0
-        OR coalesce(n.received, 0) <> 0 OR coalesce(n.withdrawn, 0) <> 0 OR coalesce(n.pending_all, 0) <> 0
+      -- Product credits only; withdrawals are the person's and never reach a bucket. Credits without a
+      -- platform stay in "Outros" (the sentinel key).
+      SELECT uid, coalesce(key, ${NONE}) AS key, balance, locked, period AS received,
+        0::numeric AS withdrawn, 0::numeric AS pending_all
+      FROM cr WHERE balance <> 0 OR locked <> 0 OR period <> 0
     ), platform_names AS (
       SELECT DISTINCT ON (key) key, name, "isActive" FROM (
         SELECT ${keySql(Prisma.sql`tag`)} AS key, name, "isActive" FROM "Platform") p
