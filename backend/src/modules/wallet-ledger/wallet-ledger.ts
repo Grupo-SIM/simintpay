@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 
 type LedgerClient = Pick<
   Prisma.TransactionClient,
-  'wallet' | 'balanceLog' | '$executeRaw'
+  'wallet' | 'balanceLog' | 'transaction' | '$executeRaw'
 >;
 type LockClient = Pick<Prisma.TransactionClient, '$executeRaw'>;
 
@@ -18,7 +18,10 @@ export type WalletEntryNature =
   | 'TRANSFER';
 
 export type WalletEntryDimensions = {
-  /** Canonical platform tag, explicitly audited by the caller; never inferred from ownership. */
+  /**
+   * Canonical platform tag, explicitly audited by the caller; never inferred from ownership.
+   * Omitted with a `transactionId`: inherited from that Transaction's stored `platformTag`.
+   */
   platformTag?: string | null;
   nature?: WalletEntryNature | null;
 };
@@ -74,12 +77,23 @@ export async function applyWalletEntry(
 ) {
   const balanceDelta = new Prisma.Decimal(entry.balanceDelta ?? 0);
   const lockedDelta = new Prisma.Decimal(entry.lockedDelta ?? 0);
+  // A log born from a Transaction inherits its platform unless the caller sets the tag
+  // explicitly (an explicit null stays unattributed).
+  const platformTag =
+    entry.platformTag === undefined && entry.transactionId
+      ? ((
+          await client.transaction.findUnique({
+            where: { id: entry.transactionId },
+            select: { platformTag: true },
+          })
+        )?.platformTag ?? null)
+      : (entry.platformTag ?? null);
   await client.balanceLog.create({
     data: {
       userId: entry.userId,
       action: entry.action,
       source: entry.source,
-      platformTag: entry.platformTag ?? null,
+      platformTag,
       nature: entry.nature ?? null,
       transactionId: entry.transactionId ?? null,
       description: entry.description ?? null,

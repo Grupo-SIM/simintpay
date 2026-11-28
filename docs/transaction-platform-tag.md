@@ -18,6 +18,10 @@ may use for filtering, grouping, ownership and report totals.
 
 `Maquineta - Terminal: POS-RENOVADA [ORIGEM:MAQUINETA]` identifies a physical terminal/channel, not the platform `POS`. With stored `platformTag = RENOVADA`, reports associate the transaction with RENOVADA only. Terminal parsing, maquineta synchronization/listing and physical-origin filters retain their channel/origin metadata; they do not determine platform association.
 
+## BalanceLog inheritance
+
+`applyWalletEntry` copies the Transaction's stored `platformTag` into the `BalanceLog` when the entry has a `transactionId` and no explicit `platformTag`. An explicit value (including `null`) always wins. History is not backfilled.
+
 ## Helper
 
 `backend/src/modules/platform-core/transaction-platform.ts`
