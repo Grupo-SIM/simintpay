@@ -236,7 +236,9 @@ async function walletPeople(
     // A withdrawal leaves the wallet through the platform it was requested on: approved ones are debited from
     // its balance, pending ones are reserved (locked), so the bucket is that platform's share of the wallet.
     for (const row of own) {
-      const value = bucketOf(row.key ?? NONE);
+      // A withdrawal without a platform belongs to no bucket: it only reduces the person's wallet totals.
+      if (!row.key) continue;
+      const value = bucketOf(row.key);
       value.balance = value.balance.minus(row.debited);
       value.locked = value.locked.plus(row.pending);
       value.withdrawn = value.withdrawn.plus(row.period);
@@ -383,15 +385,15 @@ function bucketsCte(range: Range) {
       FROM "WithdrawRequest" WHERE "userId" IN (SELECT id FROM users)
       GROUP BY 1, 2
     ), buckets AS (
-      -- Product credits minus the withdrawals requested on the platform: its share of the wallet. Entries
-      -- without a platform stay in "Outros" (the sentinel key).
+      -- Product credits minus the withdrawals requested on the platform: its share of the wallet. Credits
+      -- without a platform stay in "Outros" (the sentinel key); withdrawals without one are in no bucket.
       SELECT uid, coalesce(key, ${NONE}) AS key,
         sum(balance) AS balance, sum(locked) AS locked, sum(received) AS received,
         sum(withdrawn) AS withdrawn, sum(pending_all) AS pending_all
       FROM (
         SELECT uid, key, balance, locked, period AS received, 0::numeric AS withdrawn, 0::numeric AS pending_all FROM cr
         UNION ALL
-        SELECT uid, key, -debited, pending, 0::numeric, withdrawn, pending_all FROM wd
+        SELECT uid, key, -debited, pending, 0::numeric, withdrawn, pending_all FROM wd WHERE key IS NOT NULL
       ) m
       GROUP BY 1, 2
       HAVING sum(balance) <> 0 OR sum(locked) <> 0 OR sum(received) <> 0 OR sum(withdrawn) <> 0 OR sum(pending_all) <> 0
