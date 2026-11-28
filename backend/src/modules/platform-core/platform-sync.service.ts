@@ -1,4 +1,7 @@
-import { whereTransactionPlatform } from './transaction-platform';
+import {
+  canonicalTransactionPlatformTag,
+  whereTransactionPlatform,
+} from './transaction-platform';
 import { syncStatus } from './platform-sync.adapter';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -146,6 +149,7 @@ export class PlatformSyncService {
             userId: transaction.userId,
             action: 'PLATFORM_SYNC_COMPLETED',
             source: 'PLATFORM_SYNC',
+            platformTag: canonicalTransactionPlatformTag(context.tag),
             balanceDelta: transaction.netAmount,
             transactionId: transaction.id,
           });

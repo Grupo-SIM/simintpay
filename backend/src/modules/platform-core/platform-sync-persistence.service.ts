@@ -283,6 +283,7 @@ export class PlatformSyncPersistenceService {
             userId,
             action: `PLATFORM_SYNC_${status}`,
             source: 'PLATFORM_SYNC',
+            platformTag: canonicalTransactionPlatformTag(platform.tag),
             balanceDelta: delta,
             transactionId: result.id,
             metadata: { tag: platform.tag, paymentId },
