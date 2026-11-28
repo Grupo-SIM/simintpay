@@ -3,7 +3,6 @@ import { money, Stat } from './PlatformBalanceCard';
 export type BalanceTotals = {
   availableCents: number;
   receivedCents: number;
-  /** Omitted for a platform: withdrawals belong to the person, never to a platform. */
   withdrawnCents?: number;
   pendingWithdrawalsCents?: number;
 };
@@ -28,7 +27,7 @@ function TotalCard({
   );
 }
 
-/** Saldo, Faturado and Saque, accumulated over everything (never filtered by period). */
+/** Saldo (accumulated), Faturado and Saque (both of the filtered period). */
 export function BalanceTotalCards({ totals }: { totals: BalanceTotals }) {
   return (
     <div
@@ -40,13 +39,13 @@ export function BalanceTotalCards({ totals }: { totals: BalanceTotals }) {
         tone="text-emerald-600 dark:text-emerald-400"
       />
       <TotalCard
-        label="Faturado"
+        label="Faturado (período)"
         value={money(totals.receivedCents)}
         tone="text-sky-600 dark:text-sky-400"
       />
       {totals.withdrawnCents !== undefined && (
         <TotalCard
-          label="Saque"
+          label="Saque (período)"
           value={money(
             totals.withdrawnCents + (totals.pendingWithdrawalsCents ?? 0),
           )}

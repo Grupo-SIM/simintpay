@@ -10,7 +10,7 @@ export type WalletBucket = {
   lockedCents: number;
   availableCents: number;
   periodReceivedCents: number;
-  /** Always 0: withdrawals belong to the person, never to a platform bucket. */
+  /** Withdrawn in the period through this platform. */
   periodWithdrawnCents: number;
   pendingWithdrawalsCents: number;
 };
@@ -36,9 +36,9 @@ export function FiguresRow({
 }) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      <Stat label="Faturado" value={money(billedCents)} />
+      <Stat label="Faturado (período)" value={money(billedCents)} />
       {withdrawalCents !== undefined && (
-        <Stat label="Saque" value={money(withdrawalCents)} />
+        <Stat label="Saque (período)" value={money(withdrawalCents)} />
       )}
     </div>
   );
@@ -105,6 +105,9 @@ export function PlatformBalanceCard({ bucket }: { bucket: WalletBucket }) {
       subtitle={bucket.isActive === false ? 'Inativa' : null}
       availableCents={bucket.availableCents}
       billedCents={bucket.periodReceivedCents}
+      withdrawalCents={
+        bucket.periodWithdrawnCents + bucket.pendingWithdrawalsCents
+      }
     />
   );
 }
